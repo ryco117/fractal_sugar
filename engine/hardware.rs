@@ -9,7 +9,7 @@ use winit::window::Window;
 // Select the best physical device for performing Vulkan operations
 fn select_best_physical_device<'a>(
     instance: &'a Arc<Instance>,
-    surface: Arc<Surface<Window>>,
+    surface: &Arc<Surface<Window>>,
     device_extensions: &DeviceExtensions
 ) -> (PhysicalDevice<'a>, QueueFamily<'a>) {
     // Iterate through all devices in Vulkan instance
@@ -40,14 +40,14 @@ fn select_best_physical_device<'a>(
 // Retrieve resources best suited for graphical Vulkan operations
 pub fn select_hardware<'a>(
     instance: &'a Arc<Instance>,
-    surface: Arc<Surface<Window>>
+    surface: &Arc<Surface<Window>>
 ) -> (PhysicalDevice<'a>, Arc<Device>, Arc<Queue>) {
     // Perform non-trivial search for optimal GPU and corresponding queue family
     let device_extensions = DeviceExtensions {
         khr_swapchain: true, // Require support for a swapchain
         ..DeviceExtensions::none()
     };
-    let (physical_device, queue_family) = select_best_physical_device(&instance, surface, &device_extensions);
+    let (physical_device, queue_family) = select_best_physical_device(&instance, &surface, &device_extensions);
 
     // Pretty-print which GPU was selected
     println!(

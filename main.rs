@@ -1,6 +1,7 @@
 use std::time::Instant;
 
-use winit::event_loop::EventLoop;
+use winit::event::{Event, DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event_loop::{EventLoop, ControlFlow};
 use winit::window::Fullscreen;
 
 use engine::swapchain::RecreateSwapchainResult;
@@ -20,9 +21,10 @@ fn main() {
     let mut window_is_fullscreen = false;
     let app_start_time = Instant::now();
 
+    let mut last_mouse_movement = Instant::now();
+    let mut is_cursor_visible = true;
+
     // Run window loop
-    use winit::event::{Event, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
-    use winit::event_loop::ControlFlow;
     println!("Begin window loop...");
     event_loop.run(move |event, _, control_flow| match event {
         // Handle window close
@@ -44,6 +46,11 @@ fn main() {
 
         // All UI events have been handled (ie., executes once per frame)
         Event::MainEventsCleared => {
+            if last_mouse_movement.elapsed().as_secs_f32() > 3. && is_cursor_visible {
+                engine.get_surface().window().set_cursor_visible(false);
+                is_cursor_visible = false
+            }
+
             let dimensions = engine.get_surface().window().inner_size();
 
             // Handle possible structure recreations necessary (usually from window resizing)
@@ -95,11 +102,26 @@ fn main() {
                     window_is_fullscreen = false
                 } else {
                     // Exit window loop
+                    println!("The Escape key was pressed, exiting");
                     *control_flow = ControlFlow::Exit
                 }
                 _ => {}
             }
         }
+
+        // Handle mouse movement
+        Event::DeviceEvent {
+            event: DeviceEvent::MouseMotion {
+                ..
+            },
+            ..
+        } => {
+            last_mouse_movement = Instant::now();
+            engine.get_surface().window().set_cursor_visible(true);
+            is_cursor_visible = true
+        }
+
+        // Catch-all
         _ => {}
     })
 }

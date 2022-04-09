@@ -22,9 +22,15 @@ pub mod swapchain;
 pub mod pipeline;
 pub mod renderer;
 
+type EngineFrameFuture = FenceSignalFuture<vulkano::swapchain::PresentFuture<
+    vulkano::command_buffer::CommandBufferExecFuture<
+        vulkano::sync::JoinFuture<Box<dyn GpuFuture>, vulkano::swapchain::SwapchainAcquireFuture<Window>>,
+        Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>>,
+    Window>>;
+
 pub struct Engine {
     device: Arc<Device>,
-    fences: Vec<Option<Arc<FenceSignalFuture<vulkano::swapchain::PresentFuture<vulkano::command_buffer::CommandBufferExecFuture<vulkano::sync::JoinFuture<std::boxed::Box<dyn vulkano::sync::GpuFuture>, vulkano::swapchain::SwapchainAcquireFuture<winit::window::Window>>, std::sync::Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>>, winit::window::Window>>>>>,
+    fences: Vec<Option<Arc<EngineFrameFuture>>>,
     frag_shader: Arc<ShaderModule>,
     framebuffers: Vec<Arc<Framebuffer>>,
     graphics_pipeline: Arc<GraphicsPipeline>,
@@ -57,7 +63,7 @@ impl Engine {
             .unwrap();
 
         // Fetch device resources based on what is available to the system
-        let (physical_device, device, queue) = hardware::select_hardware(&instance, surface.clone());
+        let (physical_device, device, queue) = hardware::select_hardware(&instance, &surface);
 
         // Create swapchain and associated image buffers from the relevant 
         let engine_swapchain = EngineSwapchain::new(physical_device, device.clone(), surface.clone(), PresentMode::FifoRelaxed);
@@ -211,10 +217,16 @@ impl Engine {
 
         // Create synchronization future for rendering the current frame
         let future = previous_future
-            .join(acquire_future) // Wait for previous and current futures to synchronize
-            .then_execute(self.queue.clone(), command_buffer_boi)
-            .unwrap()
+            // Wait for previous and current futures to synchronize
+            .join(acquire_future)
+
+            // Execute the one-time command buffer
+            .then_execute(self.queue.clone(), command_buffer_boi).unwrap()
+
+            // Present result to swapchain buffer
             .then_swapchain_present(self.queue.clone(), self.swapchain.get_swapchain(), image_index)
+
+            // Finish synchronization
             .then_signal_fence_and_flush();
 
         // Update this frame's future with result of current render
