@@ -24,6 +24,44 @@ fn main() {
     let mut last_mouse_movement = Instant::now();
     let mut is_cursor_visible = true;
 
+    // AUDIO TESTING !! :0
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use cpal::SampleFormat;
+    let audio_host = cpal::default_host();
+    for dev in audio_host.devices().expect("Could not retrieve available audio devices") {
+        println!("Item: {:?}", dev.name().unwrap_or(String::from("Unnamed device")))
+    }
+    let default_audio_out = audio_host.default_output_device().expect("There must be at least one output device");
+    println!("Default audio out: {:?}", default_audio_out.name().unwrap_or(String::from("Unnamed device")));
+    let audio_config = match default_audio_out.supported_output_configs().unwrap().find(|c| c.sample_format() == SampleFormat::F32) {
+        Some(config) => {
+            println!("Default config from output device: {:?}", config);
+            let sample_rate = config.min_sample_rate();
+            config.with_sample_rate(sample_rate)
+        }
+        None => panic!("Could not find a supported audio format meeting our requirements")
+    };
+    let _capture_stream_option = match default_audio_out.build_input_stream(
+        &audio_config.config(),
+        move |data: &[f32], _: &_| {
+            let mut total = 0.;
+            for x in data {
+                total += x.abs()
+            }
+            println!("Volume: {}", total / (data.len() as f32))
+        },
+        |e| panic!("Error on audio input stream: {:?}", e),
+    ) {
+        Ok(stream) => {
+            stream.play().expect("Failed to create loopback stream");
+            Some(stream)
+        }
+        Err(e) => {
+            format!("Error capturing f32 audio stream: {:?}", e);
+            None
+        }
+    };
+
     // Run window loop
     println!("Begin window loop...");
     event_loop.run(move |event, _, control_flow| match event {

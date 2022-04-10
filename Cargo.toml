@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 bytemuck = "1.8.0"
+cpal = "0.13.5"
 vulkano = "0.29.0"
 vulkano-win = "0.29.0"
 winit = "0.26.0"
