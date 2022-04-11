@@ -6,9 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytemuck = "1.8.0"
 cpal = "0.13.5"
-nalgebra = "0.30.1"
 rustfft = "6.0.1"
 vulkano = "0.29.0"
 vulkano-win = "0.29.0"
@@ -16,4 +14,4 @@ winit = "0.26.0"
 
 [[bin]]
 name = "rust_playground"
-path = "main.rs"
+path = "src/main.rs"
