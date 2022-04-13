@@ -60,20 +60,27 @@ fn main() {
 
         // All UI events have been handled (ie., executes once per frame)
         Event::MainEventsCleared => {
+            // Handle per-frame timing
             let now = Instant::now();
             let delta_time = (now - last_frame_time).as_secs_f32();
             last_frame_time = now;
 
-            // Closure for exponential value interpolation between floats
+            // Closures for exponential value interpolation
             let interpolate_floats = |scale: f32, source: f32, target: f32| -> f32 {
                 let smooth = 1. - (delta_time * -scale).exp();
                 source + (target - source) * smooth
             };
+            let interpolate_quaternions = |scale: f32, source: &mut [f32; 4], target: &[f32; 4]| -> () {
+                let smooth = 1. - (delta_time * -scale).exp();
+                for i in 0..4 { source[i] += (target[i] - source[i]) * smooth }
+            };
 
+            // Handle any changes to audio state
             match rx.try_recv() {
                 // Update audio state vars
-                Ok(AudioState {volume, ..}) => {
-                    audio_state.volume = interpolate_floats(32.0, audio_state.volume, volume)
+                Ok(AudioState {volume, quaternion, ..}) => {
+                    audio_state.volume = interpolate_floats(16.0, audio_state.volume, volume);
+                    interpolate_quaternions(3., &mut audio_state.quaternion, &quaternion)
                 }
 
                 // No new data, interpolate towards baseline
@@ -85,19 +92,20 @@ fn main() {
                 Err(e) => panic!("Failed to receive data from audio thread: {:?}", e)
             }
 
+            // Update state time
             game_time += delta_time * audio_state.volume.sqrt();
 
-            if last_mouse_movement.elapsed().as_secs_f32() > 3. && is_cursor_visible {
+            // If cursor is visible and has been stationary then hide it
+            if is_cursor_visible && last_mouse_movement.elapsed().as_secs_f32() > 3. {
                 engine.get_surface().window().set_cursor_visible(false);
                 is_cursor_visible = false
             }
 
-            let dimensions = engine.get_surface().window().inner_size();
-
             // Handle possible structure recreations necessary (usually from window resizing)
+            let dimensions = engine.get_surface().window().inner_size();
             if window_resized || recreate_swapchain {
                 match engine.recreate_swapchain(dimensions, window_resized) {
-                    RecreateSwapchainResult::Success => {recreate_swapchain = false; window_resized = false}
+                    RecreateSwapchainResult::Success => { recreate_swapchain = false; window_resized = false }
                     RecreateSwapchainResult::ExtentNotSupported => return,
                     RecreateSwapchainResult::Failure(err) => panic!("Failed to recreate swapchain: {:?}", err)
                 }
@@ -105,6 +113,7 @@ fn main() {
 
             // Create per-frame data
             let push_constants = engine::renderer::PushConstantData {
+                temp_data: audio_state.quaternion,
                 time: game_time,
                 width: dimensions.width as f32,
                 height: dimensions.height as f32
@@ -148,6 +157,15 @@ fn main() {
                 }
                 _ => {}
             }
+        }
+
+        // Force cursor visibility when focus is lost
+        Event::WindowEvent {
+            event: WindowEvent::Focused(false),
+            ..
+        } => {
+            engine.get_surface().window().set_cursor_visible(true);
+            is_cursor_visible = true
         }
 
         // Handle mouse movement

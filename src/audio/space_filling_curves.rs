@@ -108,7 +108,7 @@ fn cell_transform(p: (f32, f32, f32), v: Vertex) -> (f32, f32, f32) {
     }
 }
 
-// Function to map a floating point number `x` to a point in the cube, applying a depth of `n` inner cubes
+// Function to map a floating point number `x` in range [0, 1] to a point in the cube, applying a depth of `n` inner cubes
 pub fn curve_to_cube_n(x: f32, n: usize) -> (f32, f32, f32) {
     fn f(n: usize, x: f32) -> (f32, f32, f32) {
         let (v, x_prime) = nearest_vertex(x);
@@ -122,6 +122,7 @@ pub fn curve_to_cube_n(x: f32, n: usize) -> (f32, f32, f32) {
     f(n, x)
 }
 
+// Function to map a floating point number `x` in range [0, 1] to a point in the cube.
 // Same as `curve_to_cube_n` but with default depth of 5
 pub fn default_curve_to_cube(x: f32) -> (f32, f32, f32) {
     curve_to_cube_n(x, 5)

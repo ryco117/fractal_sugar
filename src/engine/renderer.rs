@@ -10,6 +10,7 @@ use vulkano::render_pass::Framebuffer;
 #[derive(Clone)]
 #[repr(C)]
 pub struct PushConstantData {
+    pub temp_data: [f32; 4],
     pub time: f32,
     pub width: f32,
     pub height: f32

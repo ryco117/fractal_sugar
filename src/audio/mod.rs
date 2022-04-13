@@ -5,7 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, SupportedStreamConfig};
 use rustfft::{FftPlanner, num_complex::Complex};
 
-//mod space_filling_curves;
+mod space_filling_curves;
 
 // Audio state to pass to UI thread
 pub struct AudioState {
@@ -52,7 +52,7 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             fft.process(&mut complex);
 
             // Helper function for converting frequency in Hertz to buffer index
-            let frequency_to_index = |f: f32| -> usize {size.min((f / frequency_resolution).round() as usize)};
+            let frequency_to_index = |f: f32| -> usize { size.min((f / frequency_resolution).round() as usize) };
 
             // Scale to smaller array for displaying
             const DISPLAY_FFT_SIZE: usize = 64;
@@ -61,7 +61,7 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             let display_end_index = frequency_to_index(16_000.);
             let r = (display_end_index - display_start_index) / DISPLAY_FFT_SIZE;
             let mut volume: f32 = 0.;
-            let mut max_volume: (usize, f32) = (0, 0.);
+            let mut max_volume: (usize, f32) = (display_start_index, 0.);
             for i in 0..DISPLAY_FFT_SIZE { // Remove bounds as they are always over represented?
                 let mut t = 0.;
                 let index = display_start_index + i*r;
@@ -98,11 +98,11 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
                 string_to_print,
                 volume,
                 max_volume.0 as f32 * frequency_resolution);
-            // space_filling_curves::default_curve_to_cube((max_volume.0 - display_start_index) as f32 / display_end_index as f32)
+            let (x, y, z) = space_filling_curves::default_curve_to_cube(((max_volume.0 - display_start_index) as f32 / display_end_index as f32).sqrt());
 
             // Send updated state to UI thread
             match tx.send(AudioState {
-                quaternion: [0.; 4],
+                quaternion: [x, y, z, 1.],
                 volume
             }) {
                 Ok(()) => {}

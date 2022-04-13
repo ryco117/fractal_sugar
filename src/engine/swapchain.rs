@@ -103,6 +103,6 @@ impl EngineSwapchain {
     }
 
     // Swapchain getters
-    pub fn get_swapchain(&self) -> Arc<Swapchain<Window>> {self.swapchain.clone()}
-    pub fn get_images(&self) -> Vec<Arc<SwapchainImage<Window>>> {self.images.clone()}
+    pub fn get_swapchain(&self) -> Arc<Swapchain<Window>> { self.swapchain.clone() }
+    pub fn get_images(&self) -> Vec<Arc<SwapchainImage<Window>>> { self.images.clone() }
 }

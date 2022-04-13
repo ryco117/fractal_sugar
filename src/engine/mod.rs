@@ -73,7 +73,7 @@ impl Engine {
         let load_shader_bytes = |path: &str| -> Arc<ShaderModule> {
             let bytes = std::fs::read(path).expect("Failed to read bytes from compiled shader");
             assert_eq!(bytes.len() % 4, 0, "SPIR-V shader must have a byte-length which is a multiple of 4");
-            unsafe {ShaderModule::from_bytes(device.clone(), &bytes).unwrap()}
+            unsafe { ShaderModule::from_bytes(device.clone(), &bytes).unwrap() }
         };
 
         // Load compiled graphics shaders into vulkan
@@ -276,5 +276,5 @@ impl Engine {
     }
 
     // Engine getters
-    pub fn get_surface(&self) -> Arc<Surface<Window>> {self.surface.clone()}
+    pub fn get_surface(&self) -> Arc<Surface<Window>> { self.surface.clone() }
 }
