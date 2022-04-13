@@ -155,7 +155,7 @@ impl Engine {
         // Framebuffer is tied to the swapchain images, must recreate as well
         self.framebuffers = Engine::create_framebuffers(self.render_pass.clone(), self.swapchain.get_images());
 
-        // If caller indicates a resize has prmpted this call, then adjust viewport and fixed-view pipeline
+        // If caller indicates a resize has prompted this call then adjust viewport and fixed-view pipeline
         if window_resized {
             self.viewport.dimensions = dimensions.into();
 

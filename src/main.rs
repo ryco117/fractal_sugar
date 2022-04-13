@@ -10,6 +10,11 @@ use engine::swapchain::RecreateSwapchainResult;
 mod audio;
 mod engine;
 
+use audio::AudioState;
+
+// App constants
+const BASE_VOLUME: f32 = 1.;
+
 fn main() {
     // First, create global event loop to manage window events
     let event_loop = EventLoop::new();
@@ -21,11 +26,13 @@ fn main() {
     let mut window_resized = false;
     let mut recreate_swapchain = false;
     let mut window_is_fullscreen = false;
-    let app_start_time = Instant::now();
+    let mut last_frame_time = Instant::now();
     let mut last_mouse_movement = Instant::now();
     let mut is_cursor_visible = true;
 
     // Audio state vars?
+    let mut game_time: f32 = 0.;
+    let mut audio_state = AudioState::default();
 
     // Capture reference to audio stream and use message passing to receive data
     let (tx, rx) = mpsc::channel();
@@ -53,18 +60,32 @@ fn main() {
 
         // All UI events have been handled (ie., executes once per frame)
         Event::MainEventsCleared => {
+            let now = Instant::now();
+            let delta_time = (now - last_frame_time).as_secs_f32();
+            last_frame_time = now;
+
+            // Closure for exponential value interpolation between floats
+            let interpolate_floats = |scale: f32, source: f32, target: f32| -> f32 {
+                let smooth = 1. - (delta_time * -scale).exp();
+                source + (target - source) * smooth
+            };
+
             match rx.try_recv() {
                 // Update audio state vars
-                Ok(_data) => {
-                    // Update state here
+                Ok(AudioState {volume, ..}) => {
+                    audio_state.volume = interpolate_floats(32.0, audio_state.volume, volume)
                 }
 
-                // No new data
-                Err(mpsc::TryRecvError::Empty) => {}
+                // No new data, interpolate towards baseline
+                Err(mpsc::TryRecvError::Empty) => {
+                    audio_state.volume = interpolate_floats(1.0, audio_state.volume, BASE_VOLUME)
+                }
 
                 // Unexpected error, bail
                 Err(e) => panic!("Failed to receive data from audio thread: {:?}", e)
             }
+
+            game_time += delta_time * audio_state.volume.sqrt();
 
             if last_mouse_movement.elapsed().as_secs_f32() > 3. && is_cursor_visible {
                 engine.get_surface().window().set_cursor_visible(false);
@@ -84,7 +105,7 @@ fn main() {
 
             // Create per-frame data
             let push_constants = engine::renderer::PushConstantData {
-                time: app_start_time.elapsed().as_secs_f32(),
+                time: game_time,
                 width: dimensions.width as f32,
                 height: dimensions.height as f32
             };
@@ -131,9 +152,7 @@ fn main() {
 
         // Handle mouse movement
         Event::DeviceEvent {
-            event: DeviceEvent::MouseMotion {
-                ..
-            },
+            event: DeviceEvent::MouseMotion {..},
             ..
         } => {
             last_mouse_movement = Instant::now();
