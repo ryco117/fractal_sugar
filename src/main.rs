@@ -1,5 +1,5 @@
 use std::sync::mpsc;
-use std::time::Instant;
+use std::time::SystemTime;
 
 use winit::event::{Event, DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
 use winit::event_loop::{EventLoop, ControlFlow};
@@ -26,8 +26,8 @@ fn main() {
     let mut window_resized = false;
     let mut recreate_swapchain = false;
     let mut window_is_fullscreen = false;
-    let mut last_frame_time = Instant::now();
-    let mut last_mouse_movement = Instant::now();
+    let mut last_frame_time = SystemTime::now();
+    let mut last_mouse_movement = SystemTime::now();
     let mut is_cursor_visible = true;
 
     // Audio state vars?
@@ -61,8 +61,8 @@ fn main() {
         // All UI events have been handled (ie., executes once per frame)
         Event::MainEventsCleared => {
             // Handle per-frame timing
-            let now = Instant::now();
-            let delta_time = (now - last_frame_time).as_secs_f32();
+            let now = SystemTime::now();
+            let delta_time = now.duration_since(last_frame_time).unwrap().as_secs_f32();
             last_frame_time = now;
 
             // Closures for exponential value interpolation
@@ -96,7 +96,7 @@ fn main() {
             game_time += delta_time * audio_state.volume.sqrt();
 
             // If cursor is visible and has been stationary then hide it
-            if is_cursor_visible && last_mouse_movement.elapsed().as_secs_f32() > 3. {
+            if is_cursor_visible && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 3. {
                 engine.get_surface().window().set_cursor_visible(false);
                 is_cursor_visible = false
             }
@@ -173,7 +173,7 @@ fn main() {
             event: DeviceEvent::MouseMotion {..},
             ..
         } => {
-            last_mouse_movement = Instant::now();
+            last_mouse_movement = SystemTime::now();
             engine.get_surface().window().set_cursor_visible(true);
             is_cursor_visible = true
         }

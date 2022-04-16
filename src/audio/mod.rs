@@ -7,12 +7,13 @@ use rustfft::{FftPlanner, num_complex::Complex};
 
 mod space_filling_curves;
 
+const PRINT_SPECTRUM: bool = true;
+
 // Audio state to pass to UI thread
 pub struct AudioState {
     pub quaternion: [f32; 4],
     pub volume: f32
 }
-
 impl Default for AudioState {
     fn default() -> Self {
         AudioState {
@@ -22,15 +23,25 @@ impl Default for AudioState {
     }
 }
 
+// Simple type to help understand results from `analyze_frequency_range` closure
+struct FrequencyAnalysis {
+    pub loudest_frequency: f32,
+    //pub loudest_volume: f32,
+    pub total_volume: f32
+}
+
 fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, rx_acc: Receiver<Vec<Complex<f32>>>) {
     std::mem::drop(std::thread::spawn(move || {
         // Calculate some processing constants outside loop
-        let size = if sample_rate > 48_000. { 2048 } else { 1024 }; // Use a fixed power-of-two for best performance
+        let size = if sample_rate > 48_000. { 4096 } else { 2048 }; // Use a fixed power-of-two for best performance
         let fsize = size as f32; // Size of the sample buffer as floating point
         let scale = 1. / fsize.sqrt(); // Rescale elements by 1/sqrt(n)
         let frequency_resolution = sample_rate / fsize; // Hertz per frequency bin after applying FFT
 
-        // Store audio in a resizable array before processing
+        // Helper function for converting frequency in Hertz to buffer index
+        let frequency_to_index = |f: f32| -> usize { size.min((f / frequency_resolution).round() as usize) };
+
+        // Store audio in a resizable array before processing, with some extra space to try to avoid heap allocations
         let mut audio_storage_buffer: Vec<Complex<f32>> = Vec::with_capacity(size + 1024);
 
         // Create factory and FFT once based on size
@@ -51,64 +62,98 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             // Perform FFT on data in-place
             fft.process(&mut complex);
 
-            // Helper function for converting frequency in Hertz to buffer index
-            let frequency_to_index = |f: f32| -> usize { size.min((f / frequency_resolution).round() as usize) };
-
-            // Scale to smaller array for displaying
-            const DISPLAY_FFT_SIZE: usize = 64;
-            let mut display_bins: [f32; DISPLAY_FFT_SIZE] = [0.; DISPLAY_FFT_SIZE];
-            let display_start_index = frequency_to_index(30.);
-            let display_end_index = frequency_to_index(16_000.);
-            let r = (display_end_index - display_start_index) / DISPLAY_FFT_SIZE;
-            let mut volume: f32 = 0.;
-            let mut max_volume: (usize, f32) = (display_start_index, 0.);
-            for i in 0..DISPLAY_FFT_SIZE { // Remove bounds as they are always over represented?
-                let mut t = 0.;
-                let index = display_start_index + i*r;
-                for j in 0..r {
-                    let v = complex[index + j].norm();
-                    t += v;
+            // Create helper closure for determining the loudest frequency bin(s) within a frequency range
+            let analyze_frequency_range = |start_frequency: f32, end_frequency: f32| -> FrequencyAnalysis {
+                let start_index = frequency_to_index(start_frequency);
+                let end_index = frequency_to_index(end_frequency);
+                let mut total_volume: f32 = 0.;
+                let mut max_volume: (usize, f32) = (start_index, 0.);
+                for i in start_index..end_index {
+                    let v = scale*complex[i].norm();
+                    total_volume += v;
 
                     // Basics of determining largest frequency bins
                     if v > max_volume.1 {
-                        max_volume = (index + j, v)
+                        max_volume = (i, v)
                     }
                 }
 
-                let v = scale*t;
-                display_bins[i] = v;
-                volume += v;
-            }
+                FrequencyAnalysis {
+                    loudest_frequency: (max_volume.0 - start_index) as f32 / (end_index - start_index) as f32,
+                    //loudest_volume: max_volume.1,
+                    total_volume
+                }
+            };
 
-            // Display simple audio spectrum
-            let mut string_to_print = String::new();
-            string_to_print = display_bins.into_iter().fold(string_to_print, |acc, x| {
-                acc +
-                    if x > 3. {
-                        "#"
-                    } else if x > 1. {
-                        "*"
-                    } else if x > 0.2 {
-                        "_"
-                    } else {
-                        " "
-                    }
-            });
-            println!("{} Volume:{:>3.0} Freq:{:>5.0}Hz",
-                string_to_print,
-                volume,
-                max_volume.0 as f32 * frequency_resolution);
-            let (x, y, z) = space_filling_curves::default_curve_to_cube(((max_volume.0 - display_start_index) as f32 / display_end_index as f32).sqrt());
+            // Analyze each frequency range
+            let bass_analysis = analyze_frequency_range(30., 150.);
+            let mids_analysis = analyze_frequency_range(150., 1_200.);
+            let high_analysis = analyze_frequency_range(1_200., 16_000.);
+
+            // Get total volume from all (audible) frequencies
+            let volume = bass_analysis.total_volume + mids_analysis.total_volume + high_analysis.total_volume;
+
+            // Test mapping frequency to space
+            let (x, y) = space_filling_curves::square::default_curve_to_square(mids_analysis.loudest_frequency.powf(0.9));
 
             // Send updated state to UI thread
             match tx.send(AudioState {
-                quaternion: [x, y, z, 1.],
+                quaternion: [x, y, 1., 1.],
                 volume
             }) {
                 Ok(()) => {}
                 Err(_) => println!("UI thread receiver disconnected..")
             }
 
+            if PRINT_SPECTRUM {
+                // Scale to smaller array for displaying
+                const DISPLAY_FFT_SIZE: usize = 64;
+                let mut display_bins: [f32; DISPLAY_FFT_SIZE] = [0.; DISPLAY_FFT_SIZE];
+                let display_start_index = frequency_to_index(30.);
+                let display_end_index = frequency_to_index(16_000.);
+                let r = (display_end_index - display_start_index) / DISPLAY_FFT_SIZE;
+                let mut volume: f32 = 0.;
+                let mut max_volume: (usize, f32) = (display_start_index, 0.);
+                for i in 0..DISPLAY_FFT_SIZE { // Remove bounds as they are always over represented?
+                    let mut t = 0.;
+                    let index = display_start_index + i*r;
+                    for j in 0..r {
+                        let k = index + j;
+                        let v = complex[k].norm();
+                        t += v;
+
+                        // Basics of determining largest frequency bins
+                        if v > max_volume.1 {
+                            max_volume = (k, v)
+                        }
+                    }
+
+                    let v = scale*t;
+                    display_bins[i] = v;
+                    volume += v;
+                }
+
+                // Display simple audio spectrum
+                let mut string_to_print = String::new();
+                string_to_print = display_bins.into_iter().fold(string_to_print, |acc, x| {
+                    acc +
+                        if x > 3. {
+                            "#"
+                        } else if x > 1. {
+                            "*"
+                        } else if x > 0.2 {
+                            "_"
+                        } else {
+                            " "
+                        }
+                });
+                println!("{} Volume:{:>3.0} Freq:{:>5.0}Hz",
+                    string_to_print,
+                    volume,
+                    max_volume.0 as f32 * frequency_resolution);
+            }
+
+            // TODO: Copy elements with index greater than `size` to the start of array since they weren't used in the previous FFT
             audio_storage_buffer.truncate(0)
         } // end unconditional loop
     }))
@@ -146,7 +191,7 @@ fn create_audio_loopback(default_audio_out: Device, audio_config: SupportedStrea
                 Err(_) => println!("Audio-processor receiver disconnected..")
             }
         },
-        |e| panic!("Error on audio input stream: {:?}", e),
+        |e| panic!("Error on audio input stream: {:?}", e)
     ) {
         // Stream was created successfully 
         Ok(stream) => {
