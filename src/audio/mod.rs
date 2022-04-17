@@ -90,11 +90,11 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             let mids_analysis = analyze_frequency_range(150., 1_200.);
             let high_analysis = analyze_frequency_range(1_200., 16_000.);
 
-            // Get total volume from all (audible) frequencies
+            // Get total volume from all (relevant) frequencies
             let volume = bass_analysis.total_volume + mids_analysis.total_volume + high_analysis.total_volume;
 
             // Test mapping frequency to space
-            let (x, y) = space_filling_curves::square::default_curve_to_square(mids_analysis.loudest_frequency.powf(0.9));
+            let (x, y) = space_filling_curves::square::default_curve_to_square(mids_analysis.loudest_frequency.powf(0.8));
 
             // Send updated state to UI thread
             match tx.send(AudioState {
@@ -214,7 +214,7 @@ pub fn create_default_loopback(tx: Sender<AudioState>) -> cpal::Stream {
     let default_audio_out = audio_host.default_output_device().expect("There must be at least one output device");
     println!("Default audio out: {:?}", default_audio_out.name().unwrap_or(String::from("Unnamed device")));
 
-    // Search deevice for a supported Float32 compatible format
+    // Search device for a supported Float32 compatible format
     let audio_config = match default_audio_out.supported_output_configs().unwrap()
         .find(|c| c.sample_format() == SampleFormat::F32) {
         Some(config) => {

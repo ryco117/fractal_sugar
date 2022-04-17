@@ -80,7 +80,7 @@ fn main() {
                 // Update audio state vars
                 Ok(AudioState {volume, quaternion, ..}) => {
                     audio_state.volume = interpolate_floats(16.0, audio_state.volume, volume);
-                    interpolate_quaternions(3., &mut audio_state.quaternion, &quaternion)
+                    interpolate_quaternions(4., &mut audio_state.quaternion, &quaternion)
                 }
 
                 // No new data, interpolate towards baseline

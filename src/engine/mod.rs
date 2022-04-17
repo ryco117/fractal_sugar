@@ -65,7 +65,7 @@ impl Engine {
         // Fetch device resources based on what is available to the system
         let (physical_device, device, queue) = hardware::select_hardware(&instance, &surface);
 
-        // Create swapchain and associated image buffers from the relevant 
+        // Create swapchain and associated image buffers from the relevant parameters
         let engine_swapchain = EngineSwapchain::new(physical_device, device.clone(), surface.clone(), PresentMode::Fifo);
 
         // vulkano-shaders wasn't working effortlessly for my cross-compiling needs.
