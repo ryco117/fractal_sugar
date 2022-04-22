@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use vulkano::buffer::CpuAccessibleBuffer;
 use vulkano::device::{Device, Queue};
 use vulkano::image::SwapchainImage;
 use vulkano::image::view::ImageView;
@@ -22,6 +23,9 @@ pub mod swapchain;
 pub mod pipeline;
 pub mod renderer;
 
+use crate::my_math::Vector2;
+use crate::space_filling_curves;
+
 type EngineFrameFuture = FenceSignalFuture<vulkano::swapchain::PresentFuture<
     vulkano::command_buffer::CommandBufferExecFuture<
         vulkano::sync::JoinFuture<Box<dyn GpuFuture>, vulkano::swapchain::SwapchainAcquireFuture<Window>>,
@@ -29,11 +33,14 @@ type EngineFrameFuture = FenceSignalFuture<vulkano::swapchain::PresentFuture<
     Window>>;
 
 pub struct Engine {
+    compute_pipeline: Arc<vulkano::pipeline::ComputePipeline>,
+    descriptor_set: Arc<vulkano::descriptor_set::PersistentDescriptorSet>,
     device: Arc<Device>,
     fences: Vec<Option<Arc<EngineFrameFuture>>>,
     frag_shader: Arc<ShaderModule>,
     framebuffers: Vec<Arc<Framebuffer>>,
     graphics_pipeline: Arc<GraphicsPipeline>,
+    position_buffer: Arc<CpuAccessibleBuffer<[Vector2]>>,
     previous_fence_index: usize,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
@@ -77,8 +84,54 @@ impl Engine {
         };
 
         // Load compiled graphics shaders into vulkan
-        let frag_shader = load_shader_bytes("shaders/spirv/iq_mandelbrot.frag.spv");
-        let vert_shader = load_shader_bytes("shaders/spirv/entire_view.vert.spv");
+        //let frag_shader = load_shader_bytes("shaders/spirv/iq_mandelbrot.frag.spv");
+        //let vert_shader = load_shader_bytes("shaders/spirv/entire_view.vert.spv");
+
+        // COMPUTE TEST
+        let frag_shader = load_shader_bytes("shaders/spirv/particles.frag.spv");
+        let vert_shader = load_shader_bytes("shaders/spirv/particles.vert.spv");
+        let comp_shader = load_shader_bytes("shaders/spirv/particles.comp.spv");
+        let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
+            device.clone(),
+            comp_shader.entry_point("main").unwrap(),
+            &(),
+            None,
+            |_| {}
+        ).expect("Failed to create compute shader");
+        const PARTICLE_COUNT: usize = 1_048_576;
+        const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
+        fn create_buffer<T, I>(device: &Arc<Device>, data_iter: I) -> Arc<CpuAccessibleBuffer<[T]>> where
+        [T]: vulkano::buffer::BufferContents,
+        I: IntoIterator<Item = T>,
+        I::IntoIter: ExactSizeIterator {
+            CpuAccessibleBuffer::from_iter( // Essentially a test buffer type :/
+                device.clone(),
+                vulkano::buffer::BufferUsage::all(),
+                false,
+                data_iter
+            ).expect("Failed to create test compute buffer")
+        }
+        let (position_buffer, velocity_buffer, fixed_position_buffer) = {
+            let velocity_iter = (0..PARTICLE_COUNT).map(|_| [0., 0.] as [f32; 2]);
+            let velocity_buff = create_buffer(&device, velocity_iter);
+
+            let position_iter = (0..PARTICLE_COUNT).map(|i| {
+                space_filling_curves::square::default_curve_to_square(i as f32 / PARTICLE_COUNT_F32)
+            });
+            let position_buff = create_buffer(&device, position_iter.clone());
+            let fixed_position_buff = create_buffer(&device, position_iter);
+            (position_buff, velocity_buff, fixed_position_buff)
+        };
+        use vulkano::pipeline::Pipeline;
+        let layout = compute_pipeline.layout().set_layouts().get(0).unwrap(); // 0 is the index of the descriptor set layout we want
+        let descriptor_set = vulkano::descriptor_set::PersistentDescriptorSet::new(
+            layout.clone(),
+            [
+                vulkano::descriptor_set::WriteDescriptorSet::buffer(0, position_buffer.clone()), // 0 is the binding of the data in this set
+                vulkano::descriptor_set::WriteDescriptorSet::buffer(1, velocity_buffer.clone()),
+                vulkano::descriptor_set::WriteDescriptorSet::buffer(2, fixed_position_buffer.clone())
+            ]
+        ).unwrap();
 
         // Create a render pass to utilize the graphics pipeline
         // Describes the inputs/outputs but not the commands used
@@ -105,7 +158,7 @@ impl Engine {
         };
 
         // Create the almighty graphics pipeline!
-        let pipeline = pipeline::create_graphics_pipeline(device.clone(), vert_shader.clone(), frag_shader.clone(), render_pass.clone(), viewport.clone());
+        let pipeline = pipeline::particles_graphics_pipeline(device.clone(), vert_shader.clone(), frag_shader.clone(), render_pass.clone(), viewport.clone());
 
         // Create a framebuffer to store results of render pass
         let framebuffers = Engine::create_framebuffers(render_pass.clone(), engine_swapchain.get_images());
@@ -117,11 +170,14 @@ impl Engine {
 
         // Construct new Engine
         Engine {
+            compute_pipeline,
+            descriptor_set,
             device,
             fences,
             frag_shader,
             framebuffers,
             graphics_pipeline: pipeline,
+            position_buffer,
             previous_fence_index: 0,
             queue,
             render_pass,
@@ -160,7 +216,8 @@ impl Engine {
             self.viewport.dimensions = dimensions.into();
 
             // Since pipeline specifies viewport is fixed, entire pipeline needs to be reconstructed to account for size change
-            self.graphics_pipeline = pipeline::create_graphics_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
+            //self.graphics_pipeline = pipeline::create_graphics_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
+            self.graphics_pipeline = pipeline::particles_graphics_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
         }
 
         // Recreated swapchain and necessary follow-up structures without error
@@ -169,7 +226,11 @@ impl Engine {
 
     // Use given push constants and synchronization-primitives to render next frame in swapchain.
     // Returns whether a swapchain recreation was deemed necessary
-    pub fn draw_frame(&mut self, push_constants: renderer::PushConstantData) -> bool {
+    pub fn draw_frame(
+        &mut self,
+        _push_constants: renderer::PushConstantData,
+        compute_push_constants: renderer::ComputePushConstantData
+    ) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
         let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(self.swapchain.get_swapchain(), None /*timeout*/) {
             Ok(tuple) => tuple,
@@ -208,12 +269,23 @@ impl Engine {
         };
         
         // Create a one-time-submit command buffer for this push constant data
-        let command_buffer_boi = renderer::onetime_cmdbuf_from_constant(
+        /*let command_buffer_boi = renderer::onetime_cmdbuf_from_constant(
             self.device.clone(),
             self.queue.clone(),
             self.graphics_pipeline.clone(),
             self.framebuffers[image_index].clone(),
-            push_constants);
+            push_constants
+        );*/
+        let colored_sugar_commands = renderer::particles_cmdbuf(
+            self.device.clone(),
+            self.queue.clone(),
+            self.graphics_pipeline.clone(),
+            self.framebuffers[image_index].clone(),
+            self.position_buffer.clone(),
+            self.compute_pipeline.clone(),
+            self.descriptor_set.clone(),
+            compute_push_constants
+        );
 
         // Create synchronization future for rendering the current frame
         let future = previous_future
@@ -221,7 +293,7 @@ impl Engine {
             .join(acquire_future)
 
             // Execute the one-time command buffer
-            .then_execute(self.queue.clone(), command_buffer_boi).unwrap()
+            .then_execute(self.queue.clone(), colored_sugar_commands).unwrap()
 
             // Present result to swapchain buffer
             .then_swapchain_present(self.queue.clone(), self.swapchain.get_swapchain(), image_index)

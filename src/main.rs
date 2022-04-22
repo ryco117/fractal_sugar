@@ -9,6 +9,8 @@ use engine::swapchain::RecreateSwapchainResult;
 
 mod audio;
 mod engine;
+mod my_math;
+mod space_filling_curves;
 
 use audio::AudioState;
 
@@ -22,6 +24,10 @@ fn main() {
     // Use Engine helper to initialize Vulkan instance
     let mut engine = engine::Engine::new(&event_loop);
 
+    // Capture reference to audio stream and use message passing to receive data
+    let (tx, rx) = mpsc::channel();
+    let _capture_stream_option = audio::create_default_loopback(tx);
+
     // Window state vars
     let mut window_resized = false;
     let mut recreate_swapchain = false;
@@ -34,9 +40,8 @@ fn main() {
     let mut game_time: f32 = 0.;
     let mut audio_state = AudioState::default();
 
-    // Capture reference to audio stream and use message passing to receive data
-    let (tx, rx) = mpsc::channel();
-    let _capture_stream_option = audio::create_default_loopback(tx);
+    // Game state vars?
+    let mut fix_particles = true;
 
     // Run window loop
     println!("Begin window loop...");
@@ -118,9 +123,15 @@ fn main() {
                 width: dimensions.width as f32,
                 height: dimensions.height as f32
             };
+            let compute_push_constants = engine::renderer::ComputePushConstantData {
+                big_boomer: [-audio_state.quaternion[2], -audio_state.quaternion[3]],
+                attractors: audio_state.quaternion,
+                delta_time,
+                fix_particles
+            };
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
-            recreate_swapchain |= engine.draw_frame(push_constants)
+            recreate_swapchain |= engine.draw_frame(push_constants, compute_push_constants)
         }
 
         // Handle some keyboard input
@@ -155,6 +166,13 @@ fn main() {
                     println!("The Escape key was pressed, exiting");
                     *control_flow = ControlFlow::Exit
                 }
+
+                // Handle toggling of Jello mode (fixing particles)
+                (ElementState::Pressed, VirtualKeyCode::J) => {
+                    fix_particles = !fix_particles
+                }
+
+                // No-op
                 _ => {}
             }
         }

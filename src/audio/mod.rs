@@ -5,7 +5,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, SupportedStreamConfig};
 use rustfft::{FftPlanner, num_complex::Complex};
 
-mod space_filling_curves;
+use crate::space_filling_curves;
 
 const PRINT_SPECTRUM: bool = true;
 
@@ -94,11 +94,11 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             let volume = bass_analysis.total_volume + mids_analysis.total_volume + high_analysis.total_volume;
 
             // Test mapping frequency to space
-            let (x, y) = space_filling_curves::square::default_curve_to_square(mids_analysis.loudest_frequency.powf(0.8));
+            let v = space_filling_curves::square::default_curve_to_square(mids_analysis.loudest_frequency.powf(0.8));
 
             // Send updated state to UI thread
             match tx.send(AudioState {
-                quaternion: [x, y, 1., 1.],
+                quaternion: [v.x, v.y, 1., 1.],
                 volume
             }) {
                 Ok(()) => {}

@@ -1,0 +1,97 @@
+#version 450
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) buffer PositionBuffer {
+	vec2 positions[];
+};
+layout (binding = 1) buffer VelocityBuffer {
+	vec2 velocities[];
+};
+layout (binding = 2) readonly buffer FixedPosBuffer {
+	vec2 fixedPositions[];
+};
+
+layout (push_constant) uniform Push
+{
+	vec2 bigBoomer;
+	//vec4 curlAttractor;
+	vec2 attractors[2];
+
+	float deltaTime;
+	bool fixParticles;
+} push;
+
+const float springCoefficient = 100.0;
+
+const float maxSpeed = 6.0;
+const float min_length = 0.01;
+const float friction = -1.35;
+
+vec2 Normalize(vec2 t) {
+	if(length(t) < 0.000001) {
+		return t;
+	}
+	return normalize(t);
+}
+
+void main(void)
+{
+	const uint index = gl_GlobalInvocationID.x;
+
+	// Read the current position and velocity from the buffers
+	vec2 pos = positions[index];
+	vec2 vel = velocities[index];
+	
+	vec2 g = vec2(0.0);
+	/*for(int i = 0; i < curlAttractors.length(); i++)
+	{
+		vec3 t = push.curlAttractor.xy - pos.xy;
+		float r = max(length(t), min_length);
+		g += push.curlAttractor.w * (Normalize(cross(t, pos.xyz)) + Normalize(t)/1.25) / (r*r) * (push.fixParticles ? 1.7 : 1.0);
+	}*/
+
+	//for(int i = 0; i < bigBoomers.length(); i++)
+	{
+		vec2 t = push.bigBoomer - pos;
+		float r = max(length(t), min_length);
+		g -= 1.0 * Normalize(t) / (r*r*r)  * (push.fixParticles ? 0.3 : 1.0);
+	}
+
+	for(int i = 0; i < push.attractors.length(); i++)
+	{
+		vec2 t = push.attractors[i] - pos;
+		float r = max(length(t), min_length);
+		g += 1.0 * Normalize(t) / (r*r) * (push.fixParticles ? 0.95 : 1.0);
+	}
+
+	// Scale 2D forces down (to account for smaller distances)
+	g *= 0.175;
+
+	if(push.fixParticles) {
+		g += springCoefficient * (fixedPositions[index] - pos);
+	}
+
+	vel += push.deltaTime * g;
+	
+	if(length(vel) > maxSpeed) {
+		vel = maxSpeed*normalize(vel);
+	}
+
+	pos += vel * push.deltaTime;
+	if(abs(pos.x) > 1.0) {
+		vel.x = sign(pos.x) * (-0.95 * abs(vel.x) - 0.0001);
+		if(abs(pos.x) >= 1.05) {
+			pos.x = sign(pos.x);
+		}
+	}
+	if(abs(pos.y) > 1.0) {
+		vel.y = sign(pos.y) * (-0.95 * abs(vel.y) - 0.0001);
+		if(abs(pos.y) >= 1.05) {
+			pos.y = sign(pos.y);
+		}
+	}
+
+	positions[index] = pos;
+	velocities[index] =  vel * exp(friction * push.deltaTime);
+}
