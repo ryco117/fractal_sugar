@@ -4,6 +4,7 @@ use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, Prim
 use vulkano::buffer::{CpuAccessibleBuffer /*TODO: Use a better type (device local?)*/, TypedBufferAccess /*For accessing buffer array length*/};
 use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, Queue};
+use vulkano::format::ClearValue;
 use vulkano::pipeline::{Pipeline, ComputePipeline, GraphicsPipeline};
 use vulkano::render_pass::Framebuffer;
 
@@ -12,9 +13,13 @@ use crate::my_math::Vector2;
 // Internal bytes to be copied to GPU through push constants
 #[repr(C)]
 pub struct ComputePushConstantData {
-    pub big_boomer: [f32; 2],
-	//vec4 curlAttractor;
-	pub attractors: [f32; 4],
+    pub big_boomer: Vector2,
+	pub curl_attractors: [Vector2; 2],
+	pub attractors: [Vector2; 2],
+
+    pub big_boomer_strength: f32,
+	pub curl_attractor_strengths: [f32; 2],
+	pub attractor_strengths: [f32; 2],
 
 	pub delta_time: f32,
 	pub fix_particles: bool
@@ -64,7 +69,7 @@ pub fn particles_cmdbuf(
         .begin_render_pass(
             framebuffer.clone(),
             SubpassContents::Inline, // Directly use draw commands without secondary command buffer
-            vec![[0., 0., 1., 1.].into()] // Clear values for attachment(s)
+            vec![[0., 0., 0., 1.].into(), ClearValue::None] // Clear values for attachments
         ).unwrap()
 
         .bind_pipeline_graphics(graphics_pipeline.clone())

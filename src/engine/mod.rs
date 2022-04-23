@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use vulkano::buffer::CpuAccessibleBuffer;
+use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::device::{Device, Queue};
-use vulkano::image::SwapchainImage;
+use vulkano::format::Format;
+use vulkano::image::{AttachmentImage, SwapchainImage};
 use vulkano::image::view::ImageView;
 use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::pipeline::GraphicsPipeline;
@@ -39,13 +40,16 @@ pub struct Engine {
     fences: Vec<Option<Arc<EngineFrameFuture>>>,
     frag_shader: Arc<ShaderModule>,
     framebuffers: Vec<Arc<Framebuffer>>,
+    frames_in_flight: usize,
     graphics_pipeline: Arc<GraphicsPipeline>,
+    image_format: Format,
+    msaa_images: Vec<Arc<ImageView<AttachmentImage>>>,
     position_buffer: Arc<CpuAccessibleBuffer<[Vector2]>>,
     previous_fence_index: usize,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
     surface: Arc<Surface<Window>>,
-    pub swapchain: EngineSwapchain,
+    swapchain: EngineSwapchain,
     vert_shader: Arc<ShaderModule>,
     viewport: Viewport
 }
@@ -75,6 +79,11 @@ impl Engine {
         // Create swapchain and associated image buffers from the relevant parameters
         let engine_swapchain = EngineSwapchain::new(physical_device, device.clone(), surface.clone(), PresentMode::Fifo);
 
+        // Create a frame-in-flight fence for each image buffer.
+        // This allows CPU work to continue while GPU is busy with previous frames
+        let frames_in_flight = engine_swapchain.get_images().len();
+        let fences: Vec<Option<Arc<FenceSignalFuture<_>>>> = vec![None; frames_in_flight];
+
         // vulkano-shaders wasn't working effortlessly for my cross-compiling needs.
         // Decided it was easier to implement this closure and continue with a minimal cross-compile
         let load_shader_bytes = |path: &str| -> Arc<ShaderModule> {
@@ -100,26 +109,26 @@ impl Engine {
         ).expect("Failed to create compute shader");
         const PARTICLE_COUNT: usize = 1_048_576;
         const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
-        fn create_buffer<T, I>(device: &Arc<Device>, data_iter: I) -> Arc<CpuAccessibleBuffer<[T]>> where
-        [T]: vulkano::buffer::BufferContents,
-        I: IntoIterator<Item = T>,
-        I::IntoIter: ExactSizeIterator {
+        fn create_buffer<T, I>(device: &Arc<Device>, data_iter: I, usage: BufferUsage) -> Arc<CpuAccessibleBuffer<[T]>> where
+            [T]: vulkano::buffer::BufferContents,
+            I: IntoIterator<Item = T>,
+            I::IntoIter: ExactSizeIterator {
             CpuAccessibleBuffer::from_iter( // Essentially a test buffer type :/
                 device.clone(),
-                vulkano::buffer::BufferUsage::all(),
+                usage,
                 false,
                 data_iter
             ).expect("Failed to create test compute buffer")
         }
         let (position_buffer, velocity_buffer, fixed_position_buffer) = {
             let velocity_iter = (0..PARTICLE_COUNT).map(|_| [0., 0.] as [f32; 2]);
-            let velocity_buff = create_buffer(&device, velocity_iter);
+            let velocity_buff = create_buffer(&device, velocity_iter, BufferUsage::storage_buffer());
 
             let position_iter = (0..PARTICLE_COUNT).map(|i| {
                 space_filling_curves::square::default_curve_to_square(i as f32 / PARTICLE_COUNT_F32)
             });
-            let position_buff = create_buffer(&device, position_iter.clone());
-            let fixed_position_buff = create_buffer(&device, position_iter);
+            let position_buff = create_buffer(&device, position_iter.clone(), BufferUsage::storage_buffer() | BufferUsage::vertex_buffer());
+            let fixed_position_buff = create_buffer(&device, position_iter, BufferUsage::storage_buffer());
             (position_buff, velocity_buff, fixed_position_buff)
         };
         use vulkano::pipeline::Pipeline;
@@ -135,7 +144,7 @@ impl Engine {
 
         // Create a render pass to utilize the graphics pipeline
         // Describes the inputs/outputs but not the commands used
-        let render_pass = vulkano::single_pass_renderpass!(device.clone(),
+        /*let render_pass = vulkano::single_pass_renderpass!(device.clone(),
             attachments: {
                 color: {
                     load: Clear,
@@ -148,25 +157,57 @@ impl Engine {
                 color: [color],
                 depth_stencil: {}
             }
+        ).unwrap();*/
+
+        let image_format = engine_swapchain.get_swapchain().image_format();
+        let msaa_images = Engine::create_msaa_images(&device, &surface, image_format, frames_in_flight);
+
+        // Create particle renderpass with MSAA
+        let render_pass = vulkano::single_pass_renderpass!(
+            device.clone(),
+            attachments: {
+                // The first framebuffer attachment is the intermediary image
+                intermediary: {
+                    load: Clear,
+                    store: DontCare,
+                    format: image_format,
+                    samples: 8, // MSAA for smooth particles
+                },
+
+                // The second framebuffer attachment is the final image
+                color: {
+                    load: DontCare, // Don't require two clear calls for this renderpass
+                    store: Store,
+                    format: image_format, // Use swapchain's format since we are writing to its buffers
+                    samples: 1, // Must resolve to non-sampled image for presentation
+                }
+            },
+            pass: {
+                // When drawing, there is only one output which is the intermediary image
+                color: [intermediary],
+                depth_stencil: {},
+
+                // The `resolve` array here must contain either zero entry (if you don't use
+                // multisampling), or one entry per color attachment. At the end of the pass, each
+                // color attachment will be *resolved* into the given image. In other words, here, at
+                // the end of the pass, the `intermediary` attachment will be copied to the attachment
+                // named `color`.
+                resolve: [color]
+            }
         ).unwrap();
 
         // Define our 2D viewspace (with normalized depth)
         let viewport = Viewport {
             origin: [0., 0.],
             dimensions: surface.window().inner_size().into(),
-            depth_range: 0. ..1.,
+            depth_range: 0.0..1.,
         };
 
         // Create the almighty graphics pipeline!
         let pipeline = pipeline::particles_graphics_pipeline(device.clone(), vert_shader.clone(), frag_shader.clone(), render_pass.clone(), viewport.clone());
 
         // Create a framebuffer to store results of render pass
-        let framebuffers = Engine::create_framebuffers(render_pass.clone(), engine_swapchain.get_images());
-
-        // Create a frame-in-flight fence for each image buffer.
-        // This allows CPU work to continue while GPU is busy with previous frames
-        let frames_in_flight = engine_swapchain.get_images().len();
-        let fences: Vec<Option<Arc<FenceSignalFuture<_>>>> = vec![None; frames_in_flight];
+        let framebuffers = Engine::create_particles_framebuffers(render_pass.clone(), &engine_swapchain.get_images(), &msaa_images.clone());
 
         // Construct new Engine
         Engine {
@@ -176,7 +217,10 @@ impl Engine {
             fences,
             frag_shader,
             framebuffers,
+            frames_in_flight,
             graphics_pipeline: pipeline,
+            image_format,
+            msaa_images,
             position_buffer,
             previous_fence_index: 0,
             queue,
@@ -208,8 +252,13 @@ impl Engine {
             err => return err
         }
 
+
+        if window_resized {
+            self.msaa_images = Engine::create_msaa_images(&self.device, &self.surface, self.image_format, self.frames_in_flight)
+        }
+
         // Framebuffer is tied to the swapchain images, must recreate as well
-        self.framebuffers = Engine::create_framebuffers(self.render_pass.clone(), self.swapchain.get_images());
+        self.framebuffers = Engine::create_particles_framebuffers(self.render_pass.clone(), &self.swapchain.get_images(), &self.msaa_images);
 
         // If caller indicates a resize has prompted this call then adjust viewport and fixed-view pipeline
         if window_resized {
@@ -327,19 +376,45 @@ impl Engine {
         requires_recreate_swapchain
     }
 
-    // Helper for (re)creating framebuffers for storing results of 
-    fn create_framebuffers(render_pass: Arc<RenderPass>, images: Vec<Arc<SwapchainImage<Window>>>) -> Vec<Arc<Framebuffer>> {
-        images
-        .iter()
-        .map(|image| {
+    // Create required attachment images for multi-sampling (MSAA) each frame
+    fn create_msaa_images(
+        device: &Arc<Device>,
+        surface: &Surface<Window>,
+        image_format: Format,
+        image_count: usize
+    ) -> Vec<Arc<ImageView<AttachmentImage>>> {
+        (0..image_count).map(|_|
+            ImageView::new_default(
+                AttachmentImage::transient_multisampled(
+                    device.clone(),
+                    surface.window().inner_size().into(),
+                    vulkano::image::SampleCount::Sample8,
+                    image_format
+                ).unwrap(),
+            ).unwrap()
+        ).collect()
+    }
+
+    // Helper for (re)creating framebuffers
+    fn create_particles_framebuffers(
+        render_pass: Arc<RenderPass>,
+        images: &Vec<Arc<SwapchainImage<Window>>>,
+        msaa_images: &Vec<Arc<ImageView<AttachmentImage>>>
+    ) -> Vec<Arc<Framebuffer>> {
+        assert_eq!(images.len(), msaa_images.len(), "Must have an equal number of multi-sampled and destination images");
+
+        (0..images.len()).map(|i| {
+            let img = images[i].clone();
+            let msaa_img = msaa_images[i].clone();
+
             // To interact with image buffers or framebuffers from shaders must create view defining how buffer will be used.
-            let view = ImageView::new_default(image.clone()).unwrap();
+            let view = ImageView::new_default(img.clone()).unwrap();
 
             // Create framebuffer specifying underlying renderpass and view
             Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![view],
+                    attachments: vec![msaa_img, view], // Must add specified attachments in order
                     ..Default::default()
                 },
             ).unwrap()

@@ -5,19 +5,24 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, SupportedStreamConfig};
 use rustfft::{FftPlanner, num_complex::Complex};
 
+use crate::my_math::Vector2;
 use crate::space_filling_curves;
 
 const PRINT_SPECTRUM: bool = true;
 
 // Audio state to pass to UI thread
 pub struct AudioState {
-    pub quaternion: [f32; 4],
+    pub big_boomer: (Vector2, f32),
+    pub curl_attractors: [(Vector2, f32); 2],
+    pub attractors: [(Vector2, f32); 2],
     pub volume: f32
 }
 impl Default for AudioState {
     fn default() -> Self {
         AudioState {
-            quaternion: [0., 0., 0., 1.],
+            big_boomer: (Vector2::new(0., 0.), 0.),
+            curl_attractors: [(Vector2::new(0., 0.), 0.); 2],
+            attractors: [(Vector2::new(0., 0.), 0.); 2],
             volume: 0.
         }
     }
@@ -26,7 +31,7 @@ impl Default for AudioState {
 // Simple type to help understand results from `analyze_frequency_range` closure
 struct FrequencyAnalysis {
     pub loudest_frequency: f32,
-    //pub loudest_volume: f32,
+    pub loudest_volume: f32,
     pub total_volume: f32
 }
 
@@ -80,7 +85,7 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
 
                 FrequencyAnalysis {
                     loudest_frequency: (max_volume.0 - start_index) as f32 / (end_index - start_index) as f32,
-                    //loudest_volume: max_volume.1,
+                    loudest_volume: max_volume.1,
                     total_volume
                 }
             };
@@ -88,17 +93,16 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             // Analyze each frequency range
             let bass_analysis = analyze_frequency_range(30., 150.);
             let mids_analysis = analyze_frequency_range(150., 1_200.);
-            let high_analysis = analyze_frequency_range(1_200., 16_000.);
+            let high_analysis = analyze_frequency_range(1_200., 12_000.);
 
             // Get total volume from all (relevant) frequencies
             let volume = bass_analysis.total_volume + mids_analysis.total_volume + high_analysis.total_volume;
 
-            // Test mapping frequency to space
-            let v = space_filling_curves::square::default_curve_to_square(mids_analysis.loudest_frequency.powf(0.8));
-
             // Send updated state to UI thread
             match tx.send(AudioState {
-                quaternion: [v.x, v.y, 1., 1.],
+                big_boomer: (space_filling_curves::square::default_curve_to_square(bass_analysis.loudest_frequency.powf(0.85)), bass_analysis.loudest_volume),
+                curl_attractors: [(space_filling_curves::square::default_curve_to_square(mids_analysis.loudest_frequency.powf(0.625)), mids_analysis.loudest_volume), (Vector2::new(0., 0.), 0.)],
+                attractors: [(space_filling_curves::square::default_curve_to_square(high_analysis.loudest_frequency.powf(0.2)), high_analysis.loudest_volume), (Vector2::new(0., 0.), 0.)],
                 volume
             }) {
                 Ok(()) => {}

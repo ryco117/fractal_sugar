@@ -12,6 +12,7 @@ mod engine;
 mod my_math;
 mod space_filling_curves;
 
+use my_math::Vector2;
 use audio::AudioState;
 
 // App constants
@@ -75,17 +76,33 @@ fn main() {
                 let smooth = 1. - (delta_time * -scale).exp();
                 source + (target - source) * smooth
             };
-            let interpolate_quaternions = |scale: f32, source: &mut [f32; 4], target: &[f32; 4]| -> () {
+            /*let interpolate_quaternions = |scale: f32, source: &mut [f32; 4], target: &[f32; 4]| -> () {
                 let smooth = 1. - (delta_time * -scale).exp();
                 for i in 0..4 { source[i] += (target[i] - source[i]) * smooth }
+            };*/
+            let interpolate_vec2 = |scale: f32, source: &mut Vector2, target: &Vector2| {
+                let smooth = 1. - (delta_time * -scale).exp();
+                *source += (*target - *source).scale(smooth)
             };
 
             // Handle any changes to audio state
             match rx.try_recv() {
                 // Update audio state vars
-                Ok(AudioState {volume, quaternion, ..}) => {
+                Ok(AudioState{volume, big_boomer, curl_attractors, attractors}) => {
+                    // Update volume
                     audio_state.volume = interpolate_floats(16.0, audio_state.volume, volume);
-                    interpolate_quaternions(4., &mut audio_state.quaternion, &quaternion)
+
+                    // Update 2D vectors
+                    interpolate_vec2(4.*audio_state.big_boomer.1, &mut audio_state.big_boomer.0, &big_boomer.0);
+                    audio_state.big_boomer.1 = big_boomer.1;
+                    for i in 0..2 {
+                        interpolate_vec2(4.*audio_state.curl_attractors[i].1, &mut audio_state.curl_attractors[i].0, &curl_attractors[i].0);
+                        audio_state.curl_attractors[i].1 = curl_attractors[i].1
+                    }
+                    for i in 0..2 {
+                        interpolate_vec2(4.*audio_state.attractors[i].1, &mut audio_state.attractors[i].0, &attractors[i].0);
+                        audio_state.attractors[i].1 = attractors[i].1
+                    }
                 }
 
                 // No new data, interpolate towards baseline
@@ -118,17 +135,32 @@ fn main() {
 
             // Create per-frame data
             let push_constants = engine::renderer::PushConstantData {
-                temp_data: audio_state.quaternion,
+                temp_data: [audio_state.big_boomer.0.x, audio_state.big_boomer.0.y, audio_state.attractors[0].0.x, audio_state.attractors[0].0.y],
                 time: game_time,
                 width: dimensions.width as f32,
                 height: dimensions.height as f32
             };
+
+            fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([Vector2; 2], [f32; 2]) {
+                (arr.map(|e| e.0), arr.map(|e| e.1))
+            }
+            let (curl_attractors, curl_attractor_strengths) = simple_unzip(&audio_state.curl_attractors);
+            let (attractors, attractor_strengths) = simple_unzip(&audio_state.attractors);
+
             let compute_push_constants = engine::renderer::ComputePushConstantData {
-                big_boomer: [-audio_state.quaternion[2], -audio_state.quaternion[3]],
-                attractors: audio_state.quaternion,
-                delta_time,
-                fix_particles
+                big_boomer: audio_state.big_boomer.0,
+                big_boomer_strength: audio_state.big_boomer.1,
+
+                curl_attractors,
+                curl_attractor_strengths,
+
+                attractors,
+                attractor_strengths,
+
+                fix_particles,
+                delta_time
             };
+            //println!("X*X*X*XH*H*H*H {}", compute_push_constants.fix_particles);
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
             recreate_swapchain |= engine.draw_frame(push_constants, compute_push_constants)

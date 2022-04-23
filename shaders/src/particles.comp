@@ -8,25 +8,31 @@ layout (binding = 0) buffer PositionBuffer {
 layout (binding = 1) buffer VelocityBuffer {
 	vec2 velocities[];
 };
-layout (binding = 2) readonly buffer FixedPosBuffer {
+layout (binding = 2) buffer readonly FixedPosBuffer {
 	vec2 fixedPositions[];
 };
 
 layout (push_constant) uniform Push
 {
 	vec2 bigBoomer;
-	//vec4 curlAttractor;
+	vec2 curlAttractors[2];
 	vec2 attractors[2];
+
+	float bigBoomerStrength;
+	float curlAttractorStrengths[2];
+	float attractorStrengths[2];
 
 	float deltaTime;
 	bool fixParticles;
 } push;
 
-const float springCoefficient = 100.0;
+const float springCoefficient = 150.0;
 
 const float maxSpeed = 6.0;
 const float min_length = 0.01;
-const float friction = -1.35;
+const float friction = -1.75;
+
+const float audioScale = 0.01;
 
 vec2 Normalize(vec2 t) {
 	if(length(t) < 0.000001) {
@@ -44,29 +50,27 @@ void main(void)
 	vec2 vel = velocities[index];
 	
 	vec2 g = vec2(0.0);
-	/*for(int i = 0; i < curlAttractors.length(); i++)
-	{
-		vec3 t = push.curlAttractor.xy - pos.xy;
-		float r = max(length(t), min_length);
-		g += push.curlAttractor.w * (Normalize(cross(t, pos.xyz)) + Normalize(t)/1.25) / (r*r) * (push.fixParticles ? 1.7 : 1.0);
-	}*/
-
-	//for(int i = 0; i < bigBoomers.length(); i++)
 	{
 		vec2 t = push.bigBoomer - pos;
 		float r = max(length(t), min_length);
-		g -= 1.0 * Normalize(t) / (r*r*r)  * (push.fixParticles ? 0.3 : 1.0);
+		g -= push.bigBoomerStrength * Normalize(t) / (r*r*r)  * (push.fixParticles ? 0.08 : 0.25);
+	}
+
+	for(int i = 0; i < push.curlAttractors.length(); i++)
+	{
+		vec2 t = push.curlAttractors[i] - pos;
+		float r = max(length(t), min_length);
+		g += push.curlAttractorStrengths[i] * Normalize(vec2(-t.y, t.x)) / (r*r) * (push.fixParticles ? 1.25 : 2.0);
 	}
 
 	for(int i = 0; i < push.attractors.length(); i++)
 	{
 		vec2 t = push.attractors[i] - pos;
 		float r = max(length(t), min_length);
-		g += 1.0 * Normalize(t) / (r*r) * (push.fixParticles ? 0.95 : 1.0);
+		g += push.attractorStrengths[i] * Normalize(t) / (r*r) * (push.fixParticles ? 2.5 : 4.0);
 	}
 
-	// Scale 2D forces down (to account for smaller distances)
-	g *= 0.175;
+	g *= audioScale;
 
 	if(push.fixParticles) {
 		g += springCoefficient * (fixedPositions[index] - pos);

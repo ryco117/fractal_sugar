@@ -1,6 +1,6 @@
 #[allow(dead_code)] // TODO: Use all of my code
 
-use std::ops::{Add, Sub, Neg};
+use std::ops::{Add, AddAssign, Sub, Neg};
 
 use bytemuck::{Pod, Zeroable};
 
@@ -22,6 +22,14 @@ impl Add for Vector4 {
             z: self.z + v.z,
             w: self.w + v.w
         }
+    }
+}
+impl AddAssign for Vector4 {
+    fn add_assign(&mut self, v: Self) {
+        self.x += v.x;
+        self.y += v.y;
+        self.z += v.z;
+        self.w += v.w
     }
 }
 impl Sub for Vector4 {
@@ -46,24 +54,6 @@ impl Neg for Vector4 {
         }
     }
 }
-impl Vector4 {
-    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
-        Self{x, y, z, w}
-    }
-    pub fn dot(&self, v: Self) -> f32 { self.x*v.x + self.y*v.y + self.z*v.z + self.w*v.w }
-    pub fn scale_self(&mut self, s: f32) {
-        self.x *= s;
-        self.y *= s;
-        self.z *= s;
-        self.w *= s
-    }
-    pub fn scale(&mut self, s: f32) {
-        self.x *= s;
-        self.y *= s;
-        self.z *= s;
-        self.w *= s
-    }
-}
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Zeroable, Pod)]
@@ -79,6 +69,12 @@ impl Add for Vector2 {
             x: self.x + v.x,
             y: self.y + v.y
         }
+    }
+}
+impl AddAssign for Vector2 {
+    fn add_assign(&mut self, v: Self) {
+        self.x += v.x;
+        self.y += v.y
     }
 }
 impl Sub for Vector2 {
@@ -103,13 +99,14 @@ impl Vector2 {
     pub fn new(x: f32, y: f32) -> Self {
         Self{x, y}
     }
-    pub fn dot(&self, v: Self) -> f32 { self.x*v.x + self.y*v.y }
     pub fn scale_self(&mut self, s: f32) {
         self.x *= s;
         self.y *= s
     }
-    pub fn scale(&mut self, s: f32) {
-        self.x *= s;
-        self.y *= s
+    pub fn scale(self, s: f32) -> Self {
+        Self {
+            x: self.x * s,
+            y: self.y * s
+        }
     }
 }
