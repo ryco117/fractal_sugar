@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer};
 use vulkano::device::{Device, Queue};
-use vulkano::format::Format;
 use vulkano::image::{AttachmentImage, SwapchainImage};
 use vulkano::image::view::ImageView;
 use vulkano::instance::{Instance, InstanceCreateInfo};
@@ -40,10 +39,7 @@ pub struct Engine {
     fences: Vec<Option<Arc<EngineFrameFuture>>>,
     frag_shader: Arc<ShaderModule>,
     framebuffers: Vec<Arc<Framebuffer>>,
-    frames_in_flight: usize,
     graphics_pipeline: Arc<GraphicsPipeline>,
-    image_format: Format,
-    msaa_images: Vec<Arc<ImageView<AttachmentImage>>>,
     position_buffer: Arc<CpuAccessibleBuffer<[Vector2]>>,
     previous_fence_index: usize,
     queue: Arc<Queue>,
@@ -78,6 +74,7 @@ impl Engine {
 
         // Create swapchain and associated image buffers from the relevant parameters
         let engine_swapchain = EngineSwapchain::new(physical_device, device.clone(), surface.clone(), PresentMode::Fifo);
+        let image_format = engine_swapchain.get_swapchain().image_format();
 
         // Create a frame-in-flight fence for each image buffer.
         // This allows CPU work to continue while GPU is busy with previous frames
@@ -164,10 +161,6 @@ impl Engine {
             }
         ).unwrap();*/
 
-        // TODO: Move msaa_images and associated logic to EngineSwapchain
-        let image_format = engine_swapchain.get_swapchain().image_format();
-        let msaa_images = Engine::create_msaa_images(&device, &surface, image_format, frames_in_flight);
-
         // Create particle renderpass with MSAA
         let render_pass = vulkano::single_pass_renderpass!(
             device.clone(),
@@ -213,20 +206,17 @@ impl Engine {
         let pipeline = pipeline::create_particles_pipeline(device.clone(), vert_shader.clone(), frag_shader.clone(), render_pass.clone(), viewport.clone());
 
         // Create a framebuffer to store results of render pass
-        let framebuffers = Engine::create_particles_framebuffers(render_pass.clone(), &engine_swapchain.get_images(), &msaa_images.clone());
+        let framebuffers = Self::create_particles_framebuffers(render_pass.clone(), &engine_swapchain.get_images(), &engine_swapchain.get_msaa_images());
 
         // Construct new Engine
-        Engine {
+        Self {
             compute_pipeline,
             descriptor_set,
             device,
             fences,
             frag_shader,
             framebuffers,
-            frames_in_flight,
             graphics_pipeline: pipeline,
-            image_format,
-            msaa_images,
             position_buffer,
             previous_fence_index: 0,
             queue,
@@ -247,7 +237,7 @@ impl Engine {
         }
 
         // Create new swapchain from the previous, specifying new window size
-        match self.swapchain.recreate(dimensions) {
+        match self.swapchain.recreate(dimensions, window_resized) {
             // Continue logic
             RecreateSwapchainResult::Success => {}
 
@@ -258,13 +248,8 @@ impl Engine {
             err => return err
         }
 
-        // TODO: Move msaa_images and associated logic to EngineSwapchain
-        if window_resized {
-            self.msaa_images = Engine::create_msaa_images(&self.device, &self.surface, self.image_format, self.frames_in_flight)
-        }
-
         // Framebuffer is tied to the swapchain images, must recreate as well
-        self.framebuffers = Engine::create_particles_framebuffers(self.render_pass.clone(), &self.swapchain.get_images(), &self.msaa_images);
+        self.framebuffers = Self::create_particles_framebuffers(self.render_pass.clone(), &self.swapchain.get_images(), &self.swapchain.get_msaa_images());
 
         // If caller indicates a resize has prompted this call then adjust viewport and fixed-view pipeline
         if window_resized {
@@ -382,25 +367,6 @@ impl Engine {
         requires_recreate_swapchain
     }
 
-    // Create required attachment images for multi-sampling (MSAA) each frame
-    fn create_msaa_images(
-        device: &Arc<Device>,
-        surface: &Surface<Window>,
-        image_format: Format,
-        image_count: usize
-    ) -> Vec<Arc<ImageView<AttachmentImage>>> {
-        (0..image_count).map(|_|
-            ImageView::new_default(
-                AttachmentImage::transient_multisampled(
-                    device.clone(),
-                    surface.window().inner_size().into(),
-                    vulkano::image::SampleCount::Sample8,
-                    image_format
-                ).unwrap(),
-            ).unwrap()
-        ).collect()
-    }
-
     // Helper for (re)creating framebuffers
     fn create_particles_framebuffers(
         render_pass: Arc<RenderPass>,
@@ -410,22 +376,19 @@ impl Engine {
         assert_eq!(images.len(), msaa_images.len(), "Must have an equal number of multi-sampled and destination images");
 
         (0..images.len()).map(|i| {
-            let img = images[i].clone();
-            let msaa_img = msaa_images[i].clone();
-
             // To interact with image buffers or framebuffers from shaders must create view defining how buffer will be used.
-            let view = ImageView::new_default(img.clone()).unwrap();
+            let view = ImageView::new_default(images[i].clone()).unwrap();
 
-            // Create framebuffer specifying underlying renderpass and view
+            // Create framebuffer specifying underlying renderpass and image attachments
             Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![msaa_img, view], // Must add specified attachments in order
+                    attachments: vec![msaa_images[i].clone(), view], // Must add specified attachments in order
                     ..Default::default()
                 },
             ).unwrap()
         })
-        .collect::<Vec<_>>()
+        .collect()
     }
 
     // Engine getters

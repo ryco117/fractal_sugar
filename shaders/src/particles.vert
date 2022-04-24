@@ -11,11 +11,11 @@ layout (push_constant) uniform Push
 } push;
 
 const vec3 C0 = vec3(0.8, 0.25, 0.3);
-const float c1 = 0.2;
+const float c1 = 0.25;
 const vec3 endC1 = vec3(0.0, 0.45, 0.55);
 const float c2 = 0.5;
 const vec3 endC2 = vec3(0.45, 0.75, 0.0);
-const float c3 = 0.8;
+const float c3 = 0.75;
 const vec3 endC3 = vec3(0.7, 0.0, 1.0);
 
 const float particleCount = 1048576.0;
@@ -23,7 +23,7 @@ const float particleCount = 1048576.0;
 void main() {
 	gl_Position = vec4(x, y, 0.0, 1.0);
 
-	float t = fract(float(gl_VertexIndex)/particleCount + 0.015*push.time);
+	float t = fract(float(gl_VertexIndex)/particleCount + 0.02*push.time);
 	if(t < c1) {
 		outColor = vec4(mix(C0, endC1, t / c1), 1.0);
 	} else if(t < c2) {
