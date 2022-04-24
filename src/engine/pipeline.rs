@@ -13,7 +13,7 @@ use crate::my_math::Vector2;
 vulkano::impl_vertex!(Vector2, x, y);
 
 // Retrieve basic graphics pipeline
-pub fn particles_graphics_pipeline(
+pub fn create_particles_pipeline(
     device: Arc<Device>,
     vert_shader: Arc<ShaderModule>,
     frag_shader: Arc<ShaderModule>,
@@ -44,7 +44,7 @@ pub fn particles_graphics_pipeline(
 }
 
 // Retrieve basic graphics pipeline
-pub fn _create_graphics_pipeline(
+/*pub fn create_graphics_pipeline(
     device: Arc<Device>,
     vert_shader: Arc<ShaderModule>,
     frag_shader: Arc<ShaderModule>,
@@ -69,4 +69,4 @@ pub fn _create_graphics_pipeline(
 
         // Now that everything is specified, we call `build`.
         .build(device.clone()).unwrap()
-}
+}*/

@@ -33,6 +33,7 @@ fn main() {
     let mut window_resized = false;
     let mut recreate_swapchain = false;
     let mut window_is_fullscreen = false;
+    let mut window_is_focused = true; engine.get_surface().window().focus_window();
     let mut last_frame_time = SystemTime::now();
     let mut last_mouse_movement = SystemTime::now();
     let mut is_cursor_visible = true;
@@ -76,10 +77,6 @@ fn main() {
                 let smooth = 1. - (delta_time * -scale).exp();
                 source + (target - source) * smooth
             };
-            /*let interpolate_quaternions = |scale: f32, source: &mut [f32; 4], target: &[f32; 4]| -> () {
-                let smooth = 1. - (delta_time * -scale).exp();
-                for i in 0..4 { source[i] += (target[i] - source[i]) * smooth }
-            };*/
             let interpolate_vec2 = |scale: f32, source: &mut Vector2, target: &Vector2| {
                 let smooth = 1. - (delta_time * -scale).exp();
                 *source += (*target - *source).scale(smooth)
@@ -93,15 +90,13 @@ fn main() {
                     audio_state.volume = interpolate_floats(16.0, audio_state.volume, volume);
 
                     // Update 2D vectors
-                    interpolate_vec2(4.*audio_state.big_boomer.1, &mut audio_state.big_boomer.0, &big_boomer.0);
+                    interpolate_vec2(5.*audio_state.big_boomer.1, &mut audio_state.big_boomer.0, &big_boomer.0);
                     audio_state.big_boomer.1 = big_boomer.1;
                     for i in 0..2 {
-                        interpolate_vec2(4.*audio_state.curl_attractors[i].1, &mut audio_state.curl_attractors[i].0, &curl_attractors[i].0);
-                        audio_state.curl_attractors[i].1 = curl_attractors[i].1
+                        audio_state.curl_attractors[i] = curl_attractors[i]
                     }
                     for i in 0..2 {
-                        interpolate_vec2(4.*audio_state.attractors[i].1, &mut audio_state.attractors[i].0, &attractors[i].0);
-                        audio_state.attractors[i].1 = attractors[i].1
+                        audio_state.attractors[i] = attractors[i]
                     }
                 }
 
@@ -118,7 +113,7 @@ fn main() {
             game_time += delta_time * audio_state.volume.sqrt();
 
             // If cursor is visible and has been stationary then hide it
-            if is_cursor_visible && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 3. {
+            if is_cursor_visible && window_is_focused && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 3. {
                 engine.get_surface().window().set_cursor_visible(false);
                 is_cursor_visible = false
             }
@@ -141,12 +136,12 @@ fn main() {
                 height: dimensions.height as f32
             };
 
-            fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([Vector2; 2], [f32; 2]) {
-                (arr.map(|e| e.0), arr.map(|e| e.1))
-            }
+            // Unzip (point, strength) arrays for passing to shader
+            fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([Vector2; 2], [f32; 2]) { (arr.map(|e| e.0), arr.map(|e| e.1)) }
             let (curl_attractors, curl_attractor_strengths) = simple_unzip(&audio_state.curl_attractors);
             let (attractors, attractor_strengths) = simple_unzip(&audio_state.attractors);
 
+            // Create per-frame data for particle compute-shader
             let compute_push_constants = engine::renderer::ComputePushConstantData {
                 big_boomer: audio_state.big_boomer.0,
                 big_boomer_strength: audio_state.big_boomer.1,
@@ -157,10 +152,10 @@ fn main() {
                 attractors,
                 attractor_strengths,
 
-                fix_particles,
-                delta_time
+                time: game_time,
+                delta_time,
+                fix_particles
             };
-            //println!("X*X*X*XH*H*H*H {}", compute_push_constants.fix_particles);
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
             recreate_swapchain |= engine.draw_frame(push_constants, compute_push_constants)
@@ -209,13 +204,17 @@ fn main() {
             }
         }
 
-        // Force cursor visibility when focus is lost
+        // Track window focus in a state var
         Event::WindowEvent {
-            event: WindowEvent::Focused(false),
+            event: WindowEvent::Focused(focused),
             ..
         } => {
-            engine.get_surface().window().set_cursor_visible(true);
-            is_cursor_visible = true
+            if !focused {
+                // Force cursor visibility when focus is lost
+                engine.get_surface().window().set_cursor_visible(true);
+                is_cursor_visible = true
+            }
+            window_is_focused = focused
         }
 
         // Handle mouse movement

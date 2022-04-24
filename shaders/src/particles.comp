@@ -22,6 +22,7 @@ layout (push_constant) uniform Push
 	float curlAttractorStrengths[2];
 	float attractorStrengths[2];
 
+	float time;
 	float deltaTime;
 	bool fixParticles;
 } push;
@@ -30,7 +31,7 @@ const float springCoefficient = 150.0;
 
 const float maxSpeed = 6.0;
 const float min_length = 0.01;
-const float friction = -1.75;
+const float friction = -3.0;
 
 const float audioScale = 0.01;
 
@@ -53,21 +54,21 @@ void main(void)
 	{
 		vec2 t = push.bigBoomer - pos;
 		float r = max(length(t), min_length);
-		g -= push.bigBoomerStrength * Normalize(t) / (r*r*r)  * (push.fixParticles ? 0.08 : 0.25);
+		g -= push.bigBoomerStrength * Normalize(t) / (r*r*r)  * (push.fixParticles ? 0.25 : 0.4);
 	}
 
 	for(int i = 0; i < push.curlAttractors.length(); i++)
 	{
 		vec2 t = push.curlAttractors[i] - pos;
 		float r = max(length(t), min_length);
-		g += push.curlAttractorStrengths[i] * Normalize(vec2(-t.y, t.x)) / (r*r) * (push.fixParticles ? 1.25 : 2.0);
+		g += push.curlAttractorStrengths[i] * Normalize(vec2(-t.y, t.x)) / (r*r) * (push.fixParticles ? 1.5 : 2.5);
 	}
 
 	for(int i = 0; i < push.attractors.length(); i++)
 	{
 		vec2 t = push.attractors[i] - pos;
 		float r = max(length(t), min_length);
-		g += push.attractorStrengths[i] * Normalize(t) / (r*r) * (push.fixParticles ? 2.5 : 4.0);
+		g += push.attractorStrengths[i] * Normalize(t) / (r*r) * (push.fixParticles ? 3.0 : 4.0);
 	}
 
 	g *= audioScale;

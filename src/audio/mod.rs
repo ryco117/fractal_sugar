@@ -10,6 +10,8 @@ use crate::space_filling_curves;
 
 const PRINT_SPECTRUM: bool = true;
 
+const EMPTY_NOTE: (Vector2, f32) = (Vector2::new(0., 0.), 0.);
+
 // Audio state to pass to UI thread
 pub struct AudioState {
     pub big_boomer: (Vector2, f32),
@@ -20,9 +22,9 @@ pub struct AudioState {
 impl Default for AudioState {
     fn default() -> Self {
         AudioState {
-            big_boomer: (Vector2::new(0., 0.), 0.),
-            curl_attractors: [(Vector2::new(0., 0.), 0.); 2],
-            attractors: [(Vector2::new(0., 0.), 0.); 2],
+            big_boomer: EMPTY_NOTE,
+            curl_attractors: [EMPTY_NOTE; 2],
+            attractors: [EMPTY_NOTE; 2],
             volume: 0.
         }
     }
@@ -30,8 +32,7 @@ impl Default for AudioState {
 
 // Simple type to help understand results from `analyze_frequency_range` closure
 struct FrequencyAnalysis {
-    pub loudest_frequency: f32,
-    pub loudest_volume: f32,
+    pub loudest: Vec<(f32, f32)>,
     pub total_volume: f32
 }
 
@@ -68,49 +69,61 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             fft.process(&mut complex);
 
             // Create helper closure for determining the loudest frequency bin(s) within a frequency range
-            let analyze_frequency_range = |start_frequency: f32, end_frequency: f32| -> FrequencyAnalysis {
-                let start_index = frequency_to_index(start_frequency);
-                let end_index = frequency_to_index(end_frequency);
-                let mut total_volume: f32 = 0.;
-                let mut max_volume: (usize, f32) = (start_index, 0.);
-                for i in start_index..end_index {
-                    let v = scale*complex[i].norm();
-                    total_volume += v;
+            let analyze_frequency_range = |frequency_range: std::ops::Range<f32>, count: usize, mut delta: f32, min_volume: f32| -> FrequencyAnalysis {
+                let start_index = frequency_to_index(frequency_range.start);
+                let end_index = frequency_to_index(frequency_range.end);
+                let len = end_index - start_index;
+                let flen = len as f32;
+                delta /= 2.; // Allow caller to specify total width, even though we use distance from center
 
-                    // Basics of determining largest frequency bins
-                    if v > max_volume.1 {
-                        max_volume = (i, v)
-                    }
+                // Create sorted array of notes in this frequency range
+                let mut sorted: Vec<(f32, f32)> = (0..len).map(|i| (i as f32 / flen, scale*complex[start_index + i].norm())).collect();
+                sorted.sort_unstable_by(|x, y| y.1.partial_cmp(&x.1).unwrap_or(std::cmp::Ordering::Equal));
+                let total_volume = sorted.iter().fold(0., |acc, x| acc + x.1);
+
+                let mut loudest: Vec<(f32, f32)> = Vec::with_capacity(count);
+                while sorted.len() > 0 && loudest.len() < count {
+                    let (t, v) = sorted[0];
+                    let remaining: Vec<(f32, f32)> = sorted.into_iter().filter(|x| (t - x.0).abs() > delta).collect();
+
+                    // Update the strongest and the remaining lists. Reject values too quiet
+                    loudest.push((t, if v >= min_volume {v} else {0.}));
+                    sorted = remaining
                 }
+                assert_eq!(count, loudest.len(), "Calling code assumes requested number of notes will be returned");
 
                 FrequencyAnalysis {
-                    loudest_frequency: (max_volume.0 - start_index) as f32 / (end_index - start_index) as f32,
-                    loudest_volume: max_volume.1,
+                    loudest,
                     total_volume
                 }
             };
 
             // Analyze each frequency range
-            let bass_analysis = analyze_frequency_range(30., 150.);
-            let mids_analysis = analyze_frequency_range(150., 1_200.);
-            let high_analysis = analyze_frequency_range(1_200., 12_000.);
+            let bass_analysis = analyze_frequency_range(30.0..200., 1, 0.05, 0.4);
+            let mids_analysis = analyze_frequency_range(200.0..1_200., 2, 0.2, 0.35);
+            let high_analysis = analyze_frequency_range(1_200.0..12_000., 2, 0.2, 0.1);
+
+            // Convert note analysis to 2D vectors with strengths
+            fn loudest_to_square(x: (f32, f32), pow: f32) -> (Vector2, f32) {
+                (space_filling_curves::square::default_curve_to_square(x.0.powf(pow)), x.1)
+            }
 
             // Get total volume from all (relevant) frequencies
             let volume = bass_analysis.total_volume + mids_analysis.total_volume + high_analysis.total_volume;
 
             // Send updated state to UI thread
             match tx.send(AudioState {
-                big_boomer: (space_filling_curves::square::default_curve_to_square(bass_analysis.loudest_frequency.powf(0.85)), bass_analysis.loudest_volume),
-                curl_attractors: [(space_filling_curves::square::default_curve_to_square(mids_analysis.loudest_frequency.powf(0.625)), mids_analysis.loudest_volume), (Vector2::new(0., 0.), 0.)],
-                attractors: [(space_filling_curves::square::default_curve_to_square(high_analysis.loudest_frequency.powf(0.2)), high_analysis.loudest_volume), (Vector2::new(0., 0.), 0.)],
+                big_boomer: loudest_to_square(bass_analysis.loudest[0], 0.75),
+                curl_attractors: [loudest_to_square(mids_analysis.loudest[0], 0.65), loudest_to_square(mids_analysis.loudest[1], 0.65)],
+                attractors: [loudest_to_square(high_analysis.loudest[0], 0.25), loudest_to_square(high_analysis.loudest[1], 0.25)],
                 volume
             }) {
                 Ok(()) => {}
                 Err(_) => println!("UI thread receiver disconnected..")
             }
 
+            // Optionally print frequency-spectrum to console
             if PRINT_SPECTRUM {
-                // Scale to smaller array for displaying
                 const DISPLAY_FFT_SIZE: usize = 64;
                 let mut display_bins: [f32; DISPLAY_FFT_SIZE] = [0.; DISPLAY_FFT_SIZE];
                 let display_start_index = frequency_to_index(30.);
@@ -118,7 +131,7 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
                 let r = (display_end_index - display_start_index) / DISPLAY_FFT_SIZE;
                 let mut volume: f32 = 0.;
                 let mut max_volume: (usize, f32) = (display_start_index, 0.);
-                for i in 0..DISPLAY_FFT_SIZE { // Remove bounds as they are always over represented?
+                for i in 0..DISPLAY_FFT_SIZE {
                     let mut t = 0.;
                     let index = display_start_index + i*r;
                     for j in 0..r {

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, SubpassContents};
-use vulkano::buffer::{CpuAccessibleBuffer /*TODO: Use a better type (device local?)*/, TypedBufferAccess /*For accessing buffer array length*/};
+use vulkano::buffer::CpuAccessibleBuffer;
 use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, Queue};
 use vulkano::format::ClearValue;
@@ -21,6 +21,7 @@ pub struct ComputePushConstantData {
 	pub curl_attractor_strengths: [f32; 2],
 	pub attractor_strengths: [f32; 2],
 
+    pub time: f32,
 	pub delta_time: f32,
 	pub fix_particles: bool
 }
@@ -32,7 +33,7 @@ pub struct PushConstantData {
     pub height: f32
 }
 
-pub fn particles_cmdbuf(
+pub fn create_particles_cmdbuf(
     device: Arc<Device>,
     queue: Arc<Queue>,
     graphics_pipeline: Arc<GraphicsPipeline>,
@@ -49,7 +50,10 @@ pub fn particles_cmdbuf(
         CommandBufferUsage::OneTimeSubmit
     ).unwrap();
 
+    use vulkano::buffer::TypedBufferAccess; //Trait for accessing buffer length
     let buffer_count = vertex_buffer.len() as u32;
+
+    let time = push_constant.time;
 
     // Build render pass commands
     builder
@@ -65,18 +69,20 @@ pub fn particles_cmdbuf(
             descriptor_set)
         .dispatch([buffer_count/128, 1, 1]).unwrap()
 
-        // Initialize rendering a frame
+        // Initialize rendering a frame for particles (including MSAA)
         .begin_render_pass(
             framebuffer.clone(),
             SubpassContents::Inline, // Directly use draw commands without secondary command buffer
             vec![[0., 0., 0., 1.].into(), ClearValue::None] // Clear values for attachments
         ).unwrap()
 
+        // Draw particles
         .bind_pipeline_graphics(graphics_pipeline.clone())
+        .push_constants(graphics_pipeline.layout().clone(), 0, time) // Use only the game-time for vertex shader
         .bind_vertex_buffers(0, vertex_buffer.clone())
         .draw(buffer_count, 1, 0, 0).expect("Failed to draw graphics pipeline")
 
-        // Mark completion of frame render
+        // Mark completion of frame rendering (for this pass)
         .end_render_pass().unwrap();
 
     // Return new command buffer for this framebuffer

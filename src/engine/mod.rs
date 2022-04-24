@@ -96,10 +96,12 @@ impl Engine {
         //let frag_shader = load_shader_bytes("shaders/spirv/iq_mandelbrot.frag.spv");
         //let vert_shader = load_shader_bytes("shaders/spirv/entire_view.vert.spv");
 
-        // COMPUTE TEST
+        // Load particle shaders
         let frag_shader = load_shader_bytes("shaders/spirv/particles.frag.spv");
         let vert_shader = load_shader_bytes("shaders/spirv/particles.vert.spv");
         let comp_shader = load_shader_bytes("shaders/spirv/particles.comp.spv");
+
+        // Create compute pipeline for particles
         let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
             device.clone(),
             comp_shader.entry_point("main").unwrap(),
@@ -107,6 +109,8 @@ impl Engine {
             None,
             |_| {}
         ).expect("Failed to create compute shader");
+
+        // Create Storage Buffers for particle info
         const PARTICLE_COUNT: usize = 1_048_576;
         const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
         fn create_buffer<T, I>(device: &Arc<Device>, data_iter: I, usage: BufferUsage) -> Arc<CpuAccessibleBuffer<[T]>> where
@@ -125,16 +129,17 @@ impl Engine {
             let velocity_buff = create_buffer(&device, velocity_iter, BufferUsage::storage_buffer());
 
             let position_iter = (0..PARTICLE_COUNT).map(|i| {
-                space_filling_curves::square::default_curve_to_square(i as f32 / PARTICLE_COUNT_F32)
+                space_filling_curves::square::curve_to_square_n(i as f32 / PARTICLE_COUNT_F32, 7)
             });
             let position_buff = create_buffer(&device, position_iter.clone(), BufferUsage::storage_buffer() | BufferUsage::vertex_buffer());
             let fixed_position_buff = create_buffer(&device, position_iter, BufferUsage::storage_buffer());
             (position_buff, velocity_buff, fixed_position_buff)
         };
-        use vulkano::pipeline::Pipeline;
-        let layout = compute_pipeline.layout().set_layouts().get(0).unwrap(); // 0 is the index of the descriptor set layout we want
+
+        // Create a new descriptor set for binding particle Storage Buffers
+        use vulkano::pipeline::Pipeline; // Required to access layout() method
         let descriptor_set = vulkano::descriptor_set::PersistentDescriptorSet::new(
-            layout.clone(),
+            compute_pipeline.layout().set_layouts().get(0).unwrap().clone(), // 0 is the index of the descriptor set layout we want
             [
                 vulkano::descriptor_set::WriteDescriptorSet::buffer(0, position_buffer.clone()), // 0 is the binding of the data in this set
                 vulkano::descriptor_set::WriteDescriptorSet::buffer(1, velocity_buffer.clone()),
@@ -159,6 +164,7 @@ impl Engine {
             }
         ).unwrap();*/
 
+        // TODO: Move msaa_images and associated logic to EngineSwapchain
         let image_format = engine_swapchain.get_swapchain().image_format();
         let msaa_images = Engine::create_msaa_images(&device, &surface, image_format, frames_in_flight);
 
@@ -204,7 +210,7 @@ impl Engine {
         };
 
         // Create the almighty graphics pipeline!
-        let pipeline = pipeline::particles_graphics_pipeline(device.clone(), vert_shader.clone(), frag_shader.clone(), render_pass.clone(), viewport.clone());
+        let pipeline = pipeline::create_particles_pipeline(device.clone(), vert_shader.clone(), frag_shader.clone(), render_pass.clone(), viewport.clone());
 
         // Create a framebuffer to store results of render pass
         let framebuffers = Engine::create_particles_framebuffers(render_pass.clone(), &engine_swapchain.get_images(), &msaa_images.clone());
@@ -252,7 +258,7 @@ impl Engine {
             err => return err
         }
 
-
+        // TODO: Move msaa_images and associated logic to EngineSwapchain
         if window_resized {
             self.msaa_images = Engine::create_msaa_images(&self.device, &self.surface, self.image_format, self.frames_in_flight)
         }
@@ -266,7 +272,7 @@ impl Engine {
 
             // Since pipeline specifies viewport is fixed, entire pipeline needs to be reconstructed to account for size change
             //self.graphics_pipeline = pipeline::create_graphics_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
-            self.graphics_pipeline = pipeline::particles_graphics_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
+            self.graphics_pipeline = pipeline::create_particles_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
         }
 
         // Recreated swapchain and necessary follow-up structures without error
@@ -325,7 +331,7 @@ impl Engine {
             self.framebuffers[image_index].clone(),
             push_constants
         );*/
-        let colored_sugar_commands = renderer::particles_cmdbuf(
+        let colored_sugar_commands = renderer::create_particles_cmdbuf(
             self.device.clone(),
             self.queue.clone(),
             self.graphics_pipeline.clone(),

@@ -220,8 +220,8 @@ pub mod square {
     }
 
     // Function to map a floating point number `x` in range [0, 1] to a point in the square of 
-    // side-length 2 that's centered at the origin. Same as `square_to_cube_n` but with default depth of 7
+    // side-length 2 that's centered at the origin. Same as `square_to_cube_n` but with default depth of 5
     pub fn default_curve_to_square(x: f32) -> Vector2 {
-        curve_to_square_n(x, 7)
+        curve_to_square_n(x, 5)
     }
 }
