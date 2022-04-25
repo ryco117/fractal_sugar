@@ -77,12 +77,18 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
                 delta /= 2.; // Allow caller to specify total width, even though we use distance from center
 
                 // Create sorted array of notes in this frequency range
-                let mut sorted: Vec<(f32, f32)> = (0..len).map(|i| (i as f32 / flen, scale*complex[start_index + i].norm())).collect();
-                sorted.sort_unstable_by(|x, y| y.1.partial_cmp(&x.1).unwrap_or(std::cmp::Ordering::Equal));
-                let total_volume = sorted.iter().fold(0., |acc, x| acc + x.1);
+                let mut total_volume = 0.;
+                let mut sorted: Vec<(f32, f32)> = (0..len).map(|i| {
+                    let frac = i as f32 / flen;
+                    let v = scale*complex[start_index + i].norm();
+                    total_volume += v;
+                    (frac, f32::powf(1.85, frac) * v)
+                }).collect();
 
                 let mut loudest: Vec<(f32, f32)> = Vec::with_capacity(count);
                 while sorted.len() > 0 && loudest.len() < count {
+                    sorted.sort_unstable_by(|x, y| y.1.partial_cmp(&x.1).unwrap_or(std::cmp::Ordering::Equal));
+
                     let (t, v) = sorted[0];
                     let remaining: Vec<(f32, f32)> = sorted.into_iter().filter(|x| (t - x.0).abs() > delta).collect();
 
@@ -99,13 +105,13 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             };
 
             // Analyze each frequency range
-            let bass_analysis = analyze_frequency_range(30.0..200., 1, 0.05, 0.4);
-            let mids_analysis = analyze_frequency_range(200.0..1_200., 2, 0.2, 0.375);
-            let high_analysis = analyze_frequency_range(1_200.0..12_000., 2, 0.2, 0.15);
+            let bass_analysis = analyze_frequency_range(30.0..250., 1, 0.05, 0.5);
+            let mids_analysis = analyze_frequency_range(250.0..1_300., 2, 0.1, 0.3);
+            let high_analysis = analyze_frequency_range(1_300.0..12_000., 2, 0.1, 0.075);
 
             // Convert note analysis to 2D vectors with strengths
             fn loudest_to_square(x: (f32, f32), pow: f32) -> (Vector2, f32) {
-                (space_filling_curves::square::default_curve_to_square(x.0.powf(pow)), x.1)
+                (space_filling_curves::square::curve_to_square_n(x.0.powf(pow), 4), x.1)
             }
 
             // Get total volume from all (relevant) frequencies
@@ -114,8 +120,8 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             // Send updated state to UI thread
             match tx.send(AudioState {
                 big_boomer: loudest_to_square(bass_analysis.loudest[0], 0.75),
-                curl_attractors: [loudest_to_square(mids_analysis.loudest[0], 0.65), loudest_to_square(mids_analysis.loudest[1], 0.65)],
-                attractors: [loudest_to_square(high_analysis.loudest[0], 0.25), loudest_to_square(high_analysis.loudest[1], 0.25)],
+                curl_attractors: [loudest_to_square(mids_analysis.loudest[0], 0.685), loudest_to_square(mids_analysis.loudest[1], 0.685)],
+                attractors: [loudest_to_square(high_analysis.loudest[0], 0.28), loudest_to_square(high_analysis.loudest[1], 0.28)],
                 volume
             }) {
                 Ok(()) => {}
@@ -170,8 +176,9 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
                     max_volume.0 as f32 * frequency_resolution);
             }
 
-            // TODO: Copy elements with index greater than `size` to the start of array since they weren't used in the previous FFT
-            audio_storage_buffer.truncate(0)
+            // Copy elements with index >= `size` to the start of array since they haven't been used yet
+            audio_storage_buffer.copy_within(size.., 0);
+            audio_storage_buffer.truncate(audio_storage_buffer.len() - size)
         } // end unconditional loop
     }))
 }

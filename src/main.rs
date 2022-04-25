@@ -89,13 +89,16 @@ fn main() {
                     // Update volume
                     audio_state.volume = interpolate_floats(16.0, audio_state.volume, volume);
 
-                    // Update 2D vectors
-                    interpolate_vec2(5.*audio_state.big_boomer.1, &mut audio_state.big_boomer.0, &big_boomer.0);
-                    audio_state.big_boomer.1 = big_boomer.1;
-                    for i in 0..2 {
-                        audio_state.curl_attractors[i] = curl_attractors[i]
+                    // Update 2D big boomers
+                    if fix_particles {
+                        interpolate_vec2(5.*audio_state.big_boomer.1, &mut audio_state.big_boomer.0, &big_boomer.0);
+                        audio_state.big_boomer.1 = big_boomer.1
+                    } else {
+                        audio_state.big_boomer = big_boomer
                     }
+                    // Update 2D (curl)attractors
                     for i in 0..2 {
+                        audio_state.curl_attractors[i] = curl_attractors[i];
                         audio_state.attractors[i] = attractors[i]
                     }
                 }

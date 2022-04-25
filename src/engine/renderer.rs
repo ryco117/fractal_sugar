@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use vulkano::command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, SubpassContents};
-use vulkano::buffer::CpuAccessibleBuffer;
+use vulkano::buffer::device_local::DeviceLocalBuffer;
 use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, Queue};
 use vulkano::format::ClearValue;
-use vulkano::pipeline::{Pipeline, ComputePipeline, GraphicsPipeline};
+use vulkano::pipeline::{Pipeline, ComputePipeline, GraphicsPipeline, PipelineBindPoint};
 use vulkano::render_pass::Framebuffer;
 
 use crate::my_math::Vector2;
@@ -38,7 +38,7 @@ pub fn create_particles_cmdbuf(
     queue: Arc<Queue>,
     graphics_pipeline: Arc<GraphicsPipeline>,
     framebuffer: Arc<Framebuffer>,
-    vertex_buffer: Arc<CpuAccessibleBuffer<[Vector2]>>,
+    vertex_buffer: Arc<DeviceLocalBuffer<[Vector2]>>,
     compute_pipeline: Arc<ComputePipeline>,
     descriptor_set: Arc<PersistentDescriptorSet>,
     push_constant: ComputePushConstantData
@@ -63,7 +63,7 @@ pub fn create_particles_cmdbuf(
         // Perform compute operation to update particle positions
         .bind_pipeline_compute(compute_pipeline.clone())
         .bind_descriptor_sets(
-            vulkano::pipeline::PipelineBindPoint::Compute,
+            PipelineBindPoint::Compute,
             compute_pipeline.layout().clone(),
             0, // Bind this descriptor set to index 0
             descriptor_set)

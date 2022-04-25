@@ -127,12 +127,6 @@ pub mod cube {
         }
         f(n, x)
     }
-
-    // Function to map a floating point number `x` in range [0, 1] to a point in the cube of 
-    // side-length 2 that's centered at the origin. Same as `curve_to_cube_n` but with default depth of 5
-    pub fn default_curve_to_cube(x: f32) -> (f32, f32, f32) {
-        curve_to_cube_n(x, 5)
-    }
 }
 
 // Contain code for mapping a number in [0, 1] to a square
@@ -217,11 +211,5 @@ pub mod square {
             }
         }
         f(n, x)
-    }
-
-    // Function to map a floating point number `x` in range [0, 1] to a point in the square of 
-    // side-length 2 that's centered at the origin. Same as `square_to_cube_n` but with default depth of 5
-    pub fn default_curve_to_square(x: f32) -> Vector2 {
-        curve_to_square_n(x, 5)
     }
 }

@@ -23,7 +23,7 @@ const float particleCount = 1048576.0;
 void main() {
 	gl_Position = vec4(x, y, 0.0, 1.0);
 
-	float t = fract(float(gl_VertexIndex)/particleCount + 0.02*push.time);
+	float t = fract(float(gl_VertexIndex)/particleCount + 0.0225*push.time);
 	if(t < c1) {
 		outColor = vec4(mix(C0, endC1, t / c1), 1.0);
 	} else if(t < c2) {

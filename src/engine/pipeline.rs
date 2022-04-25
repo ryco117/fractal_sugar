@@ -19,7 +19,7 @@ pub fn create_particles_pipeline(
     frag_shader: Arc<ShaderModule>,
     render_pass: Arc<RenderPass>,
     viewport: Viewport
-) -> Arc<vulkano::pipeline::GraphicsPipeline> {
+) -> Arc<GraphicsPipeline> {
     GraphicsPipeline::start()
         // Describes the layout of the vertex input and how should it behave
         .vertex_input_state(BuffersDefinition::new().vertex::<Vector2>())
@@ -50,7 +50,7 @@ pub fn create_particles_pipeline(
     frag_shader: Arc<ShaderModule>,
     render_pass: Arc<RenderPass>,
     viewport: Viewport
-) -> Arc<vulkano::pipeline::GraphicsPipeline> {
+) -> Arc<GraphicsPipeline> {
     GraphicsPipeline::start()
         // A Vulkan shader may contain multiple entry points, so we specify which one.
         .vertex_shader(vert_shader.entry_point("main").unwrap(), ())
