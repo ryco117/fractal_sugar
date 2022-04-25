@@ -2,13 +2,15 @@
 
 layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
-layout (binding = 0) buffer PositionBuffer {
-	vec2 positions[];
+struct VertexData {
+	vec2 pos;
+	vec2 vel;
 };
-layout (binding = 1) buffer VelocityBuffer {
-	vec2 velocities[];
+
+layout (binding = 0) buffer VertexBuffer {
+	VertexData verticies[];
 };
-layout (binding = 2) buffer readonly FixedPosBuffer {
+layout (binding = 1) buffer readonly FixedPosBuffer {
 	vec2 fixedPositions[];
 };
 
@@ -46,9 +48,11 @@ void main(void)
 {
 	const uint index = gl_GlobalInvocationID.x;
 
+	VertexData vert = verticies[index];
+
 	// Read the current position and velocity from the buffers
-	vec2 pos = positions[index];
-	vec2 vel = velocities[index];
+	vec2 pos = vert.pos;
+	vec2 vel = vert.vel;
 	
 	vec2 g = vec2(0.0);
 	{
@@ -97,6 +101,6 @@ void main(void)
 		}
 	}
 
-	positions[index] = pos;
-	velocities[index] =  vel * exp(friction * push.deltaTime);
+	verticies[index].pos = pos;
+	verticies[index].vel = vel * exp(friction * push.deltaTime);
 }

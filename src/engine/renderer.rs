@@ -9,6 +9,7 @@ use vulkano::pipeline::{Pipeline, ComputePipeline, GraphicsPipeline, PipelineBin
 use vulkano::render_pass::Framebuffer;
 
 use crate::my_math::Vector2;
+use super::vertex::Vertex;
 
 // Internal bytes to be copied to GPU through push constants
 #[repr(C)]
@@ -23,7 +24,7 @@ pub struct ComputePushConstantData {
 
     pub time: f32,
 	pub delta_time: f32,
-	pub fix_particles: bool
+	pub fix_particles: u32
 }
 #[repr(C)]
 pub struct PushConstantData {
@@ -38,7 +39,7 @@ pub fn create_particles_cmdbuf(
     queue: Arc<Queue>,
     graphics_pipeline: Arc<GraphicsPipeline>,
     framebuffer: Arc<Framebuffer>,
-    vertex_buffer: Arc<DeviceLocalBuffer<[Vector2]>>,
+    vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
     compute_pipeline: Arc<ComputePipeline>,
     descriptor_set: Arc<PersistentDescriptorSet>,
     push_constant: ComputePushConstantData
@@ -53,7 +54,7 @@ pub fn create_particles_cmdbuf(
     use vulkano::buffer::TypedBufferAccess; //Trait for accessing buffer length
     let buffer_count = vertex_buffer.len() as u32;
 
-    let time = push_constant.time;
+    let time = push_constant.time; // Use `time` in both pipelines
 
     // Build render pass commands
     builder

@@ -8,9 +8,7 @@ use vulkano::pipeline::GraphicsPipeline;
 use vulkano::render_pass::{RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 
-use crate::my_math::Vector2;
-
-vulkano::impl_vertex!(Vector2, x, y);
+use super::vertex::Vertex;
 
 // Retrieve basic graphics pipeline
 pub fn create_particles_pipeline(
@@ -22,7 +20,7 @@ pub fn create_particles_pipeline(
 ) -> Arc<GraphicsPipeline> {
     GraphicsPipeline::start()
         // Describes the layout of the vertex input and how should it behave
-        .vertex_input_state(BuffersDefinition::new().vertex::<Vector2>())
+        .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
 
         // A Vulkan shader may contain multiple entry points, so we specify which one.
         .vertex_shader(vert_shader.entry_point("main").unwrap(), ())

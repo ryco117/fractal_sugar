@@ -1,7 +1,7 @@
 #version 450
 
-layout(location = 0) in float x;
-layout(location = 1) in float y;
+layout(location = 0) in vec2 pos;
+layout(location = 1) in vec2 vel;
 
 layout(location = 0) out vec4 outColor;
 
@@ -21,7 +21,7 @@ const vec3 endC3 = vec3(0.7, 0.0, 1.0);
 const float particleCount = 1048576.0;
 
 void main() {
-	gl_Position = vec4(x, y, 0.0, 1.0);
+	gl_Position = vec4(pos, 0.0, 1.0);
 
 	float t = fract(float(gl_VertexIndex)/particleCount + 0.0225*push.time);
 	if(t < c1) {

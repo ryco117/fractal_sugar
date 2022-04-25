@@ -43,7 +43,7 @@ fn main() {
     let mut audio_state = AudioState::default();
 
     // Game state vars?
-    let mut fix_particles = true;
+    let mut fix_particles: u32 = 1;
 
     // Run window loop
     println!("Begin window loop...");
@@ -90,7 +90,7 @@ fn main() {
                     audio_state.volume = interpolate_floats(16.0, audio_state.volume, volume);
 
                     // Update 2D big boomers
-                    if fix_particles {
+                    if fix_particles > 0 {
                         interpolate_vec2(5.*audio_state.big_boomer.1, &mut audio_state.big_boomer.0, &big_boomer.0);
                         audio_state.big_boomer.1 = big_boomer.1
                     } else {
@@ -199,7 +199,7 @@ fn main() {
 
                 // Handle toggling of Jello mode (fixing particles)
                 (ElementState::Pressed, VirtualKeyCode::J) => {
-                    fix_particles = !fix_particles
+                    fix_particles = 1 - fix_particles;
                 }
 
                 // No-op

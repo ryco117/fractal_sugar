@@ -21,12 +21,15 @@ use winit::window::{Window, WindowBuilder};
 use swapchain::{EngineSwapchain, RecreateSwapchainResult};
 
 mod hardware;
-pub mod swapchain;
 pub mod pipeline;
 pub mod renderer;
+pub mod swapchain;
+mod vertex;
 
 use crate::my_math::Vector2;
 use crate::space_filling_curves;
+use vertex::Vertex;
+
 
 type EngineFrameFuture = FenceSignalFuture<vulkano::swapchain::PresentFuture<
     vulkano::command_buffer::CommandBufferExecFuture<
@@ -42,13 +45,13 @@ pub struct Engine {
     frag_shader: Arc<ShaderModule>,
     framebuffers: Vec<Arc<Framebuffer>>,
     graphics_pipeline: Arc<GraphicsPipeline>,
-    position_buffer: Arc<DeviceLocalBuffer<[Vector2]>>,
     previous_fence_index: usize,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
     surface: Arc<Surface<Window>>,
     swapchain: EngineSwapchain,
     vert_shader: Arc<ShaderModule>,
+    vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
     viewport: Viewport
 }
 
@@ -149,26 +152,30 @@ impl Engine {
             // Return device-local buffer with execution future (so caller can decide how best to synchronize execution)
             (local_buffer, future)
         }
-        let (position_buffer, velocity_buffer, fixed_position_buffer) = {
-            // Create velocity buffer with initial value zero-velocity
-            let velocity_iter = (0..PARTICLE_COUNT).map(|_| [0. as f32, 0. as f32]);
-            let (velocity_buff, future_vel) = create_buffer(&device, &queue, velocity_iter, BufferUsage::storage_buffer());
+        let (vertex_buffer, fixed_position_buffer) = {
+            const SPACE_FILLING_CURVE_DEPTH: usize = 6;
 
             // Create position data by mapping particle index to screen using a space filling curve
-            let position_iter = (0..PARTICLE_COUNT).map(|i| space_filling_curves::square::curve_to_square_n(i as f32 / PARTICLE_COUNT_F32, 6));
-
-            // Create position buffer
-            let (position_buff, future_pos) = create_buffer(&device, &queue, position_iter.clone(), BufferUsage::storage_buffer() | BufferUsage::vertex_buffer());
+            let position_iter = (0..PARTICLE_COUNT).map(|i| space_filling_curves::square::curve_to_square_n(i as f32 / PARTICLE_COUNT_F32, SPACE_FILLING_CURVE_DEPTH));
 
             // Create immutable fixed-position buffer
-            let (fixed_position_buff, copy_future) =
+            let (fixed_position_buff, fixed_pos_copy_future) =
                 ImmutableBuffer::from_iter(position_iter, BufferUsage::storage_buffer(), queue.clone())
                 .expect("Failed to create immutable fixed-position buffer");
 
-            // Wait for all futures to finish before continuing
-            copy_future.join(future_pos).join(future_vel).then_signal_fence_and_flush().unwrap().wait(None).unwrap();
+            // Create vertex data by re-calculating
+            let vertex_iter = (0..PARTICLE_COUNT).map(|i| Vertex {
+                pos: space_filling_curves::square::curve_to_square_n(i as f32 / PARTICLE_COUNT_F32, SPACE_FILLING_CURVE_DEPTH),
+                vel: Vector2::new(0., 0.)
+            });
 
-            (position_buff, velocity_buff, fixed_position_buff)
+            // Create position buffer
+            let (vertex_buffer, vertex_future) = create_buffer(&device, &queue, vertex_iter.clone(), BufferUsage::storage_buffer() | BufferUsage::vertex_buffer());
+
+            // Wait for all futures to finish before continuing
+            fixed_pos_copy_future.join(vertex_future).then_signal_fence_and_flush().unwrap().wait(None).unwrap();
+
+            (vertex_buffer, fixed_position_buff)
         };
 
         // Create a new descriptor set for binding particle Storage Buffers
@@ -176,9 +183,8 @@ impl Engine {
         let descriptor_set = vulkano::descriptor_set::PersistentDescriptorSet::new(
             compute_pipeline.layout().set_layouts().get(0).unwrap().clone(), // 0 is the index of the descriptor set layout we want
             [
-                vulkano::descriptor_set::WriteDescriptorSet::buffer(0, position_buffer.clone()), // 0 is the binding of the data in this set
-                vulkano::descriptor_set::WriteDescriptorSet::buffer(1, velocity_buffer.clone()),
-                vulkano::descriptor_set::WriteDescriptorSet::buffer(2, fixed_position_buffer.clone())
+                vulkano::descriptor_set::WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
+                vulkano::descriptor_set::WriteDescriptorSet::buffer(1, fixed_position_buffer.clone())
             ]
         ).unwrap();
 
@@ -255,13 +261,13 @@ impl Engine {
             frag_shader,
             framebuffers,
             graphics_pipeline: pipeline,
-            position_buffer,
             previous_fence_index: 0,
             queue,
             render_pass,
             surface,
             swapchain: engine_swapchain,
             vert_shader,
+            vertex_buffer,
             viewport
         }
     }
@@ -359,7 +365,7 @@ impl Engine {
             self.queue.clone(),
             self.graphics_pipeline.clone(),
             self.framebuffers[image_index].clone(),
-            self.position_buffer.clone(),
+            self.vertex_buffer.clone(),
             self.compute_pipeline.clone(),
             self.descriptor_set.clone(),
             compute_push_constants
