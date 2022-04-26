@@ -79,7 +79,7 @@ pub fn create_particles_cmdbuf(
 
         // Draw particles
         .bind_pipeline_graphics(graphics_pipeline.clone())
-        .push_constants(graphics_pipeline.layout().clone(), 0, time) // Use only the game-time for vertex shader
+        .push_constants(graphics_pipeline.layout().clone(), 0, [time, buffer_count as f32]) // Use only the game-time for vertex shader
         .bind_vertex_buffers(0, vertex_buffer.clone())
         .draw(buffer_count, 1, 0, 0).expect("Failed to draw graphics pipeline")
 

@@ -107,7 +107,7 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             // Analyze each frequency range
             let bass_analysis = analyze_frequency_range(30.0..250., 1, 0.05, 0.5);
             let mids_analysis = analyze_frequency_range(250.0..1_300., 2, 0.1, 0.3);
-            let high_analysis = analyze_frequency_range(1_300.0..12_000., 2, 0.1, 0.075);
+            let high_analysis = analyze_frequency_range(1_300.0..12_000., 2, 0.1, 0.05);
 
             // Convert note analysis to 2D vectors with strengths
             fn loudest_to_square(x: (f32, f32), pow: f32) -> (Vector2, f32) {

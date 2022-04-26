@@ -33,7 +33,7 @@ const float springCoefficient = 75.0;
 
 const float maxSpeed = 6.0;
 const float min_length = 0.01;
-const float friction = -5.0;
+const float friction = -6.0;
 
 const float audioScale = 0.01;
 
