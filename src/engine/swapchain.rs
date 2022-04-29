@@ -1,43 +1,59 @@
 use std::sync::Arc;
 
-use vulkano::device::{Device, DeviceOwned};
 use vulkano::device::physical::PhysicalDevice;
+use vulkano::device::{Device, DeviceOwned};
 use vulkano::format::Format;
-use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
 use vulkano::image::view::ImageView;
-use vulkano::swapchain::{Swapchain, PresentMode, Surface, SwapchainCreateInfo, SwapchainCreationError};
-use winit::window::Window;
+use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
+use vulkano::swapchain::{
+    PresentMode, Surface, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
+};
 use winit::dpi::PhysicalSize;
+use winit::window::Window;
 
 pub struct EngineSwapchain {
     swapchain: Arc<Swapchain<Window>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
-    msaa_images: Vec<Arc<ImageView<AttachmentImage>>>
+    msaa_images: Vec<Arc<ImageView<AttachmentImage>>>,
 }
 
 pub enum RecreateSwapchainResult {
     Success,
     ExtentNotSupported,
-    Failure(String)
+    Failure(String),
 }
 
 impl EngineSwapchain {
-    pub fn new(physical_device: PhysicalDevice, device: Arc<Device>, surface: Arc<Surface<Window>>, desired_present_mode: PresentMode) -> Self {
+    pub fn new(
+        physical_device: PhysicalDevice,
+        device: Arc<Device>,
+        surface: Arc<Surface<Window>>,
+        desired_present_mode: PresentMode,
+    ) -> Self {
         // Determine what features our surface can support
         let surface_capabilities = physical_device
             .surface_capabilities(&surface, Default::default())
             .expect("Failed to get surface capabilities");
-        
+
         // Determine properties of surface (on this physical device)
         let dimensions = surface.window().inner_size();
-        let composite_alpha = surface_capabilities.supported_composite_alpha.iter().next().unwrap();
+        let composite_alpha = surface_capabilities
+            .supported_composite_alpha
+            .iter()
+            .next()
+            .unwrap();
         let image_format = physical_device
             .surface_formats(&surface, Default::default())
-            .unwrap()[0].0;
+            .unwrap()[0]
+            .0;
 
         // Get preferred present mode with fallback to FIFO (which any Vulkan instance must support)
         let present_mode = {
-            if physical_device.surface_present_modes(&surface).unwrap().any(|p| p == desired_present_mode) {
+            if physical_device
+                .surface_present_modes(&surface)
+                .unwrap()
+                .any(|p| p == desired_present_mode)
+            {
                 desired_present_mode
             } else {
                 println!("Fallback to default present mode FIFO");
@@ -68,8 +84,9 @@ impl EngineSwapchain {
                 composite_alpha,
                 present_mode: present_mode,
                 ..Default::default()
-            }
-        ).unwrap();
+            },
+        )
+        .unwrap();
 
         // MSAA requires multi-sampled image buffers.
         // These are copied to the swapchain images for presentation
@@ -78,12 +95,16 @@ impl EngineSwapchain {
         Self {
             swapchain,
             images,
-            msaa_images
+            msaa_images,
         }
     }
 
     // Recreate swapchain using new dimensions
-    pub fn recreate(&mut self, new_dimensions: PhysicalSize<u32>, window_resized: bool) -> RecreateSwapchainResult {
+    pub fn recreate(
+        &mut self,
+        new_dimensions: PhysicalSize<u32>,
+        window_resized: bool,
+    ) -> RecreateSwapchainResult {
         let old_swapchain = self.swapchain.clone();
 
         // Create new swapchain with desired dimensions
@@ -99,7 +120,12 @@ impl EngineSwapchain {
 
                 if window_resized {
                     // Multi-sampled (MSAA) image buffers only need to be recreated if the size has changed
-                    self.msaa_images = Self::create_msaa_images(&self.swapchain.device(), &self.swapchain.surface(), self.swapchain.image_format(), self.images.len())
+                    self.msaa_images = Self::create_msaa_images(
+                        &self.swapchain.device(),
+                        &self.swapchain.surface(),
+                        self.swapchain.image_format(),
+                        self.images.len(),
+                    )
                 }
 
                 RecreateSwapchainResult::Success
@@ -107,10 +133,12 @@ impl EngineSwapchain {
 
             // This error tends to happen when the user is manually resizing the window.
             // Simply restarting the loop is the easiest way to fix this issue
-            Err(SwapchainCreationError::ImageExtentNotSupported {..}) => RecreateSwapchainResult::ExtentNotSupported,
+            Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => {
+                RecreateSwapchainResult::ExtentNotSupported
+            }
 
             // Unexpected error
-            Err(e) => RecreateSwapchainResult::Failure(format!("{:?}", e))
+            Err(e) => RecreateSwapchainResult::Failure(format!("{:?}", e)),
         }
     }
 
@@ -119,22 +147,32 @@ impl EngineSwapchain {
         device: &Arc<Device>,
         surface: &Surface<Window>,
         image_format: Format,
-        image_count: usize
+        image_count: usize,
     ) -> Vec<Arc<ImageView<AttachmentImage>>> {
-        (0..image_count).map(|_|
-            ImageView::new_default(
-                AttachmentImage::transient_multisampled(
-                    device.clone(),
-                    surface.window().inner_size().into(),
-                    vulkano::image::SampleCount::Sample8,
-                    image_format
-                ).unwrap(),
-            ).unwrap()
-        ).collect()
+        (0..image_count)
+            .map(|_| {
+                ImageView::new_default(
+                    AttachmentImage::transient_multisampled(
+                        device.clone(),
+                        surface.window().inner_size().into(),
+                        vulkano::image::SampleCount::Sample8,
+                        image_format,
+                    )
+                    .unwrap(),
+                )
+                .unwrap()
+            })
+            .collect()
     }
 
     // Swapchain getters
-    pub fn get_swapchain(&self) -> Arc<Swapchain<Window>> { self.swapchain.clone() }
-    pub fn get_images(&self) -> Vec<Arc<SwapchainImage<Window>>> { self.images.clone() }
-    pub fn get_msaa_images(&self) -> Vec<Arc<ImageView<AttachmentImage>>> { self.msaa_images.clone() }
+    pub fn get_swapchain(&self) -> Arc<Swapchain<Window>> {
+        self.swapchain.clone()
+    }
+    pub fn get_images(&self) -> Vec<Arc<SwapchainImage<Window>>> {
+        self.images.clone()
+    }
+    pub fn get_msaa_images(&self) -> Vec<Arc<ImageView<AttachmentImage>>> {
+        self.msaa_images.clone()
+    }
 }

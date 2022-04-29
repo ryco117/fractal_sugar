@@ -1,8 +1,8 @@
 use std::sync::mpsc;
 use std::time::SystemTime;
 
-use winit::event::{Event, DeviceEvent, ElementState, KeyboardInput, VirtualKeyCode, WindowEvent};
-use winit::event_loop::{EventLoop, ControlFlow};
+use winit::event::{DeviceEvent, ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
 
 use engine::swapchain::RecreateSwapchainResult;
@@ -12,8 +12,8 @@ mod engine;
 mod my_math;
 mod space_filling_curves;
 
-use my_math::Vector2;
 use audio::AudioState;
+use my_math::Vector2;
 
 // App constants
 const BASE_VOLUME: f32 = 1.;
@@ -33,7 +33,8 @@ fn main() {
     let mut window_resized = false;
     let mut recreate_swapchain = false;
     let mut window_is_fullscreen = false;
-    let mut window_is_focused = true; engine.get_surface().window().focus_window();
+    let mut window_is_focused = true;
+    engine.get_surface().window().focus_window();
     let mut last_frame_time = SystemTime::now();
     let mut last_mouse_movement = SystemTime::now();
     let mut is_cursor_visible = true;
@@ -61,9 +62,7 @@ fn main() {
         Event::WindowEvent {
             event: WindowEvent::Resized(_),
             ..
-        } => {
-            window_resized = true
-        }
+        } => window_resized = true,
 
         // All UI events have been handled (ie., executes once per frame)
         Event::MainEventsCleared => {
@@ -85,13 +84,22 @@ fn main() {
             // Handle any changes to audio state
             match rx.try_recv() {
                 // Update audio state vars
-                Ok(AudioState{volume, big_boomer, curl_attractors, attractors}) => {
+                Ok(AudioState {
+                    volume,
+                    big_boomer,
+                    curl_attractors,
+                    attractors,
+                }) => {
                     // Update volume
                     audio_state.volume = interpolate_floats(16.0, audio_state.volume, volume);
 
                     // Update 2D big boomers
                     if fix_particles {
-                        interpolate_vec2(5.*audio_state.big_boomer.1, &mut audio_state.big_boomer.0, &big_boomer.0);
+                        interpolate_vec2(
+                            5. * audio_state.big_boomer.1,
+                            &mut audio_state.big_boomer.0,
+                            &big_boomer.0,
+                        );
                         audio_state.big_boomer.1 = big_boomer.1
                     } else {
                         audio_state.big_boomer = big_boomer
@@ -109,14 +117,17 @@ fn main() {
                 }
 
                 // Unexpected error, bail
-                Err(e) => panic!("Failed to receive data from audio thread: {:?}", e)
+                Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
             }
 
             // Update state time
             game_time += delta_time * audio_state.volume.sqrt();
 
             // If cursor is visible and has been stationary then hide it
-            if is_cursor_visible && window_is_focused && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 3. {
+            if is_cursor_visible
+                && window_is_focused
+                && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 3.
+            {
                 engine.get_surface().window().set_cursor_visible(false);
                 is_cursor_visible = false
             }
@@ -125,9 +136,14 @@ fn main() {
             let dimensions = engine.get_surface().window().inner_size();
             if window_resized || recreate_swapchain {
                 match engine.recreate_swapchain(dimensions, window_resized) {
-                    RecreateSwapchainResult::Success => { recreate_swapchain = false; window_resized = false }
+                    RecreateSwapchainResult::Success => {
+                        recreate_swapchain = false;
+                        window_resized = false
+                    }
                     RecreateSwapchainResult::ExtentNotSupported => return,
-                    RecreateSwapchainResult::Failure(err) => panic!("Failed to recreate swapchain: {:?}", err)
+                    RecreateSwapchainResult::Failure(err) => {
+                        panic!("Failed to recreate swapchain: {:?}", err)
+                    }
                 }
             }
 
@@ -136,12 +152,15 @@ fn main() {
                 temp_data: [0.; 4],
                 time: game_time,
                 width: dimensions.width as f32,
-                height: dimensions.height as f32
+                height: dimensions.height as f32,
             };
 
             // Unzip (point, strength) arrays for passing to shader
-            fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([Vector2; 2], [f32; 2]) { (arr.map(|e| e.0), arr.map(|e| e.1)) }
-            let (curl_attractors, curl_attractor_strengths) = simple_unzip(&audio_state.curl_attractors);
+            fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([Vector2; 2], [f32; 2]) {
+                (arr.map(|e| e.0), arr.map(|e| e.1))
+            }
+            let (curl_attractors, curl_attractor_strengths) =
+                simple_unzip(&audio_state.curl_attractors);
             let (attractors, attractor_strengths) = simple_unzip(&audio_state.attractors);
 
             // Create per-frame data for particle compute-shader
@@ -157,7 +176,7 @@ fn main() {
 
                 time: game_time,
                 delta_time,
-                fix_particles: if fix_particles {1} else {0}
+                fix_particles: if fix_particles { 1 } else { 0 },
             };
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
@@ -166,35 +185,44 @@ fn main() {
 
         // Handle some keyboard input
         Event::WindowEvent {
-            event: WindowEvent::KeyboardInput {
-                input: KeyboardInput {
-                    state: pressed_state,
-                    virtual_keycode: Some(keycode),
+            event:
+                WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            state: pressed_state,
+                            virtual_keycode: Some(keycode),
+                            ..
+                        },
                     ..
                 },
-                ..
-            },
             ..
         } => {
             match (pressed_state, keycode) {
                 // Handle fullscreen togle (F11)
-                (ElementState::Pressed, VirtualKeyCode::F11) => if window_is_fullscreen {
-                    engine.get_surface().window().set_fullscreen(None);
-                    window_is_fullscreen = false
-                } else {
-                    engine.get_surface().window().set_fullscreen(Some(Fullscreen::Borderless(None)));
-                    window_is_fullscreen = true
+                (ElementState::Pressed, VirtualKeyCode::F11) => {
+                    if window_is_fullscreen {
+                        engine.get_surface().window().set_fullscreen(None);
+                        window_is_fullscreen = false
+                    } else {
+                        engine
+                            .get_surface()
+                            .window()
+                            .set_fullscreen(Some(Fullscreen::Borderless(None)));
+                        window_is_fullscreen = true
+                    }
                 }
 
                 // Handle Escape key
-                (ElementState::Pressed, VirtualKeyCode::Escape) => if window_is_fullscreen {
-                    // Leave fullscreen
-                    engine.get_surface().window().set_fullscreen(None);
-                    window_is_fullscreen = false
-                } else {
-                    // Exit window loop
-                    println!("The Escape key was pressed, exiting");
-                    *control_flow = ControlFlow::Exit
+                (ElementState::Pressed, VirtualKeyCode::Escape) => {
+                    if window_is_fullscreen {
+                        // Leave fullscreen
+                        engine.get_surface().window().set_fullscreen(None);
+                        window_is_fullscreen = false
+                    } else {
+                        // Exit window loop
+                        println!("The Escape key was pressed, exiting");
+                        *control_flow = ControlFlow::Exit
+                    }
                 }
 
                 // Handle toggling of Jello mode (fixing particles)
@@ -222,7 +250,7 @@ fn main() {
 
         // Handle mouse movement
         Event::DeviceEvent {
-            event: DeviceEvent::MouseMotion {..},
+            event: DeviceEvent::MouseMotion { .. },
             ..
         } => {
             last_mouse_movement = SystemTime::now();

@@ -1,15 +1,17 @@
 use std::sync::Arc;
 
-use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
 use vulkano::buffer::device_local::DeviceLocalBuffer;
-use vulkano::command_buffer::{CommandBufferExecFuture, PrimaryCommandBuffer, PrimaryAutoCommandBuffer};
+use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
+use vulkano::command_buffer::{
+    CommandBufferExecFuture, PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
+};
 use vulkano::device::{Device, Queue};
-use vulkano::image::{AttachmentImage, SwapchainImage};
 use vulkano::image::view::ImageView;
+use vulkano::image::{AttachmentImage, SwapchainImage};
 use vulkano::instance::{Instance, InstanceCreateInfo};
-use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::graphics::viewport::Viewport;
-use vulkano::render_pass::{RenderPass, Framebuffer, FramebufferCreateInfo};
+use vulkano::pipeline::GraphicsPipeline;
+use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{PresentMode, Surface};
 use vulkano::sync::{FenceSignalFuture, GpuFuture, NowFuture};
@@ -30,12 +32,18 @@ use crate::my_math::Vector2;
 use crate::space_filling_curves;
 use vertex::Vertex;
 
-
-type EngineFrameFuture = FenceSignalFuture<vulkano::swapchain::PresentFuture<
-    vulkano::command_buffer::CommandBufferExecFuture<
-        vulkano::sync::JoinFuture<Box<dyn GpuFuture>, vulkano::swapchain::SwapchainAcquireFuture<Window>>,
-        Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>>,
-    Window>>;
+type EngineFrameFuture = FenceSignalFuture<
+    vulkano::swapchain::PresentFuture<
+        vulkano::command_buffer::CommandBufferExecFuture<
+            vulkano::sync::JoinFuture<
+                Box<dyn GpuFuture>,
+                vulkano::swapchain::SwapchainAcquireFuture<Window>,
+            >,
+            Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
+        >,
+        Window,
+    >,
+>;
 
 pub struct Engine {
     compute_pipeline: Arc<vulkano::pipeline::ComputePipeline>,
@@ -52,7 +60,7 @@ pub struct Engine {
     swapchain: EngineSwapchain,
     vert_shader: Arc<ShaderModule>,
     vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
-    viewport: Viewport
+    viewport: Viewport,
 }
 
 const DEFAULT_WIDTH: u32 = 800;
@@ -64,8 +72,9 @@ impl Engine {
         let required_extensions = vulkano_win::required_extensions();
         let instance = Instance::new(InstanceCreateInfo {
             enabled_extensions: required_extensions,
-            ..Default::default()})
-            .expect("Failed to create Vulkan instance");
+            ..Default::default()
+        })
+        .expect("Failed to create Vulkan instance");
 
         // Create a window! Set some basic window properties and get a vulkan surface
         let surface = WindowBuilder::new()
@@ -78,7 +87,12 @@ impl Engine {
         let (physical_device, device, queue) = hardware::select_hardware(&instance, &surface);
 
         // Create swapchain and associated image buffers from the relevant parameters
-        let engine_swapchain = EngineSwapchain::new(physical_device, device.clone(), surface.clone(), PresentMode::Fifo);
+        let engine_swapchain = EngineSwapchain::new(
+            physical_device,
+            device.clone(),
+            surface.clone(),
+            PresentMode::Fifo,
+        );
         let image_format = engine_swapchain.get_swapchain().image_format();
 
         // Create a frame-in-flight fence for each image buffer.
@@ -90,7 +104,11 @@ impl Engine {
         // Decided it was easier to implement this closure and continue with a minimal cross-compile
         let load_shader_bytes = |path: &str| -> Arc<ShaderModule> {
             let bytes = std::fs::read(path).expect("Failed to read bytes from compiled shader");
-            assert_eq!(bytes.len() % 4, 0, "SPIR-V shader must have a byte-length which is a multiple of 4");
+            assert_eq!(
+                bytes.len() % 4,
+                0,
+                "SPIR-V shader must have a byte-length which is a multiple of 4"
+            );
             unsafe { ShaderModule::from_bytes(device.clone(), &bytes).unwrap() }
         };
 
@@ -109,38 +127,58 @@ impl Engine {
             comp_shader.entry_point("main").unwrap(),
             &(),
             None,
-            |_| {}
-        ).expect("Failed to create compute shader");
+            |_| {},
+        )
+        .expect("Failed to create compute shader");
 
         // Create Storage Buffers for particle info
         const PARTICLE_COUNT: usize = 1_000_000;
         const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
-        fn create_buffer<T, I>(device: &Arc<Device>, queue: &Arc<Queue>, data_iter: I, usage: BufferUsage) ->
-            (Arc<DeviceLocalBuffer<[T]>>, CommandBufferExecFuture<NowFuture, PrimaryAutoCommandBuffer>) where
+        fn create_buffer<T, I>(
+            device: &Arc<Device>,
+            queue: &Arc<Queue>,
+            data_iter: I,
+            usage: BufferUsage,
+        ) -> (
+            Arc<DeviceLocalBuffer<[T]>>,
+            CommandBufferExecFuture<NowFuture, PrimaryAutoCommandBuffer>,
+        )
+        where
             [T]: vulkano::buffer::BufferContents,
-            I: ExactSizeIterator <Item = T> {
+            I: ExactSizeIterator<Item = T>,
+        {
             // Create simple buffer type that we can write data to
             let data_source_buffer = CpuAccessibleBuffer::from_iter(
                 device.clone(),
                 BufferUsage::transfer_source(),
                 false,
-                data_iter
-            ).expect("Failed to create test compute buffer");
+                data_iter,
+            )
+            .expect("Failed to create test compute buffer");
 
             // Create device-local buffer for optimal GPU access
-            let local_buffer = unsafe { DeviceLocalBuffer::raw(
-                device.clone(),
-                data_source_buffer.size(),
-                BufferUsage{transfer_destination: true, ..usage},
-                device.active_queue_families()).expect("Failed to create immutable fixed-position buffer")
+            let local_buffer = unsafe {
+                DeviceLocalBuffer::raw(
+                    device.clone(),
+                    data_source_buffer.size(),
+                    BufferUsage {
+                        transfer_destination: true,
+                        ..usage
+                    },
+                    device.active_queue_families(),
+                )
+                .expect("Failed to create immutable fixed-position buffer")
             };
 
             // Create buffer copy command
             let mut cbb = vulkano::command_buffer::AutoCommandBufferBuilder::primary(
                 device.clone(),
                 queue.family(),
-                vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit).unwrap();
-            cbb.copy_buffer(data_source_buffer, local_buffer.clone()).unwrap();
+                vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
+            )
+            .unwrap();
+            cbb.copy_buffer(data_source_buffer, local_buffer.clone())
+                .unwrap();
             let cb = cbb.build().unwrap();
 
             // Create future representing execution of copy-command
@@ -156,24 +194,45 @@ impl Engine {
             const SPACE_FILLING_CURVE_DEPTH: usize = 6;
 
             // Create position data by mapping particle index to screen using a space filling curve
-            let position_iter = (0..PARTICLE_COUNT).map(|i| space_filling_curves::square::curve_to_square_n(i as f32 / PARTICLE_COUNT_F32, SPACE_FILLING_CURVE_DEPTH));
+            let position_iter = (0..PARTICLE_COUNT).map(|i| {
+                space_filling_curves::square::curve_to_square_n(
+                    i as f32 / PARTICLE_COUNT_F32,
+                    SPACE_FILLING_CURVE_DEPTH,
+                )
+            });
 
             // Create immutable fixed-position buffer
-            let (fixed_position_buff, fixed_pos_copy_future) =
-                ImmutableBuffer::from_iter(position_iter, BufferUsage::storage_buffer(), queue.clone())
-                .expect("Failed to create immutable fixed-position buffer");
+            let (fixed_position_buff, fixed_pos_copy_future) = ImmutableBuffer::from_iter(
+                position_iter,
+                BufferUsage::storage_buffer(),
+                queue.clone(),
+            )
+            .expect("Failed to create immutable fixed-position buffer");
 
             // Create vertex data by re-calculating
             let vertex_iter = (0..PARTICLE_COUNT).map(|i| Vertex {
-                pos: space_filling_curves::square::curve_to_square_n(i as f32 / PARTICLE_COUNT_F32, SPACE_FILLING_CURVE_DEPTH),
-                vel: Vector2::new(0., 0.)
+                pos: space_filling_curves::square::curve_to_square_n(
+                    i as f32 / PARTICLE_COUNT_F32,
+                    SPACE_FILLING_CURVE_DEPTH,
+                ),
+                vel: Vector2::new(0., 0.),
             });
 
             // Create position buffer
-            let (vertex_buffer, vertex_future) = create_buffer(&device, &queue, vertex_iter.clone(), BufferUsage::storage_buffer() | BufferUsage::vertex_buffer());
+            let (vertex_buffer, vertex_future) = create_buffer(
+                &device,
+                &queue,
+                vertex_iter.clone(),
+                BufferUsage::storage_buffer() | BufferUsage::vertex_buffer(),
+            );
 
             // Wait for all futures to finish before continuing
-            fixed_pos_copy_future.join(vertex_future).then_signal_fence_and_flush().unwrap().wait(None).unwrap();
+            fixed_pos_copy_future
+                .join(vertex_future)
+                .then_signal_fence_and_flush()
+                .unwrap()
+                .wait(None)
+                .unwrap();
 
             (vertex_buffer, fixed_position_buff)
         };
@@ -181,12 +240,21 @@ impl Engine {
         // Create a new descriptor set for binding particle Storage Buffers
         use vulkano::pipeline::Pipeline; // Required to access layout() method
         let descriptor_set = vulkano::descriptor_set::PersistentDescriptorSet::new(
-            compute_pipeline.layout().set_layouts().get(0).unwrap().clone(), // 0 is the index of the descriptor set layout we want
+            compute_pipeline
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap()
+                .clone(), // 0 is the index of the descriptor set layout we want
             [
                 vulkano::descriptor_set::WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
-                vulkano::descriptor_set::WriteDescriptorSet::buffer(1, fixed_position_buffer.clone())
-            ]
-        ).unwrap();
+                vulkano::descriptor_set::WriteDescriptorSet::buffer(
+                    1,
+                    fixed_position_buffer.clone(),
+                ),
+            ],
+        )
+        .unwrap();
 
         // Create a render pass to utilize the graphics pipeline
         // Describes the inputs/outputs but not the commands used
@@ -237,7 +305,8 @@ impl Engine {
                 // named `color`.
                 resolve: [color]
             }
-        ).unwrap();
+        )
+        .unwrap();
 
         // Define our 2D viewspace (with normalized depth)
         let viewport = Viewport {
@@ -247,10 +316,20 @@ impl Engine {
         };
 
         // Create the almighty graphics pipeline!
-        let pipeline = pipeline::create_particles_pipeline(device.clone(), vert_shader.clone(), frag_shader.clone(), render_pass.clone(), viewport.clone());
+        let pipeline = pipeline::create_particles_pipeline(
+            device.clone(),
+            vert_shader.clone(),
+            frag_shader.clone(),
+            render_pass.clone(),
+            viewport.clone(),
+        );
 
         // Create a framebuffer to store results of render pass
-        let framebuffers = Self::create_particles_framebuffers(render_pass.clone(), &engine_swapchain.get_images(), &engine_swapchain.get_msaa_images());
+        let framebuffers = Self::create_particles_framebuffers(
+            render_pass.clone(),
+            &engine_swapchain.get_images(),
+            &engine_swapchain.get_msaa_images(),
+        );
 
         // Construct new Engine
         Self {
@@ -268,16 +347,20 @@ impl Engine {
             swapchain: engine_swapchain,
             vert_shader,
             vertex_buffer,
-            viewport
+            viewport,
         }
     }
 
     // Recreate swapchain and necessary follow-up structures (often for window resizing)
-    pub fn recreate_swapchain(&mut self, dimensions: PhysicalSize<u32>, window_resized: bool) -> RecreateSwapchainResult {
+    pub fn recreate_swapchain(
+        &mut self,
+        dimensions: PhysicalSize<u32>,
+        window_resized: bool,
+    ) -> RecreateSwapchainResult {
         // Vulkan panics if both dimensions are zero, bail here instead
         if dimensions.width == 0 && dimensions.height == 0 {
             // Empty window detected, skipping swapchain recreation
-            return RecreateSwapchainResult::ExtentNotSupported
+            return RecreateSwapchainResult::ExtentNotSupported;
         }
 
         // Create new swapchain from the previous, specifying new window size
@@ -286,14 +369,20 @@ impl Engine {
             RecreateSwapchainResult::Success => {}
 
             // Return that swapchain could not be recreated (often due to a resizing error)
-            RecreateSwapchainResult::ExtentNotSupported => return RecreateSwapchainResult::ExtentNotSupported,
+            RecreateSwapchainResult::ExtentNotSupported => {
+                return RecreateSwapchainResult::ExtentNotSupported
+            }
 
             // Return that recreation failed for an unexpected reason
-            err => return err
+            err => return err,
         }
 
         // Framebuffer is tied to the swapchain images, must recreate as well
-        self.framebuffers = Self::create_particles_framebuffers(self.render_pass.clone(), &self.swapchain.get_images(), &self.swapchain.get_msaa_images());
+        self.framebuffers = Self::create_particles_framebuffers(
+            self.render_pass.clone(),
+            &self.swapchain.get_images(),
+            &self.swapchain.get_msaa_images(),
+        );
 
         // If caller indicates a resize has prompted this call then adjust viewport and fixed-view pipeline
         if window_resized {
@@ -301,7 +390,13 @@ impl Engine {
 
             // Since pipeline specifies viewport is fixed, entire pipeline needs to be reconstructed to account for size change
             //self.graphics_pipeline = pipeline::create_graphics_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
-            self.graphics_pipeline = pipeline::create_particles_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
+            self.graphics_pipeline = pipeline::create_particles_pipeline(
+                self.device.clone(),
+                self.vert_shader.clone(),
+                self.frag_shader.clone(),
+                self.render_pass.clone(),
+                self.viewport.clone(),
+            )
         }
 
         // Recreated swapchain and necessary follow-up structures without error
@@ -313,21 +408,22 @@ impl Engine {
     pub fn draw_frame(
         &mut self,
         _push_constants: renderer::PushConstantData,
-        compute_push_constants: renderer::ComputePushConstantData
+        compute_push_constants: renderer::ComputePushConstantData,
     ) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
-        let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(self.swapchain.get_swapchain(), None /*timeout*/) {
+        let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
+            self.swapchain.get_swapchain(),
+            None, /*timeout*/
+        ) {
             Ok(tuple) => tuple,
-            Err(vulkano::swapchain::AcquireError::OutOfDate) => {
-                return true
-            }
-            Err(e) => panic!("Failed to acquire next image: {:?}", e)
+            Err(vulkano::swapchain::AcquireError::OutOfDate) => return true,
+            Err(e) => panic!("Failed to acquire next image: {:?}", e),
         };
 
         if suboptimal {
             // Acquired image will still work for rendering this frame, so we will continue.
             // However, the surface's properties no longer match the swapchain's so we will recreate next chance
-            return true
+            return true;
         }
 
         // If this image buffer already has a fence, wait for the fence to be ready
@@ -349,9 +445,9 @@ impl Engine {
             }
 
             // Use existing fence
-            Some(fence) => fence.boxed()
+            Some(fence) => fence.boxed(),
         };
-        
+
         // Create a one-time-submit command buffer for this push constant data
         /*let command_buffer_boi = renderer::onetime_cmdbuf_from_constant(
             self.device.clone(),
@@ -368,20 +464,22 @@ impl Engine {
             self.vertex_buffer.clone(),
             self.compute_pipeline.clone(),
             self.descriptor_set.clone(),
-            compute_push_constants
+            compute_push_constants,
         );
 
         // Create synchronization future for rendering the current frame
         let future = previous_future
             // Wait for previous and current futures to synchronize
             .join(acquire_future)
-
             // Execute the one-time command buffer
-            .then_execute(self.queue.clone(), colored_sugar_commands).unwrap()
-
+            .then_execute(self.queue.clone(), colored_sugar_commands)
+            .unwrap()
             // Present result to swapchain buffer
-            .then_swapchain_present(self.queue.clone(), self.swapchain.get_swapchain(), image_index)
-
+            .then_swapchain_present(
+                self.queue.clone(),
+                self.swapchain.get_swapchain(),
+                image_index,
+            )
             // Finish synchronization
             .then_signal_fence_and_flush();
 
@@ -398,7 +496,7 @@ impl Engine {
             }
 
             // Unknown failure
-            Err(e) => panic!("Failed to flush future: {:?}", e)
+            Err(e) => panic!("Failed to flush future: {:?}", e),
         };
 
         // Update the last rendered index to be this frame
@@ -412,26 +510,34 @@ impl Engine {
     fn create_particles_framebuffers(
         render_pass: Arc<RenderPass>,
         images: &Vec<Arc<SwapchainImage<Window>>>,
-        msaa_images: &Vec<Arc<ImageView<AttachmentImage>>>
+        msaa_images: &Vec<Arc<ImageView<AttachmentImage>>>,
     ) -> Vec<Arc<Framebuffer>> {
-        assert_eq!(images.len(), msaa_images.len(), "Must have an equal number of multi-sampled and destination images");
+        assert_eq!(
+            images.len(),
+            msaa_images.len(),
+            "Must have an equal number of multi-sampled and destination images"
+        );
 
-        (0..images.len()).map(|i| {
-            // To interact with image buffers or framebuffers from shaders must create view defining how buffer will be used.
-            let view = ImageView::new_default(images[i].clone()).unwrap();
+        (0..images.len())
+            .map(|i| {
+                // To interact with image buffers or framebuffers from shaders must create view defining how buffer will be used.
+                let view = ImageView::new_default(images[i].clone()).unwrap();
 
-            // Create framebuffer specifying underlying renderpass and image attachments
-            Framebuffer::new(
-                render_pass.clone(),
-                FramebufferCreateInfo {
-                    attachments: vec![msaa_images[i].clone(), view], // Must add specified attachments in order
-                    ..Default::default()
-                },
-            ).unwrap()
-        })
-        .collect()
+                // Create framebuffer specifying underlying renderpass and image attachments
+                Framebuffer::new(
+                    render_pass.clone(),
+                    FramebufferCreateInfo {
+                        attachments: vec![msaa_images[i].clone(), view], // Must add specified attachments in order
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+            })
+            .collect()
     }
 
     // Engine getters
-    pub fn get_surface(&self) -> Arc<Surface<Window>> { self.surface.clone() }
+    pub fn get_surface(&self) -> Arc<Surface<Window>> {
+        self.surface.clone()
+    }
 }

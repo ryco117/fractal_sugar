@@ -1,6 +1,5 @@
 #[allow(dead_code)] // TODO: Use all of my code
-
-use std::ops::{Add, AddAssign, Sub, Neg};
+use std::ops::{Add, AddAssign, Neg, Sub};
 
 use bytemuck::{Pod, Zeroable};
 
@@ -10,7 +9,7 @@ pub struct Vector4 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-    pub w: f32
+    pub w: f32,
 }
 
 impl Add for Vector4 {
@@ -20,7 +19,7 @@ impl Add for Vector4 {
             x: self.x + v.x,
             y: self.y + v.y,
             z: self.z + v.z,
-            w: self.w + v.w
+            w: self.w + v.w,
         }
     }
 }
@@ -39,7 +38,7 @@ impl Sub for Vector4 {
             x: self.x - v.x,
             y: self.y - v.y,
             z: self.z - v.z,
-            w: self.w - v.w
+            w: self.w - v.w,
         }
     }
 }
@@ -50,7 +49,7 @@ impl Neg for Vector4 {
             x: -self.x,
             y: -self.y,
             z: -self.z,
-            w: -self.w
+            w: -self.w,
         }
     }
 }
@@ -59,7 +58,7 @@ impl Neg for Vector4 {
 #[derive(Default, Copy, Clone, Zeroable, Pod)]
 pub struct Vector2 {
     pub x: f32,
-    pub y: f32
+    pub y: f32,
 }
 
 impl Add for Vector2 {
@@ -67,7 +66,7 @@ impl Add for Vector2 {
     fn add(self, v: Self) -> Self {
         Self {
             x: self.x + v.x,
-            y: self.y + v.y
+            y: self.y + v.y,
         }
     }
 }
@@ -82,7 +81,7 @@ impl Sub for Vector2 {
     fn sub(self, v: Self) -> Self {
         Self {
             x: self.x - v.x,
-            y: self.y - v.y
+            y: self.y - v.y,
         }
     }
 }
@@ -91,13 +90,13 @@ impl Neg for Vector2 {
     fn neg(self) -> Self {
         Self {
             x: -self.x,
-            y: -self.y
+            y: -self.y,
         }
     }
 }
 impl Vector2 {
     pub const fn new(x: f32, y: f32) -> Self {
-        Self{x, y}
+        Self { x, y }
     }
     pub fn scale_self(&mut self, s: f32) {
         self.x *= s;
@@ -106,7 +105,7 @@ impl Vector2 {
     pub fn scale(self, s: f32) -> Self {
         Self {
             x: self.x * s,
-            y: self.y * s
+            y: self.y * s,
         }
     }
 }

@@ -16,29 +16,24 @@ pub fn create_particles_pipeline(
     vert_shader: Arc<ShaderModule>,
     frag_shader: Arc<ShaderModule>,
     render_pass: Arc<RenderPass>,
-    viewport: Viewport
+    viewport: Viewport,
 ) -> Arc<GraphicsPipeline> {
     GraphicsPipeline::start()
         // Describes the layout of the vertex input and how should it behave
         .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
-
         // A Vulkan shader may contain multiple entry points, so we specify which one.
         .vertex_shader(vert_shader.entry_point("main").unwrap(), ())
-
         // Indicate the type of the primitives (the default is a list of triangles)
         .input_assembly_state(InputAssemblyState::new().topology(PrimitiveTopology::PointList))
-
         // Set the fixed viewport
         .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([viewport]))
-
         // Same as the vertex input, but this for the fragment input
         .fragment_shader(frag_shader.entry_point("main").unwrap(), ())
-
         // This graphics pipeline object concerns the first pass of the render pass.
         .render_pass(Subpass::from(render_pass.clone(), 0).unwrap())
-
         // Now that everything is specified, we call `build`.
-        .build(device.clone()).unwrap()
+        .build(device.clone())
+        .unwrap()
 }
 
 // Retrieve basic graphics pipeline
