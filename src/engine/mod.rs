@@ -398,10 +398,7 @@ impl Engine {
             }
 
             // Unknown failure
-            Err(e) => {
-                println!("Failed to flush future: {:?}", e);
-                None
-            }
+            Err(e) => panic!("Failed to flush future: {:?}", e)
         };
 
         // Update the last rendered index to be this frame

@@ -105,9 +105,9 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             };
 
             // Analyze each frequency range
-            let bass_analysis = analyze_frequency_range(30.0..250., 1, 0.05, 0.5);
-            let mids_analysis = analyze_frequency_range(250.0..1_300., 2, 0.1, 0.3);
-            let high_analysis = analyze_frequency_range(1_300.0..12_000., 2, 0.1, 0.05);
+            let bass_analysis = analyze_frequency_range(30.0..250., 1, 0.05, 0.3);
+            let mids_analysis = analyze_frequency_range(250.0..1_300., 2, 0.1, 0.1);
+            let high_analysis = analyze_frequency_range(1_300.0..12_000., 2, 0.1, 0.025);
 
             // Convert note analysis to 2D vectors with strengths
             fn loudest_to_square(x: (f32, f32), pow: f32) -> (Vector2, f32) {
@@ -120,8 +120,8 @@ fn processing_thread_from_sample_rate(sample_rate: f32, tx: Sender<AudioState>, 
             // Send updated state to UI thread
             match tx.send(AudioState {
                 big_boomer: loudest_to_square(bass_analysis.loudest[0], 0.75),
-                curl_attractors: [loudest_to_square(mids_analysis.loudest[0], 0.685), loudest_to_square(mids_analysis.loudest[1], 0.685)],
-                attractors: [loudest_to_square(high_analysis.loudest[0], 0.28), loudest_to_square(high_analysis.loudest[1], 0.28)],
+                curl_attractors: [loudest_to_square(mids_analysis.loudest[0], 0.69), loudest_to_square(mids_analysis.loudest[1], 0.69)],
+                attractors: [loudest_to_square(high_analysis.loudest[0], 0.3), loudest_to_square(high_analysis.loudest[1], 0.3)],
                 volume
             }) {
                 Ok(()) => {}

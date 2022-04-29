@@ -121,7 +121,7 @@ fn main() {
                 is_cursor_visible = false
             }
 
-            // Handle possible structure recreations necessary (usually from window resizing)
+            // Handle any necessary recreations (usually from window resizing)
             let dimensions = engine.get_surface().window().inner_size();
             if window_resized || recreate_swapchain {
                 match engine.recreate_swapchain(dimensions, window_resized) {
@@ -133,7 +133,7 @@ fn main() {
 
             // Create per-frame data
             let push_constants = engine::renderer::PushConstantData {
-                temp_data: [audio_state.big_boomer.0.x, audio_state.big_boomer.0.y, audio_state.attractors[0].0.x, audio_state.attractors[0].0.y],
+                temp_data: [0.; 4],
                 time: game_time,
                 width: dimensions.width as f32,
                 height: dimensions.height as f32
