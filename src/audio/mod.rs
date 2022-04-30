@@ -95,7 +95,7 @@ fn processing_thread_from_sample_rate(
                         let frac = i as f32 / flen;
                         let v = scale * complex[start_index + i].norm();
                         total_volume += v;
-                        (frac, f32::powf(1.85, frac) * v)
+                        (frac, f32::powf(2., frac) * v)
                     })
                     .collect();
 
@@ -128,9 +128,9 @@ fn processing_thread_from_sample_rate(
             };
 
             // Analyze each frequency range
-            let bass_analysis = analyze_frequency_range(30.0..250., 1, 0.05, 0.3);
-            let mids_analysis = analyze_frequency_range(250.0..1_300., 2, 0.1, 0.1);
-            let high_analysis = analyze_frequency_range(1_300.0..12_000., 2, 0.1, 0.025);
+            let bass_analysis = analyze_frequency_range(30.0..275., 1, 1., 0.3);
+            let mids_analysis = analyze_frequency_range(275.0..1_400., 2, 0.1, 0.1);
+            let high_analysis = analyze_frequency_range(1_400.0..12_000., 2, 0.1, 0.025);
 
             // Convert note analysis to 2D vectors with strengths
             fn loudest_to_square(x: (f32, f32), pow: f32) -> (Vector2, f32) {
@@ -147,14 +147,14 @@ fn processing_thread_from_sample_rate(
 
             // Send updated state to UI thread
             match tx.send(AudioState {
-                big_boomer: loudest_to_square(bass_analysis.loudest[0], 0.75),
+                big_boomer: loudest_to_square(bass_analysis.loudest[0], 0.8),
                 curl_attractors: [
-                    loudest_to_square(mids_analysis.loudest[0], 0.69),
-                    loudest_to_square(mids_analysis.loudest[1], 0.69),
+                    loudest_to_square(mids_analysis.loudest[0], 0.75),
+                    loudest_to_square(mids_analysis.loudest[1], 0.75),
                 ],
                 attractors: [
-                    loudest_to_square(high_analysis.loudest[0], 0.3),
-                    loudest_to_square(high_analysis.loudest[1], 0.3),
+                    loudest_to_square(high_analysis.loudest[0], 0.35),
+                    loudest_to_square(high_analysis.loudest[1], 0.35),
                 ],
                 volume,
             }) {
@@ -167,7 +167,7 @@ fn processing_thread_from_sample_rate(
                 const DISPLAY_FFT_SIZE: usize = 64;
                 let mut display_bins: [f32; DISPLAY_FFT_SIZE] = [0.; DISPLAY_FFT_SIZE];
                 let display_start_index = frequency_to_index(30.);
-                let display_end_index = frequency_to_index(16_000.);
+                let display_end_index = frequency_to_index(12_000.);
                 let r = (display_end_index - display_start_index) / DISPLAY_FFT_SIZE;
                 let mut volume: f32 = 0.;
                 let mut max_volume: (usize, f32) = (display_start_index, 0.);

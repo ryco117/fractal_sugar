@@ -66,12 +66,22 @@ pub struct Engine {
 const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 450;
 
+const DEBUG_VULKAN: bool = true;
+
 impl Engine {
     pub fn new(event_loop: &EventLoop<()>) -> Self {
-        // Create instance with extensions required for windowing
-        let required_extensions = vulkano_win::required_extensions();
+        // Create instance with extensions required for windowing (and optional debugging extension(s) and layer(s))
+        let required_extensions = vulkano::instance::InstanceExtensions {
+            ext_debug_utils: DEBUG_VULKAN,
+            ..vulkano_win::required_extensions()
+        };
         let instance = Instance::new(InstanceCreateInfo {
             enabled_extensions: required_extensions,
+            enabled_layers: if DEBUG_VULKAN {
+                vec!["VK_LAYER_KHRONOS_validation".to_owned()]
+            } else {
+                vec![]
+            },
             ..Default::default()
         })
         .expect("Failed to create Vulkan instance");
@@ -298,7 +308,7 @@ impl Engine {
                 color: [intermediary],
                 depth_stencil: {},
 
-                // The `resolve` array here must contain either zero entry (if you don't use
+                // The `resolve` array here must contain either zero entries (if you don't use
                 // multisampling), or one entry per color attachment. At the end of the pass, each
                 // color attachment will be *resolved* into the given image. In other words, here, at
                 // the end of the pass, the `intermediary` attachment will be copied to the attachment

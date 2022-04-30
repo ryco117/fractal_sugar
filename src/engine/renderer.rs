@@ -76,7 +76,7 @@ pub fn create_particles_cmdbuf(
         // Initialize rendering a frame for particles (including MSAA)
         .begin_render_pass(
             framebuffer.clone(),
-            SubpassContents::Inline, // Directly use draw commands without secondary command buffer
+            SubpassContents::Inline, // Directly use draw commands without secondary command buffers
             vec![[0., 0., 0., 1.].into(), ClearValue::None], // Clear values for attachments
         )
         .unwrap()
@@ -86,7 +86,7 @@ pub fn create_particles_cmdbuf(
             graphics_pipeline.layout().clone(),
             0,
             [time, buffer_count as f32],
-        ) // Use only the game-time for vertex shader
+        )
         .bind_vertex_buffers(0, vertex_buffer.clone())
         .draw(buffer_count, 1, 0, 0)
         .expect("Failed to draw graphics pipeline")

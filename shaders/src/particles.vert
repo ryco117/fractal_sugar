@@ -23,6 +23,7 @@ const vec4 indexConst3 = vec4(0.7, 0.1, 0.75, 1.0);
 
 void main() {
 	gl_Position = vec4(pos, 0.0, 1.0);
+	gl_PointSize = 1.0;
 
 	float t = fract(float(gl_VertexIndex)/push.particleCount + 0.02*push.time);
 	vec4 indexColor;
@@ -48,5 +49,5 @@ void main() {
 		speedColor = vec4(mix(speedConst3.xyz, vec3(1.0, 0.4, 0.4), (speed - speedConst3.w)/(maxSpeed - speedConst3.w)), 1.0);
 	}
 
-	outColor = mix(speedColor, indexColor, pow(max(speed - maxSpeed/100.0, 0.0)/maxSpeed, 0.4));
+	outColor = mix(speedColor, indexColor, pow(max(speed - maxSpeed/100.0, 0.0)/maxSpeed, 0.375));
 }

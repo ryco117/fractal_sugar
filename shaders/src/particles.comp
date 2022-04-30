@@ -65,14 +65,14 @@ void main(void)
 	{
 		vec2 t = push.curlAttractors[i] - pos;
 		float r = max(length(t), min_length);
-		g += push.curlAttractorStrengths[i] * Normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * (push.fixParticles ? 2.75 : 5.0);
+		g += push.curlAttractorStrengths[i] * Normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * (push.fixParticles ? 2.7 : 5.0);
 	}
 
 	for(int i = 0; i < push.attractors.length(); i++)
 	{
 		vec2 t = push.attractors[i] - pos;
 		float r = max(length(t), min_length);
-		g += push.attractorStrengths[i] * Normalize(t) / (r*r) * (push.fixParticles ? 6.0 : 8.0);
+		g += push.attractorStrengths[i] * Normalize(t) / (r*r) * (push.fixParticles ? 5.5 : 8.0);
 	}
 
 	g *= audioScale;

@@ -61,7 +61,7 @@ impl EngineSwapchain {
             }
         };
 
-        // Attempt to select one more image buffer than the minimum required, but constrained by optional maximum count
+        // Attempt to create one more image buffer than the minimum required, but constrained by optional maximum count
         let image_count = {
             let desired_count = surface_capabilities.min_image_count + 1;
             let max_count = surface_capabilities.max_image_count.unwrap_or(0);
@@ -80,7 +80,11 @@ impl EngineSwapchain {
                 min_image_count: image_count, // Use one more buffer than the minimum in swapchain
                 image_format: Some(image_format),
                 image_extent: dimensions.into(),
-                image_usage: ImageUsage::color_attachment(), // Images are going to be used for color (as opposed to depth, etc.)
+                image_usage: {  // Swapchain images are going to be used for color, as well as MSAA destination
+                    let mut u = ImageUsage::color_attachment();
+                    u.transfer_destination = true;
+                    u
+                },
                 composite_alpha,
                 present_mode: present_mode,
                 ..Default::default()
@@ -105,12 +109,10 @@ impl EngineSwapchain {
         new_dimensions: PhysicalSize<u32>,
         window_resized: bool,
     ) -> RecreateSwapchainResult {
-        let old_swapchain = self.swapchain.clone();
-
         // Create new swapchain with desired dimensions
-        let recreate_swapchain = old_swapchain.recreate(SwapchainCreateInfo {
+        let recreate_swapchain = self.swapchain.recreate(SwapchainCreateInfo {
             image_extent: new_dimensions.into(),
-            ..old_swapchain.create_info()
+            ..self.swapchain.create_info()
         });
         match recreate_swapchain {
             // Successful re-creation of swapchain, update self
