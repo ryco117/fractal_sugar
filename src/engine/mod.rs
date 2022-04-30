@@ -110,26 +110,37 @@ impl Engine {
         let frames_in_flight = engine_swapchain.get_images().len();
         let fences: Vec<Option<Arc<FenceSignalFuture<_>>>> = vec![None; frames_in_flight];
 
-        // vulkano-shaders wasn't working effortlessly for my cross-compiling needs.
-        // Decided it was easier to implement this closure and continue with a minimal cross-compile
-        let load_shader_bytes = |path: &str| -> Arc<ShaderModule> {
-            let bytes = std::fs::read(path).expect("Failed to read bytes from compiled shader");
-            assert_eq!(
-                bytes.len() % 4,
-                0,
-                "SPIR-V shader must have a byte-length which is a multiple of 4"
-            );
-            unsafe { ShaderModule::from_bytes(device.clone(), &bytes).unwrap() }
-        };
+        // Load particle shaders
+        mod particle_shaders {
+            pub mod fs {
+                vulkano_shaders::shader! {
+                    ty: "fragment",
+                    path: "shaders/src/particles.frag"
+                }
+            }
+            pub mod vs {
+                vulkano_shaders::shader! {
+                    ty: "vertex",
+                    path: "shaders/src/particles.vert"
+                }
+            }
+            pub mod cs {
+                vulkano_shaders::shader! {
+                    ty: "compute",
+                    path: "shaders/src/particles.comp"
+                }
+            }
+        }
+        let frag_shader = particle_shaders::fs::load(device.clone())
+            .expect("Failed to load particle fragment shader");
+        let vert_shader = particle_shaders::vs::load(device.clone())
+            .expect("Failed to load particle vertex shader");
+        let comp_shader = particle_shaders::cs::load(device.clone())
+            .expect("Failed to load particle compute shader");
 
         // Load compiled graphics shaders into vulkan
         //let frag_shader = load_shader_bytes("shaders/spirv/iq_mandelbrot.frag.spv");
         //let vert_shader = load_shader_bytes("shaders/spirv/entire_view.vert.spv");
-
-        // Load particle shaders
-        let frag_shader = load_shader_bytes("shaders/spirv/particles.frag.spv");
-        let vert_shader = load_shader_bytes("shaders/spirv/particles.vert.spv");
-        let comp_shader = load_shader_bytes("shaders/spirv/particles.comp.spv");
 
         // Create compute pipeline for particles
         let compute_pipeline = vulkano::pipeline::ComputePipeline::new(

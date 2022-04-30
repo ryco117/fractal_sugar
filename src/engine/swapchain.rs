@@ -80,7 +80,8 @@ impl EngineSwapchain {
                 min_image_count: image_count, // Use one more buffer than the minimum in swapchain
                 image_format: Some(image_format),
                 image_extent: dimensions.into(),
-                image_usage: {  // Swapchain images are going to be used for color, as well as MSAA destination
+                image_usage: {
+                    // Swapchain images are going to be used for color, as well as MSAA destination
                     let mut u = ImageUsage::color_attachment();
                     u.transfer_destination = true;
                     u
