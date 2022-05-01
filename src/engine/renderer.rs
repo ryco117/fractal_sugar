@@ -54,7 +54,7 @@ pub fn create_particles_cmdbuf(
     )
     .unwrap();
 
-    use vulkano::buffer::TypedBufferAccess; //Trait for accessing buffer length
+    use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
     let buffer_count = vertex_buffer.len() as u32;
 
     let time = push_constant.time; // Use `time` in both pipelines

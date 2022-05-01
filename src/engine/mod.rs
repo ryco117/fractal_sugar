@@ -187,7 +187,7 @@ impl Engine {
             // Create device-local buffer for optimal GPU access
             let local_buffer = DeviceLocalBuffer::<[T]>::array(
                 device.clone(),
-                count as u64,
+                count as vulkano::DeviceSize,
                 BufferUsage {
                     transfer_destination: true,
                     ..usage
@@ -266,9 +266,9 @@ impl Engine {
             compute_pipeline
                 .layout()
                 .set_layouts()
-                .get(0)
+                .get(0) // 0 is the index of the descriptor set layout we want
                 .unwrap()
-                .clone(), // 0 is the index of the descriptor set layout we want
+                .clone(),
             [
                 vulkano::descriptor_set::WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
                 vulkano::descriptor_set::WriteDescriptorSet::buffer(
@@ -446,21 +446,17 @@ impl Engine {
             return true;
         }
 
-        // If this image buffer already has a fence, wait for the fence to be ready.
-        // Almost always the fence for this index will have completed by the time we are rendering it again
-        if let Some(image_fence) = &self.fences[image_index] {
-            image_fence.wait(None).unwrap()
+        // If this image buffer already has a fence, wait for the fence to be completed, then cleanup.
+        // Usually the fence for this index will have completed by the time we are rendering it again
+        if let Some(image_fence) = &mut self.fences[image_index] {
+            image_fence.wait(None).unwrap();
+            image_fence.cleanup_finished()
         }
 
         // If the previous image has a fence, use it for synchronization, else create a new one
         let previous_future = match self.fences[self.previous_fence_index].clone() {
-            // Create new future to guarentee synchronization with (imaginary) previous frame
-            None => {
-                let mut now = vulkano::sync::now(self.device.clone());
-                // Manually free all unused resources (which could still be there because of an error) https://vulkano.rs/guide/windowing/event-handling
-                now.cleanup_finished();
-                now.boxed()
-            }
+            // Create new future to guarentee synchronization with (fake) previous frame
+            None => vulkano::sync::now(self.device.clone()).boxed(),
 
             // Ensure current frame is synchronized with previous
             Some(fence) => fence.boxed(),
