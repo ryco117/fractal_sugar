@@ -40,7 +40,7 @@ void main() {
 	float speed = min(length(vel), maxSpeed);
 	vec4 speedColor;
 	if(speed < speedConst1.w) {
-		speedColor = vec4(mix(0.12*indexColor.xyz + vec3(0.2), vec3(speedConst1.x, speedConst1.y * speed/speedConst1.w, speedConst1.z), speed / speedConst1.w), 1.0);
+		speedColor = vec4(mix(0.5*indexColor.xyz, vec3(speedConst1.x, speedConst1.y * speed/speedConst1.w, speedConst1.z), speed / speedConst1.w), 1.0);
 	} else if(speed < speedConst2.w) {
 		speedColor = vec4(mix(speedConst1.xyz, speedConst2.xyz, (speed - speedConst1.w)/(speedConst2.w - speedConst1.w)), 1.0);
 	} else if(speed < speedConst3.w) {
@@ -49,5 +49,5 @@ void main() {
 		speedColor = vec4(mix(speedConst3.xyz, vec3(1.0, 0.4, 0.4), (speed - speedConst3.w)/(maxSpeed - speedConst3.w)), 1.0);
 	}
 
-	outColor = mix(speedColor, indexColor, pow(max(speed - maxSpeed/100.0, 0.0)/maxSpeed, 0.375));
+	outColor = mix(speedColor, indexColor, pow(max(speed - maxSpeed/100.0, 0.0)/maxSpeed, 0.36));
 }

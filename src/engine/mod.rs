@@ -73,6 +73,31 @@ const DEFAULT_HEIGHT: u32 = 450;
 
 const DEBUG_VULKAN: bool = true;
 
+// Create module for the particle's shader macros
+mod particle_shaders {
+    pub mod fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            path: "shaders/particles.frag"
+        }
+    }
+    pub mod vs {
+        vulkano_shaders::shader! {
+            ty: "vertex",
+            path: "shaders/particles.vert"
+        }
+    }
+    pub mod cs {
+        vulkano_shaders::shader! {
+            ty: "compute",
+            path: "shaders/particles.comp"
+        }
+    }
+}
+
+// Export Push Constant types to callers
+pub type ComputePushConstants = particle_shaders::cs::ty::PushConstants;
+
 impl Engine {
     pub fn new(event_loop: &EventLoop<()>) -> Self {
         // Create instance with extensions required for windowing (and optional debugging extension(s) and layer(s))
@@ -116,36 +141,12 @@ impl Engine {
         let fences: Vec<Option<EngineFrameFuture>> = vec![None; frames_in_flight];
 
         // Load particle shaders
-        mod particle_shaders {
-            pub mod fs {
-                vulkano_shaders::shader! {
-                    ty: "fragment",
-                    path: "shaders/src/particles.frag"
-                }
-            }
-            pub mod vs {
-                vulkano_shaders::shader! {
-                    ty: "vertex",
-                    path: "shaders/src/particles.vert"
-                }
-            }
-            pub mod cs {
-                vulkano_shaders::shader! {
-                    ty: "compute",
-                    path: "shaders/src/particles.comp"
-                }
-            }
-        }
         let frag_shader = particle_shaders::fs::load(device.clone())
             .expect("Failed to load particle fragment shader");
         let vert_shader = particle_shaders::vs::load(device.clone())
             .expect("Failed to load particle vertex shader");
         let comp_shader = particle_shaders::cs::load(device.clone())
             .expect("Failed to load particle compute shader");
-
-        // Load compiled graphics shaders into vulkan
-        //let frag_shader = load_shader_bytes("shaders/spirv/iq_mandelbrot.frag.spv");
-        //let vert_shader = load_shader_bytes("shaders/spirv/entire_view.vert.spv");
 
         // Create compute pipeline for particles
         let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
@@ -425,11 +426,7 @@ impl Engine {
 
     // Use given push constants and synchronization-primitives to render next frame in swapchain.
     // Returns whether a swapchain recreation was deemed necessary
-    pub fn draw_frame(
-        &mut self,
-        _push_constants: renderer::PushConstantData,
-        compute_push_constants: renderer::ComputePushConstantData,
-    ) -> bool {
+    pub fn draw_frame(&mut self, compute_push_constants: ComputePushConstants) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
         let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
             self.swapchain.get_swapchain(),
@@ -455,11 +452,11 @@ impl Engine {
 
         // If the previous image has a fence, use it for synchronization, else create a new one
         let previous_future = match self.fences[self.previous_fence_index].clone() {
-            // Create new future to guarentee synchronization with (fake) previous frame
-            None => vulkano::sync::now(self.device.clone()).boxed(),
-
             // Ensure current frame is synchronized with previous
             Some(fence) => fence.boxed(),
+            
+            // Create new future to guarentee synchronization with (fake) previous frame
+            None => vulkano::sync::now(self.device.clone()).boxed(),
         };
 
         // Create a one-time-submit command buffer for this push constant data

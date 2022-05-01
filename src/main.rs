@@ -145,24 +145,24 @@ fn main() {
             }
 
             // Create per-frame data
-            let push_constants = engine::renderer::PushConstantData {
+            /*let push_constants = engine::renderer::PushConstantData {
                 temp_data: [0.; 4],
                 time: game_time,
                 width: dimensions.width as f32,
                 height: dimensions.height as f32,
-            };
+            };*/
 
             // Unzip (point, strength) arrays for passing to shader
-            fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([Vector2; 2], [f32; 2]) {
-                (arr.map(|e| e.0), arr.map(|e| e.1))
+            fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([[f32; 2]; 2], [f32; 2]) {
+                (arr.map(|e| e.0.into()), arr.map(|e| e.1))
             }
             let (curl_attractors, curl_attractor_strengths) =
                 simple_unzip(&audio_state.curl_attractors);
             let (attractors, attractor_strengths) = simple_unzip(&audio_state.attractors);
 
             // Create per-frame data for particle compute-shader
-            let compute_push_constants = engine::renderer::ComputePushConstantData {
-                big_boomer: audio_state.big_boomer.0,
+            let compute_push_constants = engine::ComputePushConstants {
+                big_boomer: audio_state.big_boomer.0.into(),
                 big_boomer_strength: audio_state.big_boomer.1,
 
                 curl_attractors,
@@ -177,7 +177,7 @@ fn main() {
             };
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
-            recreate_swapchain |= engine.draw_frame(push_constants, compute_push_constants)
+            recreate_swapchain |= engine.draw_frame(compute_push_constants)
         }
 
         // Handle some keyboard input

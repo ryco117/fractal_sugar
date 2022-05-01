@@ -11,30 +11,6 @@ use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline, PipelineBin
 use vulkano::render_pass::Framebuffer;
 
 use super::vertex::Vertex;
-use crate::my_math::Vector2;
-
-// Internal bytes to be copied to GPU through push constants
-#[repr(C)]
-pub struct ComputePushConstantData {
-    pub big_boomer: Vector2,
-    pub curl_attractors: [Vector2; 2],
-    pub attractors: [Vector2; 2],
-
-    pub big_boomer_strength: f32,
-    pub curl_attractor_strengths: [f32; 2],
-    pub attractor_strengths: [f32; 2],
-
-    pub time: f32,
-    pub delta_time: f32,
-    pub fix_particles: u32,
-}
-#[repr(C)]
-pub struct PushConstantData {
-    pub temp_data: [f32; 4],
-    pub time: f32,
-    pub width: f32,
-    pub height: f32,
-}
 
 pub fn create_particles_cmdbuf(
     device: Arc<Device>,
@@ -44,7 +20,7 @@ pub fn create_particles_cmdbuf(
     vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
     compute_pipeline: Arc<ComputePipeline>,
     descriptor_set: Arc<PersistentDescriptorSet>,
-    push_constant: ComputePushConstantData,
+    push_constant: super::particle_shaders::cs::ty::PushConstants,
 ) -> Arc<PrimaryAutoCommandBuffer> {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(

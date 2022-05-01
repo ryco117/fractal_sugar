@@ -109,3 +109,9 @@ impl Vector2 {
         }
     }
 }
+
+impl Into<[f32; 2]> for Vector2 {
+    fn into(self) -> [f32; 2] {
+        [self.x, self.y]
+    }
+}
