@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use vulkano::buffer::device_local::DeviceLocalBuffer;
-use vulkano::buffer::{BufferAccess, BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
+use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
 use vulkano::command_buffer::{
     CommandBufferExecFuture, PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
 };
@@ -32,16 +32,21 @@ use crate::my_math::Vector2;
 use crate::space_filling_curves;
 use vertex::Vertex;
 
-type EngineFrameFuture = FenceSignalFuture<
-    vulkano::swapchain::PresentFuture<
-        vulkano::command_buffer::CommandBufferExecFuture<
-            vulkano::sync::JoinFuture<
-                Box<dyn GpuFuture>,
-                vulkano::swapchain::SwapchainAcquireFuture<Window>,
+// It's possible to remove this typedef and use a `Box`ed GpuFuture;
+// however, doing so would force using dynamic dispatch of methods,
+// as well as require extra code for (un)boxing
+type EngineFrameFuture = Arc<
+    FenceSignalFuture<
+        vulkano::swapchain::PresentFuture<
+            vulkano::command_buffer::CommandBufferExecFuture<
+                vulkano::sync::JoinFuture<
+                    Box<dyn GpuFuture>,
+                    vulkano::swapchain::SwapchainAcquireFuture<Window>,
+                >,
+                Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
             >,
-            Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
+            Window,
         >,
-        Window,
     >,
 >;
 
@@ -49,7 +54,7 @@ pub struct Engine {
     compute_pipeline: Arc<vulkano::pipeline::ComputePipeline>,
     descriptor_set: Arc<vulkano::descriptor_set::PersistentDescriptorSet>,
     device: Arc<Device>,
-    fences: Vec<Option<Arc<EngineFrameFuture>>>,
+    fences: Vec<Option<EngineFrameFuture>>,
     frag_shader: Arc<ShaderModule>,
     framebuffers: Vec<Arc<Framebuffer>>,
     graphics_pipeline: Arc<GraphicsPipeline>,
@@ -108,7 +113,7 @@ impl Engine {
         // Create a frame-in-flight fence for each image buffer.
         // This allows CPU work to continue while GPU is busy with previous frames
         let frames_in_flight = engine_swapchain.get_images().len();
-        let fences: Vec<Option<Arc<FenceSignalFuture<_>>>> = vec![None; frames_in_flight];
+        let fences: Vec<Option<EngineFrameFuture>> = vec![None; frames_in_flight];
 
         // Load particle shaders
         mod particle_shaders {
@@ -168,6 +173,8 @@ impl Engine {
             [T]: vulkano::buffer::BufferContents,
             I: ExactSizeIterator<Item = T>,
         {
+            let count = data_iter.len();
+
             // Create simple buffer type that we can write data to
             let data_source_buffer = CpuAccessibleBuffer::from_iter(
                 device.clone(),
@@ -178,18 +185,16 @@ impl Engine {
             .expect("Failed to create test compute buffer");
 
             // Create device-local buffer for optimal GPU access
-            let local_buffer = unsafe {
-                DeviceLocalBuffer::raw(
-                    device.clone(),
-                    data_source_buffer.size(),
-                    BufferUsage {
-                        transfer_destination: true,
-                        ..usage
-                    },
-                    device.active_queue_families(),
-                )
-                .expect("Failed to create immutable fixed-position buffer")
-            };
+            let local_buffer = DeviceLocalBuffer::<[T]>::array(
+                device.clone(),
+                count as u64,
+                BufferUsage {
+                    transfer_destination: true,
+                    ..usage
+                },
+                device.active_queue_families(),
+            )
+            .expect("Failed to create immutable fixed-position buffer");
 
             // Create buffer copy command
             let mut cbb = vulkano::command_buffer::AutoCommandBufferBuilder::primary(
@@ -203,10 +208,7 @@ impl Engine {
             let cb = cbb.build().unwrap();
 
             // Create future representing execution of copy-command
-            let future = match cb.execute(queue.clone()) {
-                Ok(f) => f,
-                Err(_) => unreachable!(),
-            };
+            let future = cb.execute(queue.clone()).unwrap();
 
             // Return device-local buffer with execution future (so caller can decide how best to synchronize execution)
             (local_buffer, future)
@@ -393,9 +395,6 @@ impl Engine {
             RecreateSwapchainResult::ExtentNotSupported => {
                 return RecreateSwapchainResult::ExtentNotSupported
             }
-
-            // Return that recreation failed for an unexpected reason
-            err => return err,
         }
 
         // Framebuffer is tied to the swapchain images, must recreate as well
@@ -447,25 +446,23 @@ impl Engine {
             return true;
         }
 
-        // If this image buffer already has a fence, wait for the fence to be ready
+        // If this image buffer already has a fence, wait for the fence to be ready.
+        // Almost always the fence for this index will have completed by the time we are rendering it again
         if let Some(image_fence) = &self.fences[image_index] {
             image_fence.wait(None).unwrap()
         }
 
         // If the previous image has a fence, use it for synchronization, else create a new one
         let previous_future = match self.fences[self.previous_fence_index].clone() {
-            // Create new future to assert synchronization with previous frame
+            // Create new future to guarentee synchronization with (imaginary) previous frame
             None => {
                 let mut now = vulkano::sync::now(self.device.clone());
-
-                // Manually free all not used resources (which could still be there because of an error) https://vulkano.rs/guide/windowing/event-handling
+                // Manually free all unused resources (which could still be there because of an error) https://vulkano.rs/guide/windowing/event-handling
                 now.cleanup_finished();
-
-                // Box value to heap to account for the different sizes of different future types
                 now.boxed()
             }
 
-            // Use existing fence
+            // Ensure current frame is synchronized with previous
             Some(fence) => fence.boxed(),
         };
 

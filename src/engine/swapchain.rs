@@ -20,7 +20,6 @@ pub struct EngineSwapchain {
 pub enum RecreateSwapchainResult {
     Success,
     ExtentNotSupported,
-    Failure(String),
 }
 
 impl EngineSwapchain {
@@ -42,10 +41,21 @@ impl EngineSwapchain {
             .iter()
             .next()
             .unwrap();
-        let image_format = physical_device
-            .surface_formats(&surface, Default::default())
-            .unwrap()[0]
-            .0;
+        let image_format = {
+            let desired_formats = [Format::R8G8B8A8_UNORM, Format::B8G8R8A8_UNORM];
+            physical_device
+                .surface_formats(&surface, Default::default())
+                .unwrap()
+                .into_iter()
+                .find_map(|(format, _)| {
+                    if desired_formats.contains(&format) {
+                        Some(format)
+                    } else {
+                        None
+                    }
+                })
+                .expect("Failed to find suitable surface format")
+        };
 
         // Get preferred present mode with fallback to FIFO (which any Vulkan instance must support)
         let present_mode = {
@@ -141,7 +151,7 @@ impl EngineSwapchain {
             }
 
             // Unexpected error
-            Err(e) => RecreateSwapchainResult::Failure(format!("{:?}", e)),
+            Err(e) => panic!("Failed to recreate swapchian: {:?}", e),
         }
     }
 

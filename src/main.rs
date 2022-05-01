@@ -141,9 +141,6 @@ fn main() {
                         window_resized = false
                     }
                     RecreateSwapchainResult::ExtentNotSupported => return,
-                    RecreateSwapchainResult::Failure(err) => {
-                        panic!("Failed to recreate swapchain: {:?}", err)
-                    }
                 }
             }
 
