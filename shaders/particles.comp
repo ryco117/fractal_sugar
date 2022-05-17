@@ -11,7 +11,7 @@ layout (binding = 0) buffer VertexBuffer {
 	VertexData verticies[];
 };
 layout (binding = 1) buffer readonly FixedPosBuffer {
-	vec2 fixedPositions[];
+	vec2 fixed_positions[];
 };
 
 layout (push_constant) uniform PushConstants
@@ -29,15 +29,14 @@ layout (push_constant) uniform PushConstants
 	bool fix_particles;
 } push;
 
-const float springCoefficient = 75.0;
+const float spring_coefficient = 75.0;
 
-const float maxSpeed = 6.0;
+const float max_speed = 6.0; // Must match `max_speed` in vertex shader
 const float min_length = 0.01;
-const float friction = -6.0;
 
-const float audioScale = 0.01;
+const float audio_scale = 0.01;
 
-vec2 Normalize(vec2 t) {
+vec2 safe_normalize(vec2 t) {
 	if(length(t) < 0.000001) {
 		return t;
 	}
@@ -55,36 +54,66 @@ void main(void)
 	vec2 vel = vert.vel;
 	
 	vec2 g = vec2(0.0);
+	float friction;
+	if(push.fix_particles)
 	{
-		vec2 t = push.big_boomer - pos;
-		float r = max(length(t), min_length);
-		g -= push.big_boomer_strength * Normalize(t) / (r*r*r)  * (push.fix_particles ? 0.5 : 0.3);
-	}
+		friction = -6.5;
 
-	for(int i = 0; i < push.curl_attractors.length(); i++)
+		{
+			vec2 t = push.big_boomer - pos;
+			float r = max(length(t), min_length);
+			g -= push.big_boomer_strength * safe_normalize(t) / (r*r*r) * 0.6;
+		}
+
+		for(int i = 0; i < push.curl_attractors.length(); i++)
+		{
+			vec2 t = push.curl_attractors[i] - pos;
+			float r = max(length(t), min_length);
+			g += push.curl_attractor_strengths[i] * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 2.6;
+		}
+
+		for(int i = 0; i < push.attractors.length(); i++)
+		{
+			vec2 t = push.attractors[i] - pos;
+			float r = max(length(t), min_length);
+			g += push.attractor_strengths[i] * safe_normalize(t) / (r*r) * 5.5;
+		}
+
+		g *= audio_scale;
+
+		g += spring_coefficient * (fixed_positions[index] - pos);
+	}
+	else
 	{
-		vec2 t = push.curl_attractors[i] - pos;
-		float r = max(length(t), min_length);
-		g += push.curl_attractor_strengths[i] * Normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * (push.fix_particles ? 2.6 : 5.0);
-	}
+		friction = -1.5;
 
-	for(int i = 0; i < push.attractors.length(); i++)
-	{
-		vec2 t = push.attractors[i] - pos;
-		float r = max(length(t), min_length);
-		g += push.attractor_strengths[i] * Normalize(t) / (r*r) * (push.fix_particles ? 5.5 : 8.0);
-	}
+		{
+			vec2 t = push.big_boomer - pos;
+			float r = max(length(t), min_length);
+			g -= push.big_boomer_strength * safe_normalize(t) / (r*r*r) * 0.85;
+		}
 
-	g *= audioScale;
+		for(int i = 0; i < push.curl_attractors.length(); i++)
+		{
+			vec2 t = push.curl_attractors[i] - pos;
+			float r = max(length(t), min_length);
+			g += push.curl_attractor_strengths[i] * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 5.0;
+		}
 
-	if(push.fix_particles) {
-		g += springCoefficient * (fixedPositions[index] - pos);
+		for(int i = 0; i < push.attractors.length(); i++)
+		{
+			vec2 t = push.attractors[i] - pos;
+			float r = max(length(t), min_length);
+			g += push.attractor_strengths[i] * safe_normalize(t) / (r*r) * 8.5;
+		}
+
+		g *= audio_scale;
 	}
 
 	vel += push.delta_time * g;
 	
-	if(length(vel) > maxSpeed) {
-		vel = maxSpeed*normalize(vel);
+	if(length(vel) > max_speed) {
+		vel = max_speed*normalize(vel);
 	}
 
 	pos += vel * push.delta_time;

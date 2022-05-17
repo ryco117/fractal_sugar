@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
 use vulkano::device::physical::PhysicalDevice;
-use vulkano::device::{Device, DeviceOwned};
+use vulkano::device::Device;
 use vulkano::format::Format;
-use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
+use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::swapchain::{
     PresentMode, Surface, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
 };
@@ -14,7 +13,6 @@ use winit::window::Window;
 pub struct EngineSwapchain {
     swapchain: Arc<Swapchain<Window>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
-    msaa_images: Vec<Arc<ImageView<AttachmentImage>>>,
 }
 
 pub enum RecreateSwapchainResult {
@@ -103,23 +101,11 @@ impl EngineSwapchain {
         )
         .unwrap();
 
-        // MSAA requires multi-sampled image buffers.
-        // These are copied to the swapchain images for presentation
-        let msaa_images = Self::create_msaa_images(&device, &surface, image_format, images.len());
-
-        Self {
-            swapchain,
-            images,
-            msaa_images,
-        }
+        Self { swapchain, images }
     }
 
     // Recreate swapchain using new dimensions
-    pub fn recreate(
-        &mut self,
-        new_dimensions: PhysicalSize<u32>,
-        window_resized: bool,
-    ) -> RecreateSwapchainResult {
+    pub fn recreate(&mut self, new_dimensions: PhysicalSize<u32>) -> RecreateSwapchainResult {
         // Create new swapchain with desired dimensions
         let recreate_swapchain = self.swapchain.recreate(SwapchainCreateInfo {
             image_extent: new_dimensions.into(),
@@ -130,16 +116,6 @@ impl EngineSwapchain {
             Ok((new_swapchain, new_images)) => {
                 self.swapchain = new_swapchain;
                 self.images = new_images;
-
-                if window_resized {
-                    // Multi-sampled (MSAA) image buffers only need to be recreated if the size has changed
-                    self.msaa_images = Self::create_msaa_images(
-                        &self.swapchain.device(),
-                        &self.swapchain.surface(),
-                        self.swapchain.image_format(),
-                        self.images.len(),
-                    )
-                }
 
                 RecreateSwapchainResult::Success
             }
@@ -155,37 +131,14 @@ impl EngineSwapchain {
         }
     }
 
-    // Create required attachment images for multi-sampling (MSAA) each frame
-    fn create_msaa_images(
-        device: &Arc<Device>,
-        surface: &Surface<Window>,
-        image_format: Format,
-        image_count: usize,
-    ) -> Vec<Arc<ImageView<AttachmentImage>>> {
-        (0..image_count)
-            .map(|_| {
-                ImageView::new_default(
-                    AttachmentImage::transient_multisampled(
-                        device.clone(),
-                        surface.window().inner_size().into(),
-                        vulkano::image::SampleCount::Sample8,
-                        image_format,
-                    )
-                    .unwrap(),
-                )
-                .unwrap()
-            })
-            .collect()
-    }
-
     // Swapchain getters
-    pub fn get_swapchain(&self) -> Arc<Swapchain<Window>> {
+    pub fn swapchain(&self) -> Arc<Swapchain<Window>> {
         self.swapchain.clone()
     }
-    pub fn get_images(&self) -> Vec<Arc<SwapchainImage<Window>>> {
+    pub fn images(&self) -> Vec<Arc<SwapchainImage<Window>>> {
         self.images.clone()
     }
-    pub fn get_msaa_images(&self) -> Vec<Arc<ImageView<AttachmentImage>>> {
-        self.msaa_images.clone()
+    pub fn image_format(&self) -> Format {
+        self.swapchain.image_format()
     }
 }

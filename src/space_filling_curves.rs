@@ -1,7 +1,6 @@
-#[allow(dead_code)] // TODO: Use all of my code
-
 // Contain code for mapping a number in [0, 1] to a cube
 pub mod cube {
+    use crate::my_math::Vector3;
 
     // Define vertices of a cube as a type
     enum Vertex {
@@ -16,14 +15,14 @@ pub mod cube {
     }
 
     // Create a point for each vertex on cube
-    const V0: (f32, f32, f32) = (1., 1., -1.);
-    const V1: (f32, f32, f32) = (1., -1., -1.);
-    const V2: (f32, f32, f32) = (-1., -1., -1.);
-    const V3: (f32, f32, f32) = (-1., 1., -1.);
-    const V4: (f32, f32, f32) = (-1., 1., 1.);
-    const V5: (f32, f32, f32) = (-1., -1., 1.);
-    const V6: (f32, f32, f32) = (1., -1., 1.);
-    const V7: (f32, f32, f32) = (1., 1., 1.);
+    const V0: Vector3 = Vector3::new(1., 1., -1.);
+    const V1: Vector3 = Vector3::new(1., -1., -1.);
+    const V2: Vector3 = Vector3::new(-1., -1., -1.);
+    const V3: Vector3 = Vector3::new(-1., 1., -1.);
+    const V4: Vector3 = Vector3::new(-1., 1., 1.);
+    const V5: Vector3 = Vector3::new(-1., -1., 1.);
+    const V6: Vector3 = Vector3::new(1., -1., 1.);
+    const V7: Vector3 = Vector3::new(1., 1., 1.);
 
     // Function to turn a number `x` into nearest vertex and remainder
     fn nearest_vertex(x: f32) -> (Vertex, f32) {
@@ -58,119 +57,101 @@ pub mod cube {
         }
     }
 
-    // Function to add triplets together
-    fn add_triplets((x, y, z): (f32, f32, f32), (xx, yy, zz): (f32, f32, f32)) -> (f32, f32, f32) {
-        (x + xx, y + yy, z + zz)
-    }
-
     // Function to map number `x` and vertex to a point along an edge
-    fn vertex_pos(x: f32, v: Vertex) -> (f32, f32, f32) {
+    fn vertex_pos(x: f32, v: Vertex) -> Vector3 {
         match v {
-            Vertex::Vertex0 => add_triplets(V0, (0., -x, 0.)),
-            Vertex::Vertex1 => add_triplets(
-                V1,
-                if x < 0.5 {
-                    (0., 1. - (x * 2.), 0.)
+            Vertex::Vertex0 => V0 + Vector3::new(0., -x, 0.),
+            Vertex::Vertex1 => {
+                V1 + if x < 0.5 {
+                    Vector3::new(0., 1. - (x * 2.), 0.)
                 } else {
-                    (-2. * (x - 0.5), 0., 0.)
-                },
-            ),
-            Vertex::Vertex2 => add_triplets(
-                V2,
-                if x < 0.5 {
-                    (1. - (x * 2.), 0., 0.)
+                    Vector3::new(-2. * (x - 0.5), 0., 0.)
+                }
+            }
+            Vertex::Vertex2 => {
+                V2 + if x < 0.5 {
+                    Vector3::new(1. - (x * 2.), 0., 0.)
                 } else {
-                    (0., 2. * (x - 0.5), 0.)
-                },
-            ),
-            Vertex::Vertex3 => add_triplets(
-                V3,
-                if x < 0.5 {
-                    (0., (x * 2.) - 1., 0.)
+                    Vector3::new(0., 2. * (x - 0.5), 0.)
+                }
+            }
+            Vertex::Vertex3 => {
+                V3 + if x < 0.5 {
+                    Vector3::new(0., (x * 2.) - 1., 0.)
                 } else {
-                    (0., 0., 2. * (x - 0.5))
-                },
-            ),
-            Vertex::Vertex4 => add_triplets(
-                V4,
-                if x < 0.5 {
-                    (0., 0., (x * 2.) - 1.)
+                    Vector3::new(0., 0., 2. * (x - 0.5))
+                }
+            }
+            Vertex::Vertex4 => {
+                V4 + if x < 0.5 {
+                    Vector3::new(0., 0., (x * 2.) - 1.)
                 } else {
-                    (0., -2. * (x - 0.5), 0.)
-                },
-            ),
-            Vertex::Vertex5 => add_triplets(
-                V5,
-                if x < 0.5 {
-                    (0., 1. - (x * 2.), 0.)
+                    Vector3::new(0., -2. * (x - 0.5), 0.)
+                }
+            }
+            Vertex::Vertex5 => {
+                V5 + if x < 0.5 {
+                    Vector3::new(0., 1. - (x * 2.), 0.)
                 } else {
-                    (2. * (x - 0.5), 0., 0.)
-                },
-            ),
-            Vertex::Vertex6 => add_triplets(
-                V6,
-                if x < 0.5 {
-                    ((x * 2.) - 1., 0., 0.)
+                    Vector3::new(2. * (x - 0.5), 0., 0.)
+                }
+            }
+            Vertex::Vertex6 => {
+                V6 + if x < 0.5 {
+                    Vector3::new((x * 2.) - 1., 0., 0.)
                 } else {
-                    (0., 2. * (x - 0.5), 0.)
-                },
-            ),
-            Vertex::Vertex7 => add_triplets(V7, (0., x - 1., 0.)),
+                    Vector3::new(0., 2. * (x - 0.5), 0.)
+                }
+            }
+            Vertex::Vertex7 => V7 + Vector3::new(0., x - 1., 0.),
         }
     }
 
     // Function to map a point `p` to its location in a specified vertex cell
-    fn cell_transform(p: (f32, f32, f32), v: Vertex) -> (f32, f32, f32) {
-        // Function to halve the distance of a point from the origin
-        fn halve_triplet(p: (f32, f32, f32)) -> (f32, f32, f32) {
-            match p {
-                (x, y, z) => (x / 2., y / 2., z / 2.),
-            }
-        }
-
+    fn cell_transform(p: Vector3, v: Vertex) -> Vector3 {
         // Set of functions that rotate a point about the origin to align with a vertex
-        fn r0(p: (f32, f32, f32)) -> (f32, f32, f32) {
+        fn r0(p: Vector3) -> Vector3 {
             match p {
-                (x, y, z) => (y, -z, -x),
+                Vector3 { x, y, z } => Vector3::new(y, -z, -x),
             }
         }
-        fn r1(p: (f32, f32, f32)) -> (f32, f32, f32) {
+        fn r1(p: Vector3) -> Vector3 {
             match p {
-                (x, y, z) => (-z, x, -y),
+                Vector3 { x, y, z } => Vector3::new(-z, x, -y),
             }
         }
-        fn r2(p: (f32, f32, f32)) -> (f32, f32, f32) {
+        fn r2(p: Vector3) -> Vector3 {
             match p {
-                (x, y, z) => (-x, -y, z),
+                Vector3 { x, y, z } => Vector3::new(-x, -y, z),
             }
         }
-        fn r3(p: (f32, f32, f32)) -> (f32, f32, f32) {
+        fn r3(p: Vector3) -> Vector3 {
             match p {
-                (x, y, z) => (z, x, y),
+                Vector3 { x, y, z } => Vector3::new(z, x, y),
             }
         }
-        fn r4(p: (f32, f32, f32)) -> (f32, f32, f32) {
+        fn r4(p: Vector3) -> Vector3 {
             match p {
-                (x, y, z) => (y, z, x),
+                Vector3 { x, y, z } => Vector3::new(y, z, x),
             }
         }
 
         match v {
-            Vertex::Vertex0 => add_triplets((0.5, 0.5, -0.5), halve_triplet(r0(p))),
-            Vertex::Vertex1 => add_triplets((0.5, -0.5, -0.5), halve_triplet(r1(p))),
-            Vertex::Vertex2 => add_triplets((-0.5, -0.5, -0.5), halve_triplet(r1(p))),
-            Vertex::Vertex3 => add_triplets((-0.5, 0.5, -0.5), halve_triplet(r2(p))),
-            Vertex::Vertex4 => add_triplets((-0.5, 0.5, 0.5), halve_triplet(r2(p))),
-            Vertex::Vertex5 => add_triplets((-0.5, -0.5, 0.5), halve_triplet(r3(p))),
-            Vertex::Vertex6 => add_triplets((0.5, -0.5, 0.5), halve_triplet(r3(p))),
-            Vertex::Vertex7 => add_triplets((0.5, 0.5, 0.5), halve_triplet(r4(p))),
+            Vertex::Vertex0 => Vector3::new(0.5, 0.5, -0.5) + 0.5 * r0(p),
+            Vertex::Vertex1 => Vector3::new(0.5, -0.5, -0.5) + 0.5 * r1(p),
+            Vertex::Vertex2 => Vector3::new(-0.5, -0.5, -0.5) + 0.5 * r1(p),
+            Vertex::Vertex3 => Vector3::new(-0.5, 0.5, -0.5) + 0.5 * r2(p),
+            Vertex::Vertex4 => Vector3::new(-0.5, 0.5, 0.5) + 0.5 * r2(p),
+            Vertex::Vertex5 => Vector3::new(-0.5, -0.5, 0.5) + 0.5 * r3(p),
+            Vertex::Vertex6 => Vector3::new(0.5, -0.5, 0.5) + 0.5 * r3(p),
+            Vertex::Vertex7 => Vector3::new(0.5, 0.5, 0.5) + 0.5 * r4(p),
         }
     }
 
     // Function to map a floating point number `x` in range [0, 1] to a point in the cube of
     // side-length 2 that's centered at the origin, applying a depth of `n` inner cubes
-    pub fn curve_to_cube_n(x: f32, n: usize) -> (f32, f32, f32) {
-        fn f(n: usize, x: f32) -> (f32, f32, f32) {
+    pub fn curve_to_cube_n(x: f32, n: usize) -> Vector3 {
+        fn f(n: usize, x: f32) -> Vector3 {
             let (v, x_prime) = nearest_vertex(x);
             if n <= 0 {
                 vertex_pos(x_prime, v)
@@ -196,14 +177,14 @@ pub mod square {
     }
 
     // Create a point for each vertex on square
-    const V0: Vector2 = Vector2 { x: 1., y: 1. };
-    const V1: Vector2 = Vector2 { x: 1., y: -1. };
-    const V2: Vector2 = Vector2 { x: -1., y: -1. };
-    const V3: Vector2 = Vector2 { x: -1., y: 1. };
-    const HALF_V0: Vector2 = Vector2 { x: 0.5, y: 0.5 };
-    const HALF_V1: Vector2 = Vector2 { x: 0.5, y: -0.5 };
-    const HALF_V2: Vector2 = Vector2 { x: -0.5, y: -0.5 };
-    const HALF_V3: Vector2 = Vector2 { x: -0.5, y: 0.5 };
+    const V0: Vector2 = Vector2::new(1., 1.);
+    const V1: Vector2 = Vector2::new(1., -1.);
+    const V2: Vector2 = Vector2::new(-1., -1.);
+    const V3: Vector2 = Vector2::new(-1., 1.);
+    const HALF_V0: Vector2 = Vector2::new(0.5, 0.5);
+    const HALF_V1: Vector2 = Vector2::new(0.5, -0.5);
+    const HALF_V2: Vector2 = Vector2::new(-0.5, -0.5);
+    const HALF_V3: Vector2 = Vector2::new(-0.5, 0.5);
 
     // Function to turn a number `x` into nearest vertex and remainder
     fn nearest_vertex(x: f32) -> (Vertex, f32) {

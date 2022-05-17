@@ -13,10 +13,11 @@ mod my_math;
 mod space_filling_curves;
 
 use audio::AudioState;
-use my_math::Vector2;
+use my_math::{Quaternion, Vector2, Vector3, Vector4};
 
 // App constants
-const BASE_VOLUME: f32 = 1.;
+const BASE_VOLUME: f32 = 0.5;
+const BASE_ANGULAR_VELOCITY: f32 = 0.025;
 
 fn main() {
     // First, create global event loop to manage window events
@@ -44,7 +45,19 @@ fn main() {
     let mut audio_state = AudioState::default();
 
     // Game state vars?
-    let mut fix_particles = true;
+    let mut fix_particles = false;
+    let mut render_particles = true;
+    let mut distance_estimator_id = 1;
+    let mut camera_quaternion = Quaternion::default();
+
+    // Create local copies so they can be upated more frequently than FFT
+    let mut local_angular_velocity = Vector4::new(0., 1., 0., 0.);
+    let mut local_reactive_bass = Vector3::default();
+    let mut local_reactive_mids = Vector3::default();
+    let mut local_reactive_high = Vector3::default();
+    let mut local_smooth_bass = Vector3::default();
+    let mut local_smooth_mids = Vector3::default();
+    let mut local_smooth_high = Vector3::default();
 
     // Run window loop
     println!("Begin window loop...");
@@ -72,13 +85,17 @@ fn main() {
             last_frame_time = now;
 
             // Closures for exponential value interpolation
-            let interpolate_floats = |scale: f32, source: f32, target: f32| -> f32 {
+            let interpolate_floats = |source: f32, target: f32, scale: f32| -> f32 {
                 let smooth = 1. - (delta_time * -scale).exp();
-                source + (target - source) * smooth
+                source + smooth * (target - source)
             };
-            let interpolate_vec2 = |scale: f32, source: &mut Vector2, target: &Vector2| {
+            let interpolate_vec2 = |source: &mut Vector2, target: &Vector2, scale: f32| {
                 let smooth = 1. - (delta_time * -scale).exp();
-                *source += (*target - *source).scale(smooth)
+                *source += smooth * (*target - *source)
+            };
+            let interpolate_vec3 = |source: &mut Vector3, target: &Vector3, scale: f32| {
+                let smooth = 1. - (delta_time * -scale).exp();
+                *source += smooth * (*target - *source)
             };
 
             // Handle any changes to audio state
@@ -86,19 +103,26 @@ fn main() {
                 // Update audio state vars
                 Ok(AudioState {
                     volume,
+
                     big_boomer,
                     curl_attractors,
                     attractors,
+
+                    reactive_bass,
+                    reactive_mids,
+                    reactive_high,
+
+                    kick_angular_velocity,
                 }) => {
                     // Update volume
-                    audio_state.volume = interpolate_floats(16.0, audio_state.volume, volume);
+                    audio_state.volume = interpolate_floats(4.0, audio_state.volume, volume);
 
                     // Update 2D big boomers
                     if fix_particles {
                         interpolate_vec2(
-                            5. * audio_state.big_boomer.1,
                             &mut audio_state.big_boomer.0,
                             &big_boomer.0,
+                            7.5 * audio_state.big_boomer.1,
                         );
                         audio_state.big_boomer.1 = big_boomer.1
                     } else {
@@ -109,6 +133,14 @@ fn main() {
                         audio_state.curl_attractors[i] = curl_attractors[i];
                         audio_state.attractors[i] = attractors[i]
                     }
+
+                    // Update fractal state
+                    if let Some(omega) = kick_angular_velocity {
+                        local_angular_velocity = omega;
+                    }
+                    audio_state.reactive_bass = reactive_bass;
+                    audio_state.reactive_mids = reactive_mids;
+                    audio_state.reactive_high = reactive_high;
                 }
 
                 // No new data, interpolate towards baseline
@@ -120,8 +152,32 @@ fn main() {
                 Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
             }
 
-            // Update state time
+            // Update per-frame state
             game_time += delta_time * audio_state.volume.sqrt();
+            camera_quaternion.rotate_by(Quaternion::build(
+                local_angular_velocity.xyz(),
+                delta_time * local_angular_velocity.w,
+            ));
+            local_angular_velocity.w =
+                interpolate_floats(local_angular_velocity.w, BASE_ANGULAR_VELOCITY, 0.25);
+            interpolate_vec3(
+                &mut local_reactive_bass,
+                &audio_state.reactive_bass,
+                (0.8 * audio_state.big_boomer.1.sqrt()).min(1.) * 0.325,
+            );
+            interpolate_vec3(
+                &mut local_reactive_mids,
+                &audio_state.reactive_mids,
+                (0.8 * audio_state.curl_attractors[0].1.sqrt()).min(1.) * 0.325,
+            );
+            interpolate_vec3(
+                &mut local_reactive_high,
+                &audio_state.reactive_high,
+                (0.8 * audio_state.attractors[0].1.sqrt()).min(1.) * 0.325,
+            );
+            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.12);
+            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.12);
+            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, 0.12);
 
             // If cursor is visible and has been stationary then hide it
             if is_cursor_visible
@@ -143,14 +199,6 @@ fn main() {
                     RecreateSwapchainResult::ExtentNotSupported => return,
                 }
             }
-
-            // Create per-frame data
-            /*let push_constants = engine::renderer::PushConstantData {
-                temp_data: [0.; 4],
-                time: game_time,
-                width: dimensions.width as f32,
-                height: dimensions.height as f32,
-            };*/
 
             // Unzip (point, strength) arrays for passing to shader
             fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([[f32; 2]; 2], [f32; 2]) {
@@ -176,8 +224,27 @@ fn main() {
                 fix_particles: if fix_particles { 1 } else { 0 },
             };
 
+            // Create fractal data
+            let fractal_data = engine::FractalPushConstants {
+                quaternion: camera_quaternion.into(),
+
+                reactive_bass: local_reactive_bass.into(),
+                reactive_mids: local_reactive_mids.into(),
+                reactive_high: local_reactive_high.into(),
+
+                smooth_bass: local_smooth_bass.into(),
+                smooth_mids: local_smooth_mids.into(),
+                smooth_high: local_smooth_high.into(),
+
+                time: game_time,
+                width: dimensions.width as f32,
+                height: dimensions.height as f32,
+                distance_estimator_id,
+            };
+
             // Draw frame and return whether a swapchain recreation was deemed necessary
-            recreate_swapchain |= engine.draw_frame(compute_push_constants)
+            recreate_swapchain |=
+                engine.draw_frame(compute_push_constants, fractal_data, render_particles)
         }
 
         // Handle some keyboard input
@@ -223,9 +290,18 @@ fn main() {
                 }
 
                 // Handle toggling of Jello mode (fixing particles)
-                (ElementState::Pressed, VirtualKeyCode::J) => {
-                    fix_particles = !fix_particles;
-                }
+                (ElementState::Pressed, VirtualKeyCode::J) => fix_particles = !fix_particles,
+
+                // Handle toggling of particle rendering
+                (ElementState::Pressed, VirtualKeyCode::P) => render_particles = !render_particles,
+
+                // Set different fractal types
+                (ElementState::Pressed, VirtualKeyCode::Key0) => distance_estimator_id = 0,
+                (ElementState::Pressed, VirtualKeyCode::Key1) => distance_estimator_id = 1,
+                (ElementState::Pressed, VirtualKeyCode::Key2) => distance_estimator_id = 2,
+                (ElementState::Pressed, VirtualKeyCode::Key3) => distance_estimator_id = 3,
+                (ElementState::Pressed, VirtualKeyCode::Key4) => distance_estimator_id = 4,
+                (ElementState::Pressed, VirtualKeyCode::Key5) => distance_estimator_id = 5,
 
                 // No-op
                 _ => {}

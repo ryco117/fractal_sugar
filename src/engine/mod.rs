@@ -11,7 +11,7 @@ use vulkano::image::{AttachmentImage, SwapchainImage};
 use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::GraphicsPipeline;
-use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass};
+use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{PresentMode, Surface};
 use vulkano::sync::{FenceSignalFuture, GpuFuture, NowFuture};
@@ -32,38 +32,25 @@ use crate::my_math::Vector2;
 use crate::space_filling_curves;
 use vertex::Vertex;
 
-// It's possible to remove this typedef and use a `Box`ed GpuFuture;
-// however, doing so would force using dynamic dispatch of methods,
-// as well as require extra code for (un)boxing
-type EngineFrameFuture = Arc<
-    FenceSignalFuture<
-        vulkano::swapchain::PresentFuture<
-            vulkano::command_buffer::CommandBufferExecFuture<
-                vulkano::sync::JoinFuture<
-                    Box<dyn GpuFuture>,
-                    vulkano::swapchain::SwapchainAcquireFuture<Window>,
-                >,
-                Arc<vulkano::command_buffer::PrimaryAutoCommandBuffer>,
-            >,
-            Window,
-        >,
-    >,
->;
+type EngineFrameFuture = Arc<FenceSignalFuture<Box<dyn GpuFuture>>>;
 
 pub struct Engine {
     compute_pipeline: Arc<vulkano::pipeline::ComputePipeline>,
     descriptor_set: Arc<vulkano::descriptor_set::PersistentDescriptorSet>,
     device: Arc<Device>,
     fences: Vec<Option<EngineFrameFuture>>,
-    frag_shader: Arc<ShaderModule>,
+    fractal_frag: Arc<ShaderModule>,
+    fractal_pipeline: Arc<GraphicsPipeline>,
+    fractal_vert: Arc<ShaderModule>,
     framebuffers: Vec<Arc<Framebuffer>>,
-    graphics_pipeline: Arc<GraphicsPipeline>,
+    particles_pipeline: Arc<GraphicsPipeline>,
+    particle_frag: Arc<ShaderModule>,
+    particle_vert: Arc<ShaderModule>,
     previous_fence_index: usize,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
     surface: Arc<Surface<Window>>,
     swapchain: EngineSwapchain,
-    vert_shader: Arc<ShaderModule>,
     vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
     viewport: Viewport,
 }
@@ -71,7 +58,7 @@ pub struct Engine {
 const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 450;
 
-const DEBUG_VULKAN: bool = true;
+const DEBUG_VULKAN: bool = false;
 
 // Create module for the particle's shader macros
 mod particle_shaders {
@@ -97,6 +84,25 @@ mod particle_shaders {
 
 // Export Push Constant types to callers
 pub type ComputePushConstants = particle_shaders::cs::ty::PushConstants;
+
+// Create module for the fractal shader macros
+mod fractal_shaders {
+    pub mod fs {
+        vulkano_shaders::shader! {
+            ty: "fragment",
+            path: "shaders/ray_march.frag"
+        }
+    }
+    pub mod vs {
+        vulkano_shaders::shader! {
+            ty: "vertex",
+            path: "shaders/entire_view.vert"
+        }
+    }
+}
+
+// Export Push Constant types to callers
+pub type FractalPushConstants = fractal_shaders::fs::ty::PushConstants;
 
 impl Engine {
     pub fn new(event_loop: &EventLoop<()>) -> Self {
@@ -133,17 +139,23 @@ impl Engine {
             surface.clone(),
             PresentMode::Fifo,
         );
-        let image_format = engine_swapchain.get_swapchain().image_format();
+        let image_format = engine_swapchain.swapchain().image_format();
 
         // Create a frame-in-flight fence for each image buffer.
         // This allows CPU work to continue while GPU is busy with previous frames
-        let frames_in_flight = engine_swapchain.get_images().len();
+        let frames_in_flight = engine_swapchain.images().len();
         let fences: Vec<Option<EngineFrameFuture>> = vec![None; frames_in_flight];
 
+        // Load fractal shaders
+        let fractal_frag = fractal_shaders::fs::load(device.clone())
+            .expect("Failed to load fractal fragment shader");
+        let fractal_vert = fractal_shaders::vs::load(device.clone())
+            .expect("Failed to load fractal vertex shader");
+
         // Load particle shaders
-        let frag_shader = particle_shaders::fs::load(device.clone())
+        let particle_frag = particle_shaders::fs::load(device.clone())
             .expect("Failed to load particle fragment shader");
-        let vert_shader = particle_shaders::vs::load(device.clone())
+        let particle_vert = particle_shaders::vs::load(device.clone())
             .expect("Failed to load particle vertex shader");
         let comp_shader = particle_shaders::cs::load(device.clone())
             .expect("Failed to load particle compute shader");
@@ -280,25 +292,7 @@ impl Engine {
         )
         .unwrap();
 
-        // Create a render pass to utilize the graphics pipeline
-        // Describes the inputs/outputs but not the commands used
-        /*let render_pass = vulkano::single_pass_renderpass!(device.clone(),
-            attachments: {
-                color: {
-                    load: Clear,
-                    store: Store,
-                    format: engine_swapchain.get_swapchain().image_format(), // Use swapchain's format since we are writing to its buffers
-                    samples: 1, // No MSAA necessary when rendering a single quad with shading ;)
-                }
-            },
-            pass: {
-                color: [color],
-                depth_stencil: {}
-            }
-        ).unwrap();*/
-
-        // Create particle renderpass with MSAA
-        let render_pass = vulkano::single_pass_renderpass!(
+        let render_pass = vulkano::ordered_passes_renderpass!(
             device.clone(),
             attachments: {
                 // The first framebuffer attachment is the intermediary image
@@ -309,50 +303,76 @@ impl Engine {
                     samples: 8, // MSAA for smooth particles
                 },
 
-                // The second framebuffer attachment is the final image
-                color: {
-                    load: DontCare, // Don't require two clear calls for this renderpass
-                    store: Store,
+                particle_color: {
+                    load: DontCare, // Resolve does not need destination image to be cleared
+                    store: DontCare,
                     format: image_format, // Use swapchain's format since we are writing to its buffers
                     samples: 1, // Must resolve to non-sampled image for presentation
+                },
+
+                fractal_color: {
+                    load: DontCare,
+                    store: Store,
+                    format: image_format, // Use swapchain's format since we are writing to its buffers
+                    samples: 1, // No MSAA necessary when rendering a single quad with shading ;)
                 }
             },
-            pass: {
-                // When drawing, there is only one output which is the intermediary image
-                color: [intermediary],
-                depth_stencil: {},
+            passes: [
+                // Particles pass
+                {
+                    color: [intermediary],
+                    depth_stencil: {},
+                    input: [],
 
-                // The `resolve` array here must contain either zero entries (if you don't use
-                // multisampling), or one entry per color attachment. At the end of the pass, each
-                // color attachment will be *resolved* into the given image. In other words, here, at
-                // the end of the pass, the `intermediary` attachment will be copied to the attachment
-                // named `color`.
-                resolve: [color]
-            }
+                    // The `resolve` array here must contain either zero entries (if you don't use
+                    // multisampling), or one entry per color attachment. At the end of the pass, each
+                    // color attachment will be *resolved* into the given image. In other words, here, at
+                    // the end of the pass, the `intermediary` attachment will be copied to the attachment
+                    // named `particle_color`.
+                    resolve: [particle_color],
+                },
+
+                // Fractal pass
+                {
+                    color: [fractal_color],
+                    depth_stencil: {},
+                    input: [particle_color]
+                }
+            ]
         )
         .unwrap();
 
         // Define our 2D viewspace (with normalized depth)
+        let dimensions = surface.window().inner_size();
         let viewport = Viewport {
             origin: [0., 0.],
-            dimensions: surface.window().inner_size().into(),
+            dimensions: dimensions.into(),
             depth_range: 0.0..1.,
         };
 
-        // Create the almighty graphics pipeline!
-        let pipeline = pipeline::create_particles_pipeline(
+        // Create the almighty graphics pipelines
+        let particles_pipeline = pipeline::create_particles_pipeline(
             device.clone(),
-            vert_shader.clone(),
-            frag_shader.clone(),
-            render_pass.clone(),
+            particle_vert.clone(),
+            particle_frag.clone(),
+            Subpass::from(render_pass.clone(), 0).unwrap(),
+            viewport.clone(),
+        );
+        let fractal_pipeline = pipeline::create_fractal_pipeline(
+            device.clone(),
+            fractal_vert.clone(),
+            fractal_frag.clone(),
+            Subpass::from(render_pass.clone(), 1).unwrap(),
             viewport.clone(),
         );
 
         // Create a framebuffer to store results of render pass
-        let framebuffers = Self::create_particles_framebuffers(
-            render_pass.clone(),
-            &engine_swapchain.get_images(),
-            &engine_swapchain.get_msaa_images(),
+        let framebuffers = Self::create_framebuffers(
+            &device,
+            &render_pass,
+            dimensions.into(),
+            &engine_swapchain.images(),
+            image_format,
         );
 
         // Construct new Engine
@@ -361,15 +381,18 @@ impl Engine {
             descriptor_set,
             device,
             fences,
-            frag_shader,
+            fractal_frag,
+            fractal_pipeline,
+            fractal_vert,
             framebuffers,
-            graphics_pipeline: pipeline,
+            particles_pipeline,
+            particle_frag,
+            particle_vert,
             previous_fence_index: 0,
             queue,
             render_pass,
             surface,
             swapchain: engine_swapchain,
-            vert_shader,
             vertex_buffer,
             viewport,
         }
@@ -381,14 +404,14 @@ impl Engine {
         dimensions: PhysicalSize<u32>,
         window_resized: bool,
     ) -> RecreateSwapchainResult {
-        // Vulkan panics if both dimensions are zero, bail here instead
-        if dimensions.width == 0 && dimensions.height == 0 {
-            // Empty window detected, skipping swapchain recreation
+        if dimensions.width == 0 || dimensions.height == 0 {
+            // Empty window detected, skipping swapchain recreation.
+            // Vulkan panics if either dimensions are zero, bail here instead
             return RecreateSwapchainResult::ExtentNotSupported;
         }
 
         // Create new swapchain from the previous, specifying new window size
-        match self.swapchain.recreate(dimensions, window_resized) {
+        match self.swapchain.recreate(dimensions) {
             // Continue logic
             RecreateSwapchainResult::Success => {}
 
@@ -399,10 +422,12 @@ impl Engine {
         }
 
         // Framebuffer is tied to the swapchain images, must recreate as well
-        self.framebuffers = Self::create_particles_framebuffers(
-            self.render_pass.clone(),
-            &self.swapchain.get_images(),
-            &self.swapchain.get_msaa_images(),
+        self.framebuffers = Self::create_framebuffers(
+            &self.device,
+            &self.render_pass,
+            dimensions.into(),
+            &self.swapchain.images(),
+            self.swapchain.image_format(),
         );
 
         // If caller indicates a resize has prompted this call then adjust viewport and fixed-view pipeline
@@ -410,12 +435,18 @@ impl Engine {
             self.viewport.dimensions = dimensions.into();
 
             // Since pipeline specifies viewport is fixed, entire pipeline needs to be reconstructed to account for size change
-            //self.graphics_pipeline = pipeline::create_graphics_pipeline(self.device.clone(), self.vert_shader.clone(), self.frag_shader.clone(), self.render_pass.clone(), self.viewport.clone())
-            self.graphics_pipeline = pipeline::create_particles_pipeline(
+            self.particles_pipeline = pipeline::create_particles_pipeline(
                 self.device.clone(),
-                self.vert_shader.clone(),
-                self.frag_shader.clone(),
-                self.render_pass.clone(),
+                self.particle_vert.clone(),
+                self.particle_frag.clone(),
+                Subpass::from(self.render_pass.clone(), 0).unwrap(),
+                self.viewport.clone(),
+            );
+            self.fractal_pipeline = pipeline::create_fractal_pipeline(
+                self.device.clone(),
+                self.fractal_vert.clone(),
+                self.fractal_frag.clone(),
+                Subpass::from(self.render_pass.clone(), 1).unwrap(),
                 self.viewport.clone(),
             )
         }
@@ -426,10 +457,15 @@ impl Engine {
 
     // Use given push constants and synchronization-primitives to render next frame in swapchain.
     // Returns whether a swapchain recreation was deemed necessary
-    pub fn draw_frame(&mut self, compute_push_constants: ComputePushConstants) -> bool {
+    pub fn draw_frame(
+        &mut self,
+        compute_data: ComputePushConstants,
+        fractal_data: FractalPushConstants,
+        render_particles: bool, // TODO: Make compute_data an Option and only update particles when rendered
+    ) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
         let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
-            self.swapchain.get_swapchain(),
+            self.swapchain.swapchain(),
             None, /*timeout*/
         ) {
             Ok(tuple) => tuple,
@@ -454,28 +490,24 @@ impl Engine {
         let previous_future = match self.fences[self.previous_fence_index].clone() {
             // Ensure current frame is synchronized with previous
             Some(fence) => fence.boxed(),
-            
+
             // Create new future to guarentee synchronization with (fake) previous frame
             None => vulkano::sync::now(self.device.clone()).boxed(),
         };
 
-        // Create a one-time-submit command buffer for this push constant data
-        /*let command_buffer_boi = renderer::onetime_cmdbuf_from_constant(
+        // Create a one-time-submit command buffer for this frame
+        let colored_sugar_commands = renderer::create_render_commands(
             self.device.clone(),
             self.queue.clone(),
-            self.graphics_pipeline.clone(),
-            self.framebuffers[image_index].clone(),
-            push_constants
-        );*/
-        let colored_sugar_commands = renderer::create_particles_cmdbuf(
-            self.device.clone(),
-            self.queue.clone(),
-            self.graphics_pipeline.clone(),
-            self.framebuffers[image_index].clone(),
-            self.vertex_buffer.clone(),
             self.compute_pipeline.clone(),
+            self.particles_pipeline.clone(),
+            self.fractal_pipeline.clone(),
+            self.framebuffers[image_index].clone(),
             self.descriptor_set.clone(),
-            compute_push_constants,
+            self.vertex_buffer.clone(),
+            compute_data,
+            fractal_data,
+            render_particles,
         );
 
         // Create synchronization future for rendering the current frame
@@ -486,11 +518,8 @@ impl Engine {
             .then_execute(self.queue.clone(), colored_sugar_commands)
             .unwrap()
             // Present result to swapchain buffer
-            .then_swapchain_present(
-                self.queue.clone(),
-                self.swapchain.get_swapchain(),
-                image_index,
-            )
+            .then_swapchain_present(self.queue.clone(), self.swapchain.swapchain(), image_index)
+            .boxed()
             // Finish synchronization
             .then_signal_fence_and_flush();
 
@@ -518,27 +547,55 @@ impl Engine {
     }
 
     // Helper for (re)creating framebuffers
-    fn create_particles_framebuffers(
-        render_pass: Arc<RenderPass>,
+    fn create_framebuffers(
+        device: &Arc<Device>,
+        render_pass: &Arc<RenderPass>,
+        dimensions: [u32; 2],
         images: &Vec<Arc<SwapchainImage<Window>>>,
-        msaa_images: &Vec<Arc<ImageView<AttachmentImage>>>,
+        image_format: vulkano::format::Format,
     ) -> Vec<Arc<Framebuffer>> {
-        assert_eq!(
-            images.len(),
-            msaa_images.len(),
-            "Must have an equal number of multi-sampled and destination images"
-        );
-
         (0..images.len())
             .map(|i| {
-                // To interact with image buffers or framebuffers from shaders must create view defining how buffer will be used.
+                // To interact with image buffers or framebuffers from shaders must create view defining how image will be used.
+                // This view, which belongs to the swapchain, will be the destination view
                 let view = ImageView::new_default(images[i].clone()).unwrap();
+
+                // Create image attachment for MSAA particles.
+                // It is transient but cannot be used as an input
+                let msaa_view = ImageView::new_default(
+                    AttachmentImage::transient_multisampled(
+                        device.clone(),
+                        dimensions,
+                        vulkano::image::SampleCount::Sample8,
+                        image_format,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+
+                // Create image attachment for resolved particles.
+                // It is transient and will be used as an input to a later pass
+                let particle_view = ImageView::new_default(
+                    AttachmentImage::with_usage(
+                        device.clone(),
+                        dimensions,
+                        image_format,
+                        vulkano::image::ImageUsage {
+                            transfer_destination: true,
+                            input_attachment: true,
+                            color_attachment: true,
+                            ..vulkano::image::ImageUsage::none()
+                        },
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
 
                 // Create framebuffer specifying underlying renderpass and image attachments
                 Framebuffer::new(
                     render_pass.clone(),
                     FramebufferCreateInfo {
-                        attachments: vec![msaa_images[i].clone(), view], // Must add specified attachments in order
+                        attachments: vec![msaa_view, particle_view, view], // Must add specified attachments in order
                         ..Default::default()
                     },
                 )
