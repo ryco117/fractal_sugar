@@ -3,14 +3,16 @@ use std::sync::Arc;
 use vulkano::buffer::device_local::DeviceLocalBuffer;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
 use vulkano::command_buffer::{
-    CommandBufferExecFuture, PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
+    AutoCommandBufferBuilder, CommandBufferExecFuture, CommandBufferUsage,
+    PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
 };
+use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, SwapchainImage};
+use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::pipeline::graphics::viewport::Viewport;
-use vulkano::pipeline::GraphicsPipeline;
+use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{PresentMode, Surface};
@@ -59,6 +61,8 @@ const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 450;
 
 const DEBUG_VULKAN: bool = false;
+
+const SPACE_FILLING_CURVE_DEPTH: usize = 6;
 
 // Create module for the particle's shader macros
 mod particle_shaders {
@@ -160,16 +164,6 @@ impl Engine {
         let comp_shader = particle_shaders::cs::load(device.clone())
             .expect("Failed to load particle compute shader");
 
-        // Create compute pipeline for particles
-        let compute_pipeline = vulkano::pipeline::ComputePipeline::new(
-            device.clone(),
-            comp_shader.entry_point("main").unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("Failed to create compute shader");
-
         // Create Storage Buffers for particle info
         const PARTICLE_COUNT: usize = 1_000_000;
         const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
@@ -210,10 +204,10 @@ impl Engine {
             .expect("Failed to create immutable fixed-position buffer");
 
             // Create buffer copy command
-            let mut cbb = vulkano::command_buffer::AutoCommandBufferBuilder::primary(
+            let mut cbb = AutoCommandBufferBuilder::primary(
                 device.clone(),
                 queue.family(),
-                vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
+                CommandBufferUsage::OneTimeSubmit,
             )
             .unwrap();
             cbb.copy_buffer(data_source_buffer, local_buffer.clone())
@@ -227,8 +221,6 @@ impl Engine {
             (local_buffer, future)
         }
         let (vertex_buffer, fixed_position_buffer) = {
-            const SPACE_FILLING_CURVE_DEPTH: usize = 6;
-
             // Create position data by mapping particle index to screen using a space filling curve
             let position_iter = (0..PARTICLE_COUNT).map(|i| {
                 space_filling_curves::square::curve_to_square_n(
@@ -273,9 +265,19 @@ impl Engine {
             (vertex_buffer, fixed_position_buff)
         };
 
+        // Create compute pipeline for particles
+        let compute_pipeline = ComputePipeline::new(
+            device.clone(),
+            comp_shader.entry_point("main").unwrap(),
+            &(),
+            None,
+            |_| {},
+        )
+        .expect("Failed to create compute shader");
+
         // Create a new descriptor set for binding particle Storage Buffers
-        use vulkano::pipeline::Pipeline; // Required to access layout() method
-        let descriptor_set = vulkano::descriptor_set::PersistentDescriptorSet::new(
+        // Required to access layout() method
+        let descriptor_set = PersistentDescriptorSet::new(
             compute_pipeline
                 .layout()
                 .set_layouts()
@@ -283,11 +285,8 @@ impl Engine {
                 .unwrap()
                 .clone(),
             [
-                vulkano::descriptor_set::WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
-                vulkano::descriptor_set::WriteDescriptorSet::buffer(
-                    1,
-                    fixed_position_buffer.clone(),
-                ),
+                WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
+                WriteDescriptorSet::buffer(1, fixed_position_buffer.clone()),
             ],
         )
         .unwrap();
@@ -459,9 +458,8 @@ impl Engine {
     // Returns whether a swapchain recreation was deemed necessary
     pub fn draw_frame(
         &mut self,
-        compute_data: ComputePushConstants,
+        compute_data: Option<ComputePushConstants>,
         fractal_data: FractalPushConstants,
-        render_particles: bool, // TODO: Make compute_data an Option and only update particles when rendered
     ) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
         let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
@@ -507,7 +505,6 @@ impl Engine {
             self.vertex_buffer.clone(),
             compute_data,
             fractal_data,
-            render_particles,
         );
 
         // Create synchronization future for rendering the current frame
@@ -580,11 +577,11 @@ impl Engine {
                         device.clone(),
                         dimensions,
                         image_format,
-                        vulkano::image::ImageUsage {
+                        ImageUsage {
                             transfer_destination: true,
                             input_attachment: true,
                             color_attachment: true,
-                            ..vulkano::image::ImageUsage::none()
+                            ..ImageUsage::none()
                         },
                     )
                     .unwrap(),

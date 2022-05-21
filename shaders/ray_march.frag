@@ -21,7 +21,9 @@ layout (push_constant) uniform PushConstants
 	float time;
 	float width;
 	float height;
+	float kaleidoscope;
 	uint distance_estimator_id;
+	bool render_background;
 } push;
 
 const float pi = 3.14159265358;
@@ -192,7 +194,7 @@ float distanceEstimator(vec3 t)
 			s *= k;
 			scale *= k;
 
-			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato)/0.75);
+			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato)/0.85);
 		}
 	
 		//return max((0.25*abs(s.z)/scale), dot(t, t)-0.25) / reScale;
@@ -203,7 +205,7 @@ float distanceEstimator(vec3 t)
 	{
 		const int maxIterations = 4;
 
-		const float reScale = 1.325;
+		const float reScale = 1.32;
 		t *= reScale;
 		vec3 s = t;
 
@@ -236,7 +238,7 @@ float distanceEstimator(vec3 t)
 			{
 				const float rat = 0.815;
 				vec3 q = vec3(xx, yy, zz);
-				vec3 col = abs(q/1.25);
+				vec3 col = abs(q/1.15);
 				orbitTrap.xyz = rat*orbitTrap.xyz + (1.0 - rat)*col;
 			}
 
@@ -249,7 +251,7 @@ float distanceEstimator(vec3 t)
 	{
 		const int maxIterations = 8;
 		const float scale = 2.0;
-		const float reScale = 1.45;
+		const float reScale = 1.4;
 
 		t *= reScale;
 		vec3 s = t;
@@ -257,9 +259,9 @@ float distanceEstimator(vec3 t)
 		float r2 = dot(s, s);
 		float DEfactor = 1.0;
 
-		float theta = 0.125*push.time;
+		float theta = 0.15*push.time;
 		mat3 rotato1 = buildRot3(normalize(push.smooth_high.xyz), theta);
-		theta = 0.225*sin(0.4*push.time);
+		theta = 0.225*sin(0.5*push.time);
 		mat3 rotato2 = buildRot3(normalize(push.smooth_mids.xyz), theta);
 
 		for(int i = 0; i < maxIterations && r2 < 1000.0; i++)
@@ -291,12 +293,12 @@ const float maxBrightness = 1.6;
 const float maxBrightnessR2 = maxBrightness*maxBrightness;
 vec3 scaleColor(float distanceRatio, float iterationRatio, vec3 col)
 {
-	col *= pow(1.0 - distanceRatio, 1.2) * pow(1.0 - iterationRatio, 3.5);
-	col = min(vec3(1.0), col);
+	col *= pow(1.0 - distanceRatio, 1.2) * pow(1.0 - iterationRatio, 2.5);
 	if(dot(col, col) > maxBrightnessR2)
 	{
 		col = maxBrightness*normalize(col);
 	}
+	col = min(vec3(1.0), col);
 	return col;
 }
 
@@ -330,15 +332,16 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY)
 		travel += dist;
 		if(travel >= maxDistance)
 		{
-			/*
-			vec3 unmodDirection = normalize(vec3(coord.x*fovX, -coord.y*fovY, 1.0));
-			unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
+			if(push.render_background)
+			{
+				vec3 unmodDirection = normalize(vec3(coord.x*fovX, -coord.y*fovY, 1.0));
+				unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
 
-			vec3 sinDir = sin(100.0*unmodDirection);
-			vec3 base = vec3(exp(-3.0*length(sin(pi * push.reactive_bass + 1.0) - sinDir)), exp(-4.0*length(sin(e * push.reactive_mids + 1.3) - sinDir)), exp(-3.0*length(sin(9.6*push.reactive_high + 117.69420) - sinDir)));
-			return vec4((push.distance_estimator_id == 0 ? 0.25 : 0.09) * base, 1.0);
-			/*/
-			break;//*/
+				vec3 sinDir = sin(100.0*unmodDirection);
+				vec3 base = vec3(exp(-3.0*length(sin(pi * push.reactive_bass.xyz + 1.0) - sinDir)), exp(-4.0*length(sin(e * push.reactive_mids.xyz + 1.3) - sinDir)), exp(-3.0*length(sin(9.6*push.reactive_high.xyz + 117.69420) - sinDir)));
+				return (push.distance_estimator_id == 0 ? 0.75 : 0.55) * base;
+			}
+			break;
 		}
 	}
 	return vec3(0.0, 0.0, 0.0);
@@ -350,15 +353,13 @@ void main(void)
 	const float fovY = tan(verticalFov);
 	float fovX = push.width/push.height * fovY;
 
-	/*float kaleidoTheta = boundReflect(getAngle(coord), push.kaleido*(pi/6.0 - tau) + tau);
-	vec2 newCoord = length(coord) * vec2(cos(kaleidoTheta), sin(kaleidoTheta));*/
-	vec2 newCoord = coord;
+	float kaleidoTheta = boundReflect(getAngle(coord), push.kaleidoscope*(pi/6.0 - tau) + tau);
+	vec2 newCoord = length(coord) * vec2(cos(kaleidoTheta), sin(kaleidoTheta));
 	vec3 direction = normalize(vec3(newCoord.x*fovX, -newCoord.y*fovY, 1.0));
 	direction = rotateByQuaternion(direction, push.quaternion);
 	
 	vec3 position = rotateByQuaternion(-dirZ, push.quaternion);
 	vec3 tFragColor = castRay(position, direction, fovX, fovY);
-	//vec3 tFragColor = castRay(push.distance_estimator_id == 2 ? (-2.5 * direction) : position, direction, fovX, fovY);
 
 	vec3 particle = subpassLoad(particle_color).rgb;
 	fragColor = vec4(abs(tFragColor - particle), 1.0);

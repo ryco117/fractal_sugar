@@ -23,7 +23,7 @@ const vec4 indexConst3 = vec4(0.7, 0.1, 0.75, 1.0);
 
 void main() {
 	gl_Position = vec4(pos, 0.0, 1.0);
-	gl_PointSize = 1.8;
+	gl_PointSize = 2.0;
 
 	float t = fract(float(gl_VertexIndex)/push.particleCount + 0.04*push.time);
 	vec4 indexColor;

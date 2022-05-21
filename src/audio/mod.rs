@@ -14,9 +14,9 @@ const PRINT_SPECTRUM: bool = true;
 const EMPTY_NOTE: (Vector2, f32) = (Vector2::new(0., 0.), 0.);
 
 // Set some constants for scaling frequencies to sound/appear more linear
-const BASS_POW: f32 = 0.825;
+const BASS_POW: f32 = 0.9;
 const MIDS_POW: f32 = 0.775;
-const HIGH_POW: f32 = 0.4;
+const HIGH_POW: f32 = 0.45;
 
 const BASS_KICK: f32 = 0.045;
 
@@ -84,6 +84,9 @@ fn processing_thread_from_sample_rate(
         // Keep track of state that we don't want UI to need to calculate
         let mut kick_angular_velocity = None;
         let mut last_kick = SystemTime::now();
+        let mut previous_bass_index = 0;
+        let mut previous_bass: [Option<Vec<f32>>; 8] =
+            [None, None, None, None, None, None, None, None];
 
         loop {
             // Append incoming audio data until we have sufficient samples
@@ -106,7 +109,8 @@ fn processing_thread_from_sample_rate(
             let analyze_frequency_range = |frequency_range: std::ops::Range<f32>,
                                            count: usize,
                                            mut delta: f32,
-                                           min_volume: f32|
+                                           min_volume: f32,
+                                           vol_freq_scale: f32|
              -> FrequencyAnalysis {
                 let start_index = frequency_to_index(frequency_range.start);
                 let end_index = frequency_to_index(frequency_range.end);
@@ -121,7 +125,7 @@ fn processing_thread_from_sample_rate(
                         let frac = i as f32 / flen;
                         let v = scale * complex[start_index + i].norm();
                         total_volume += v;
-                        (frac, f32::powf(2.75, frac) * v)
+                        (frac, f32::powf(vol_freq_scale, frac) * v)
                     })
                     .collect();
 
@@ -154,35 +158,62 @@ fn processing_thread_from_sample_rate(
             };
 
             // Analyze each frequency ranges
-            let bass_analysis = {
-                let frequency_range: std::ops::Range<f32> = 30.0..280.;
+            let (bass_analysis, current_bass) = {
+                let frequency_range: std::ops::Range<f32> = 30.0..225.;
                 let delta: f32 = 1.;
                 let min_volume: f32 = 0.3;
-                analyze_frequency_range(frequency_range, 1, delta, min_volume)
+                let vol_freq_scale = 1.75;
+                let analysis = analyze_frequency_range(
+                    frequency_range.clone(),
+                    1,
+                    delta,
+                    min_volume,
+                    vol_freq_scale,
+                );
+
+                // Do extra analysis for
+                let current_bass: Vec<f32> = {
+                    let start_index = frequency_to_index(frequency_range.start);
+                    let end_index = frequency_to_index(frequency_range.end);
+                    let len = end_index - start_index;
+                    let flen = len as f32;
+
+                    (0..len)
+                        .map(|i| {
+                            let frac = i as f32 / flen;
+                            let v = scale * complex[start_index + i].norm();
+                            f32::powf(vol_freq_scale, frac) * v
+                        })
+                        .collect()
+                };
+
+                (analysis, current_bass)
             };
             let mids_analysis = {
-                let frequency_range: std::ops::Range<f32> = 280.0..1_500.;
+                let frequency_range: std::ops::Range<f32> = 225.0..1_600.;
                 let delta: f32 = 0.1;
                 let min_volume: f32 = 0.065;
-                analyze_frequency_range(frequency_range, 2, delta, min_volume)
+                let scale = 2.25;
+                analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
             };
             let high_analysis = {
-                let frequency_range: std::ops::Range<f32> = 1_500.0..12_000.;
+                let frequency_range: std::ops::Range<f32> = 1_600.0..16_000.;
                 let delta: f32 = 0.1;
                 let min_volume: f32 = 0.0125;
-                analyze_frequency_range(frequency_range, 2, delta, min_volume)
+                let scale = 4.;
+                analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
             };
 
             // Convert note analysis to 2D vectors with strengths
             fn map_note_to_square(x: (f32, f32), pow: f32) -> (Vector2, f32) {
                 (
-                    0.95 * space_filling_curves::square::curve_to_square_n(x.0.powf(pow), 4),
+                    0.95 * space_filling_curves::square::curve_to_square_n(x.0.powf(pow), 5),
                     x.1,
                 )
             }
             // Convert note analysis to 3D vectors
             fn map_note_to_cube(x: (f32, f32), pow: f32) -> Vector3 {
-                space_filling_curves::cube::curve_to_cube_n(x.0.powf(pow), 5)
+                space_filling_curves::cube::curve_to_cube_n(x.0.powf(pow), 6)
             }
 
             // Get total volume from all (relevant) frequencies
@@ -195,12 +226,27 @@ fn processing_thread_from_sample_rate(
                 Ok(d) => d.as_secs_f32(),
                 _ => 0.,
             };
-            if (bass_analysis.loudest[0].1 > 5. || bass_analysis.loudest[0].1 * kick_elapsed > 8.)
+            let avg_prev_bass: f32 = previous_bass.iter().fold(0., |acc, x| {
+                acc + match x {
+                    Some(v) => {
+                        let l = v.len();
+                        if l > 0 {
+                            v[(((l as f32) * bass_analysis.loudest[0].0).round() as usize)
+                                .min(l - 1)]
+                        } else {
+                            0.
+                        }
+                    }
+                    None => 0.,
+                }
+            }) / (previous_bass.len() as f32);
+            if (bass_analysis.loudest[0].1 > 4. || bass_analysis.loudest[0].1 * kick_elapsed > 7.5)
                 && kick_elapsed > 0.6
-                && bass_analysis.loudest[0].1 > 1.15
+                && bass_analysis.loudest[0].1 > 1.25
+                && bass_analysis.loudest[0].1 > 2.75 * avg_prev_bass
             {
                 let v = space_filling_curves::cube::curve_to_cube_n(
-                    bass_analysis.loudest[0].0.powf(0.8),
+                    bass_analysis.loudest[0].0.powf(BASS_POW),
                     6,
                 );
                 kick_angular_velocity = Some(Vector4::new(
@@ -211,6 +257,9 @@ fn processing_thread_from_sample_rate(
                 ));
                 last_kick = SystemTime::now()
             }
+            // Regardless, update bass history
+            previous_bass[previous_bass_index] = Some(current_bass);
+            previous_bass_index = (previous_bass_index + 1) % previous_bass.len();
 
             // Send updated state to UI thread
             match tx.send(AudioState {

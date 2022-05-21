@@ -1,7 +1,10 @@
 use std::sync::mpsc;
 use std::time::SystemTime;
 
-use winit::event::{DeviceEvent, ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+use winit::dpi::PhysicalPosition;
+use winit::event::{
+    ElementState, Event, KeyboardInput, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
+};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
 
@@ -16,8 +19,19 @@ use audio::AudioState;
 use my_math::{Quaternion, Vector2, Vector3, Vector4};
 
 // App constants
-const BASE_VOLUME: f32 = 0.5;
 const BASE_ANGULAR_VELOCITY: f32 = 0.025;
+const CURSOR_LOOSE_STRENGTH: f32 = 0.75;
+const CURSOR_FIXED_STRENGTH: f32 = 1.75;
+const KALEIDOSCOPE_SPEED: f32 = 0.7;
+const SCROLL_SENSITIVITY: f32 = 0.15;
+
+#[derive(Clone, Copy)]
+enum KaleidoscopeDirection {
+    Forward,
+    ForwardComplete,
+    Backward,
+    BackwardComplete,
+}
 
 fn main() {
     // First, create global event loop to manage window events
@@ -38,7 +52,6 @@ fn main() {
     engine.get_surface().window().focus_window();
     let mut last_frame_time = SystemTime::now();
     let mut last_mouse_movement = SystemTime::now();
-    let mut is_cursor_visible = true;
 
     // Audio state vars?
     let mut game_time: f32 = 0.;
@@ -49,6 +62,12 @@ fn main() {
     let mut render_particles = true;
     let mut distance_estimator_id = 1;
     let mut camera_quaternion = Quaternion::default();
+    let mut is_cursor_visible = true;
+    let mut cursor_position = PhysicalPosition::<f64>::default();
+    let mut cursor_force = 0.;
+    let mut cursor_force_mult = 1.;
+    let mut kaleidoscope = 0.;
+    let mut kaleidoscope_dir = KaleidoscopeDirection::BackwardComplete;
 
     // Create local copies so they can be upated more frequently than FFT
     let mut local_angular_velocity = Vector4::new(0., 1., 0., 0.);
@@ -143,17 +162,16 @@ fn main() {
                     audio_state.reactive_high = reactive_high;
                 }
 
-                // No new data, interpolate towards baseline
-                Err(mpsc::TryRecvError::Empty) => {
-                    audio_state.volume = interpolate_floats(1.0, audio_state.volume, BASE_VOLUME)
-                }
+                // No new data, continue on
+                Err(mpsc::TryRecvError::Empty) => {}
 
                 // Unexpected error, bail
                 Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
             }
 
             // Update per-frame state
-            game_time += delta_time * audio_state.volume.sqrt();
+            let audio_scaled_delta_time = delta_time * audio_state.volume.sqrt();
+            game_time += audio_scaled_delta_time;
             camera_quaternion.rotate_by(Quaternion::build(
                 local_angular_velocity.xyz(),
                 delta_time * local_angular_velocity.w,
@@ -163,26 +181,45 @@ fn main() {
             interpolate_vec3(
                 &mut local_reactive_bass,
                 &audio_state.reactive_bass,
-                (0.8 * audio_state.big_boomer.1.sqrt()).min(1.) * 0.325,
+                (0.8 * audio_state.big_boomer.1.sqrt()).min(1.) * 0.35,
             );
             interpolate_vec3(
                 &mut local_reactive_mids,
                 &audio_state.reactive_mids,
-                (0.8 * audio_state.curl_attractors[0].1.sqrt()).min(1.) * 0.325,
+                (0.8 * audio_state.curl_attractors[0].1.sqrt()).min(1.) * 0.35,
             );
             interpolate_vec3(
                 &mut local_reactive_high,
                 &audio_state.reactive_high,
-                (0.8 * audio_state.attractors[0].1.sqrt()).min(1.) * 0.325,
+                (0.8 * audio_state.attractors[0].1.sqrt()).min(1.) * 0.35,
             );
-            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.12);
-            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.12);
-            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, 0.12);
+            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.15);
+            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.15);
+            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, 0.15);
+            (kaleidoscope, kaleidoscope_dir) = match kaleidoscope_dir {
+                KaleidoscopeDirection::Forward => {
+                    kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
+                    if kaleidoscope >= 1. {
+                        (1., KaleidoscopeDirection::ForwardComplete)
+                    } else {
+                        (kaleidoscope, KaleidoscopeDirection::Forward)
+                    }
+                }
+                KaleidoscopeDirection::Backward => {
+                    kaleidoscope -= KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
+                    if kaleidoscope <= 0. {
+                        (0., KaleidoscopeDirection::BackwardComplete)
+                    } else {
+                        (kaleidoscope, KaleidoscopeDirection::Backward)
+                    }
+                }
+                _ => (kaleidoscope, kaleidoscope_dir),
+            };
 
             // If cursor is visible and has been stationary then hide it
             if is_cursor_visible
                 && window_is_focused
-                && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 3.
+                && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 2.
             {
                 engine.get_surface().window().set_cursor_visible(false);
                 is_cursor_visible = false
@@ -208,20 +245,39 @@ fn main() {
                 simple_unzip(&audio_state.curl_attractors);
             let (attractors, attractor_strengths) = simple_unzip(&audio_state.attractors);
 
+            // Create a unique attractor based on mouse position
+            let cursor_attractor = [
+                2. * (cursor_position.x as f32 / dimensions.width as f32) - 1.,
+                2. * (cursor_position.y as f32 / dimensions.height as f32) - 1.,
+            ];
+
             // Create per-frame data for particle compute-shader
-            let compute_push_constants = engine::ComputePushConstants {
-                big_boomer: audio_state.big_boomer.0.into(),
-                big_boomer_strength: audio_state.big_boomer.1,
+            let compute_push_constants = if render_particles {
+                Some(engine::ComputePushConstants {
+                    big_boomer: audio_state.big_boomer.0.into(),
+                    big_boomer_strength: audio_state.big_boomer.1,
 
-                curl_attractors,
-                curl_attractor_strengths,
+                    curl_attractors,
+                    curl_attractor_strengths,
 
-                attractors,
-                attractor_strengths,
+                    attractors: [attractors[0], attractors[1], cursor_attractor],
+                    attractor_strengths: [
+                        attractor_strengths[0],
+                        attractor_strengths[1],
+                        if fix_particles {
+                            CURSOR_FIXED_STRENGTH
+                        } else {
+                            CURSOR_LOOSE_STRENGTH
+                        } * cursor_force_mult
+                            * cursor_force,
+                    ],
 
-                time: game_time,
-                delta_time,
-                fix_particles: if fix_particles { 1 } else { 0 },
+                    time: game_time,
+                    delta_time,
+                    fix_particles: if fix_particles { 1 } else { 0 },
+                })
+            } else {
+                None
             };
 
             // Create fractal data
@@ -239,12 +295,13 @@ fn main() {
                 time: game_time,
                 width: dimensions.width as f32,
                 height: dimensions.height as f32,
+                kaleidoscope: kaleidoscope.powf(0.6),
                 distance_estimator_id,
+                render_background: if render_particles { 0 } else { 1 },
             };
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
-            recreate_swapchain |=
-                engine.draw_frame(compute_push_constants, fractal_data, render_particles)
+            recreate_swapchain |= engine.draw_frame(compute_push_constants, fractal_data)
         }
 
         // Handle some keyboard input
@@ -253,7 +310,7 @@ fn main() {
                 WindowEvent::KeyboardInput {
                     input:
                         KeyboardInput {
-                            state: pressed_state,
+                            state: ElementState::Pressed,
                             virtual_keycode: Some(keycode),
                             ..
                         },
@@ -261,9 +318,9 @@ fn main() {
                 },
             ..
         } => {
-            match (pressed_state, keycode) {
+            match keycode {
                 // Handle fullscreen togle (F11)
-                (ElementState::Pressed, VirtualKeyCode::F11) => {
+                VirtualKeyCode::F11 => {
                     if window_is_fullscreen {
                         engine.get_surface().window().set_fullscreen(None);
                         window_is_fullscreen = false
@@ -277,7 +334,7 @@ fn main() {
                 }
 
                 // Handle Escape key
-                (ElementState::Pressed, VirtualKeyCode::Escape) => {
+                VirtualKeyCode::Escape => {
                     if window_is_fullscreen {
                         // Leave fullscreen
                         engine.get_surface().window().set_fullscreen(None);
@@ -289,19 +346,28 @@ fn main() {
                     }
                 }
 
+                // Handle Space bar for toggling Kaleidoscope effect
+                VirtualKeyCode::Space => {
+                    use KaleidoscopeDirection::*;
+                    kaleidoscope_dir = match kaleidoscope_dir {
+                        Forward | ForwardComplete => Backward,
+                        Backward | BackwardComplete => Forward,
+                    }
+                }
+
                 // Handle toggling of Jello mode (fixing particles)
-                (ElementState::Pressed, VirtualKeyCode::J) => fix_particles = !fix_particles,
+                VirtualKeyCode::J => fix_particles = !fix_particles,
 
                 // Handle toggling of particle rendering
-                (ElementState::Pressed, VirtualKeyCode::P) => render_particles = !render_particles,
+                VirtualKeyCode::P => render_particles = !render_particles,
 
                 // Set different fractal types
-                (ElementState::Pressed, VirtualKeyCode::Key0) => distance_estimator_id = 0,
-                (ElementState::Pressed, VirtualKeyCode::Key1) => distance_estimator_id = 1,
-                (ElementState::Pressed, VirtualKeyCode::Key2) => distance_estimator_id = 2,
-                (ElementState::Pressed, VirtualKeyCode::Key3) => distance_estimator_id = 3,
-                (ElementState::Pressed, VirtualKeyCode::Key4) => distance_estimator_id = 4,
-                (ElementState::Pressed, VirtualKeyCode::Key5) => distance_estimator_id = 5,
+                VirtualKeyCode::Key0 => distance_estimator_id = 0,
+                VirtualKeyCode::Key1 => distance_estimator_id = 1,
+                VirtualKeyCode::Key2 => distance_estimator_id = 2,
+                VirtualKeyCode::Key3 => distance_estimator_id = 3,
+                VirtualKeyCode::Key4 => distance_estimator_id = 4,
+                VirtualKeyCode::Key5 => distance_estimator_id = 5,
 
                 // No-op
                 _ => {}
@@ -322,13 +388,44 @@ fn main() {
         }
 
         // Handle mouse movement
-        Event::DeviceEvent {
-            event: DeviceEvent::MouseMotion { .. },
+        Event::WindowEvent {
+            event: WindowEvent::CursorMoved { position, .. },
             ..
         } => {
             last_mouse_movement = SystemTime::now();
             engine.get_surface().window().set_cursor_visible(true);
-            is_cursor_visible = true
+            is_cursor_visible = true;
+
+            cursor_position = position
+        }
+
+        // Handle mouse buttons to allow cursor-applied forces
+        Event::WindowEvent {
+            event: WindowEvent::MouseInput { state, button, .. },
+            ..
+        } => {
+            let pressed = match state {
+                ElementState::Pressed => 1.,
+                ElementState::Released => -1.,
+            };
+            cursor_force += pressed
+                * match button {
+                    MouseButton::Left => -1.,
+                    MouseButton::Right => 1.,
+                    _ => 0.,
+                };
+        }
+
+        // Handle mouse scroll wheel to change strength of cursor-applied forces
+        Event::WindowEvent {
+            event: WindowEvent::MouseWheel { delta, .. },
+            ..
+        } => {
+            let delta = match delta {
+                MouseScrollDelta::LineDelta(_, y) => y,
+                MouseScrollDelta::PixelDelta(p) => p.y as f32,
+            };
+            cursor_force_mult *= (SCROLL_SENSITIVITY * delta).exp()
         }
 
         // Catch-all

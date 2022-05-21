@@ -18,11 +18,11 @@ layout (push_constant) uniform PushConstants
 {
 	vec2 big_boomer;
 	vec2 curl_attractors[2];
-	vec2 attractors[2];
+	vec2 attractors[3];
 
 	float big_boomer_strength;
 	float curl_attractor_strengths[2];
-	float attractor_strengths[2];
+	float attractor_strengths[3];
 
 	float time;
 	float delta_time;
@@ -69,14 +69,14 @@ void main(void)
 		{
 			vec2 t = push.curl_attractors[i] - pos;
 			float r = max(length(t), min_length);
-			g += push.curl_attractor_strengths[i] * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 2.6;
+			g += push.curl_attractor_strengths[i] * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 2.75;
 		}
 
 		for(int i = 0; i < push.attractors.length(); i++)
 		{
 			vec2 t = push.attractors[i] - pos;
 			float r = max(length(t), min_length);
-			g += push.attractor_strengths[i] * safe_normalize(t) / (r*r) * 5.5;
+			g += push.attractor_strengths[i] * safe_normalize(t) / (r*r) * 5.25;
 		}
 
 		g *= audio_scale;
@@ -104,7 +104,7 @@ void main(void)
 		{
 			vec2 t = push.attractors[i] - pos;
 			float r = max(length(t), min_length);
-			g += push.attractor_strengths[i] * safe_normalize(t) / (r*r) * 8.5;
+			g += push.attractor_strengths[i] * safe_normalize(t) / (r*r) * 8.75;
 		}
 
 		g *= audio_scale;
