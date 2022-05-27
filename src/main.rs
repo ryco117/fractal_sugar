@@ -19,10 +19,10 @@ use audio::AudioState;
 use my_math::{Quaternion, Vector2, Vector3, Vector4};
 
 // App constants
-const BASE_ANGULAR_VELOCITY: f32 = 0.025;
+const BASE_ANGULAR_VELOCITY: f32 = 0.02;
 const CURSOR_LOOSE_STRENGTH: f32 = 0.75;
 const CURSOR_FIXED_STRENGTH: f32 = 1.75;
-const KALEIDOSCOPE_SPEED: f32 = 0.7;
+const KALEIDOSCOPE_SPEED: f32 = 0.25;
 const SCROLL_SENSITIVITY: f32 = 0.15;
 
 #[derive(Clone, Copy)]
@@ -58,18 +58,19 @@ fn main() {
     let mut audio_state = AudioState::default();
 
     // Game state vars?
-    let mut fix_particles = false;
+    let mut fix_particles = true;
     let mut render_particles = true;
-    let mut distance_estimator_id = 1;
+    let mut distance_estimator_id = 4;
     let mut camera_quaternion = Quaternion::default();
     let mut is_cursor_visible = true;
     let mut cursor_position = PhysicalPosition::<f64>::default();
     let mut cursor_force = 0.;
-    let mut cursor_force_mult = 1.;
+    let mut cursor_force_mult = 1.5;
     let mut kaleidoscope = 0.;
     let mut kaleidoscope_dir = KaleidoscopeDirection::BackwardComplete;
 
     // Create local copies so they can be upated more frequently than FFT
+    let mut local_volume = 0.;
     let mut local_angular_velocity = Vector4::new(0., 1., 0., 0.);
     let mut local_reactive_bass = Vector3::default();
     let mut local_reactive_mids = Vector3::default();
@@ -134,14 +135,14 @@ fn main() {
                     kick_angular_velocity,
                 }) => {
                     // Update volume
-                    audio_state.volume = interpolate_floats(4.0, audio_state.volume, volume);
+                    audio_state.volume = volume;
 
                     // Update 2D big boomers
                     if fix_particles {
                         interpolate_vec2(
                             &mut audio_state.big_boomer.0,
                             &big_boomer.0,
-                            7.5 * audio_state.big_boomer.1,
+                            7.25 * audio_state.big_boomer.1,
                         );
                         audio_state.big_boomer.1 = big_boomer.1
                     } else {
@@ -170,32 +171,33 @@ fn main() {
             }
 
             // Update per-frame state
-            let audio_scaled_delta_time = delta_time * audio_state.volume.sqrt();
+            local_volume = interpolate_floats(local_volume, audio_state.volume, 1.8);
+            let audio_scaled_delta_time = delta_time * local_volume.sqrt();
             game_time += audio_scaled_delta_time;
             camera_quaternion.rotate_by(Quaternion::build(
                 local_angular_velocity.xyz(),
                 delta_time * local_angular_velocity.w,
             ));
             local_angular_velocity.w =
-                interpolate_floats(local_angular_velocity.w, BASE_ANGULAR_VELOCITY, 0.25);
+                interpolate_floats(local_angular_velocity.w, BASE_ANGULAR_VELOCITY, 0.375);
             interpolate_vec3(
                 &mut local_reactive_bass,
                 &audio_state.reactive_bass,
-                (0.8 * audio_state.big_boomer.1.sqrt()).min(1.) * 0.35,
+                (0.8 * audio_state.big_boomer.1.sqrt()).min(1.) * 0.36,
             );
             interpolate_vec3(
                 &mut local_reactive_mids,
                 &audio_state.reactive_mids,
-                (0.8 * audio_state.curl_attractors[0].1.sqrt()).min(1.) * 0.35,
+                (0.8 * audio_state.curl_attractors[0].1.sqrt()).min(1.) * 0.36,
             );
             interpolate_vec3(
                 &mut local_reactive_high,
                 &audio_state.reactive_high,
-                (0.8 * audio_state.attractors[0].1.sqrt()).min(1.) * 0.35,
+                (0.8 * audio_state.attractors[0].1.sqrt()).min(1.) * 0.36,
             );
-            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.15);
-            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.15);
-            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, 0.15);
+            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.16);
+            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.16);
+            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, 0.16);
             (kaleidoscope, kaleidoscope_dir) = match kaleidoscope_dir {
                 KaleidoscopeDirection::Forward => {
                     kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
@@ -295,7 +297,7 @@ fn main() {
                 time: game_time,
                 width: dimensions.width as f32,
                 height: dimensions.height as f32,
-                kaleidoscope: kaleidoscope.powf(0.6),
+                kaleidoscope: kaleidoscope.powf(0.65),
                 distance_estimator_id,
                 render_background: if render_particles { 0 } else { 1 },
             };

@@ -18,7 +18,7 @@ const BASS_POW: f32 = 0.9;
 const MIDS_POW: f32 = 0.775;
 const HIGH_POW: f32 = 0.45;
 
-const BASS_KICK: f32 = 0.045;
+const BASS_KICK: f32 = 0.05;
 
 // Audio state to pass to UI thread
 pub struct AudioState {

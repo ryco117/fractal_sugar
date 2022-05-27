@@ -13,6 +13,7 @@ use vulkano::render_pass::Framebuffer;
 
 use super::vertex::Vertex;
 use super::{ComputePushConstants, FractalPushConstants};
+type ParticleVertexPushConstants = super::particle_shaders::vs::ty::Push;
 
 pub fn create_render_commands(
     device: Arc<Device>,
@@ -67,14 +68,20 @@ pub fn create_render_commands(
                 0, // Bind this descriptor set to index 0
                 descriptor_set,
             )
-            .dispatch([buffer_count / 64, 1, 1])
+            .dispatch([buffer_count / 128, 1, 1])
             .unwrap();
 
         // Start render pass
         begin_render_pass(&mut builder, &framebuffer);
 
         // Add inline commands to render particles
-        inline_particles_cmds(&mut builder, &particles_pipeline, &vertex_buffer, time)
+        inline_particles_cmds(
+            &mut builder,
+            &particles_pipeline,
+            &vertex_buffer,
+            time,
+            fractal_data.distance_estimator_id != 0,
+        )
     } else {
         // Begin the same render pass as with particles, but skip commands to draw particles
         begin_render_pass(&mut builder, &framebuffer)
@@ -103,6 +110,7 @@ fn inline_particles_cmds(
     pipeline: &Arc<GraphicsPipeline>,
     vertex_buffer: &Arc<DeviceLocalBuffer<[Vertex]>>,
     time: f32,
+    rendering_fractal: bool,
 ) -> () {
     use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
     let buffer_count = vertex_buffer.len() as u32;
@@ -111,10 +119,18 @@ fn inline_particles_cmds(
     builder
         // Draw particles
         .bind_pipeline_graphics(pipeline.clone())
-        .push_constants(pipeline.layout().clone(), 0, [time, buffer_count as f32])
+        .push_constants(
+            pipeline.layout().clone(),
+            0,
+            ParticleVertexPushConstants {
+                time,
+                particle_count: buffer_count as f32,
+                rendering_fractal: if rendering_fractal { 1 } else { 0 },
+            },
+        )
         .bind_vertex_buffers(0, vertex_buffer.clone())
         .draw(buffer_count, 1, 0, 0)
-        .expect("Failed to draw graphics pipeline");
+        .expect("Failed to draw particle subpass");
 }
 
 fn inline_fractal_cmds(

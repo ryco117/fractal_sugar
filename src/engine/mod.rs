@@ -129,7 +129,7 @@ impl Engine {
         // Create a window! Set some basic window properties and get a vulkan surface
         let surface = WindowBuilder::new()
             .with_inner_size(LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))
-            .with_title("rust_playground")
+            .with_title("FractalSugar")
             .build_vk_surface(event_loop, instance.clone())
             .unwrap();
 
@@ -165,7 +165,7 @@ impl Engine {
             .expect("Failed to load particle compute shader");
 
         // Create Storage Buffers for particle info
-        const PARTICLE_COUNT: usize = 1_000_000;
+        const PARTICLE_COUNT: usize = 1_250_000;
         const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
         fn create_buffer<T, I>(
             device: &Arc<Device>,

@@ -8,7 +8,8 @@ layout(location = 0) out vec4 outColor;
 layout (push_constant) uniform Push
 {
 	float time;
-	float particleCount;
+	float particle_count;
+	bool rendering_fractal;
 } push;
 
 const vec4 speedConst1 = vec4(0.0, 0.425, 0.55, 0.2);
@@ -25,7 +26,7 @@ void main() {
 	gl_Position = vec4(pos, 0.0, 1.0);
 	gl_PointSize = 2.0;
 
-	float t = fract(float(gl_VertexIndex)/push.particleCount + 0.04*push.time);
+	float t = fract(float(gl_VertexIndex)/push.particle_count + 0.0485*push.time);
 	vec4 indexColor;
 	if(t < indexConst0.w) {
 		indexColor = vec4(mix(indexConst0.xyz, indexConst1.xyz, t / indexConst0.w), 1.0);
@@ -40,7 +41,8 @@ void main() {
 	float speed = min(length(vel), maxSpeed);
 	vec4 speedColor;
 	if(speed < speedConst1.w) {
-		speedColor = vec4(mix(0.55*indexColor.xyz, vec3(speedConst1.x, speedConst1.y * speed/speedConst1.w, speedConst1.z), speed / speedConst1.w), 1.0);
+		vec3 basesColor = (push.rendering_fractal ? 0.325 : 0.55) * indexColor.xyz;
+		speedColor = vec4(mix(basesColor, vec3(speedConst1.x, speedConst1.y * speed/speedConst1.w, speedConst1.z), speed / speedConst1.w), 1.0);
 	} else if(speed < speedConst2.w) {
 		speedColor = vec4(mix(speedConst1.xyz, speedConst2.xyz, (speed - speedConst1.w)/(speedConst2.w - speedConst1.w)), 1.0);
 	} else if(speed < speedConst3.w) {

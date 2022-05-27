@@ -53,17 +53,32 @@ vec3 rotateByQuaternion(vec3 v, vec4 q)
 	return v + temp+temp;
 }
 
+vec3 safe_normalize(vec3 t) {
+	if(length(t) < 0.000001) {
+		return vec3(1.0, 0.0, 0.0);
+	}
+	return normalize(t);
+}
+
 float getAngle(vec2 s)
 {
 	float theta = 0.0;
-	if (s.y < 0.0)
+	if(s.y < 0.0)
 	{
 		s *= -1.0;
 		theta = pi;
 	}
 
-	s = normalize(s);
-	if (s.x >= 0.0)
+	if(length(s) < 0.000001)
+	{
+		s = vec2(1.0, 0.0);
+	}
+	else
+	{
+		s = normalize(s);
+	}
+
+	if(s.x >= 0.0)
 	{
 		return theta + asin(s.y);
 	}
@@ -79,7 +94,8 @@ float boundReflect(float x, float b)
 	if(r < 2.0*b)
 	{
 		return r - b;
-	} else
+	}
+	else
 	{
 		return 3.0*b - r;
 	}
@@ -136,11 +152,11 @@ float distanceEstimator(vec3 t)
 		const float reScale = 1.85;
 		t *= reScale;
 		vec3 s = t;
-		float power = 9. + 2.0*boundReflect(0.05*push.time + 1.0, 1.0);
+		float power = 9. + 2.0*boundReflect(0.0375*push.time + 1.0, 1.0);
 		float dr = 1.0;
 		float r = 0.0;
 
-		mat3 colorRotato = buildRot3(normalize(push.smooth_mids.xyz), 0.6*push.time);
+		mat3 colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.325*push.time);
 
 		for(int i = 0; i < maxIterations; i++)
 		{
@@ -170,14 +186,14 @@ float distanceEstimator(vec3 t)
 		t = reScale*t;
 		vec3 s = t;
 
-		float anim = 1.275 + 0.085*sin(0.25*push.time);
+		float anim = 1.275 + 0.085*sin(0.2*push.time);
 		float scale = 1.0;
-		float theta = 0.15 * push.time;
+		float theta = 0.1 * push.time;
 		float ct = cos(theta);
 		float st = sin(theta);
 		mat2 rotato = mat2(ct, st, -st, ct);
 
-		mat3 colorRotato = buildRot3(normalize(push.smooth_mids.xyz), 0.35*push.time);
+		mat3 colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.15*push.time);
 
 		for(int i = 0; i < maxIterations; i++)
 		{
@@ -194,7 +210,7 @@ float distanceEstimator(vec3 t)
 			s *= k;
 			scale *= k;
 
-			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato)/0.85);
+			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato));
 		}
 	
 		//return max((0.25*abs(s.z)/scale), dot(t, t)-0.25) / reScale;
@@ -217,10 +233,10 @@ float distanceEstimator(vec3 t)
 		float mengerScale = 3.0;
 		float halfScale = mengerScale / 2.0;
 
-		orbitTrap.xyz = abs(vec3(xx/1.25, yy/1.25, zz/1.25));
+		orbitTrap.xyz = abs(vec3(xx/1.2, yy/1.2, zz/1.2));
 
-		float theta = 0.6*sin(0.12*push.time);
-		mat3 rotato = buildRot3(normalize(cross(push.smooth_bass.xyz, push.smooth_mids.xyz)), theta);
+		float theta = 0.575*sin(0.055*push.time);
+		mat3 rotato = buildRot3(safe_normalize(cross(push.smooth_bass.xyz, push.smooth_mids.xyz)), theta);
 
 		for (int i = 0; i < maxIterations; i++)
 		{
@@ -234,13 +250,8 @@ float distanceEstimator(vec3 t)
 
 			d=max(d,d1); //intersection
 
-			if (i % 2 == 1)
-			{
-				const float rat = 0.815;
-				vec3 q = vec3(xx, yy, zz);
-				vec3 col = abs(q/1.15);
-				orbitTrap.xyz = rat*orbitTrap.xyz + (1.0 - rat)*col;
-			}
+			vec3 q = vec3(xx, yy, zz);
+			orbitTrap.xyz = max(orbitTrap.xyz, abs(vec3(dot(q, push.reactive_bass.xyz), dot(q, push.reactive_mids.xyz), dot(q, push.reactive_high.xyz))));
 
 			const vec3 halfVec = vec3(0.5);
 			s = (s - halfVec)*rotato + halfVec;
@@ -259,10 +270,10 @@ float distanceEstimator(vec3 t)
 		float r2 = dot(s, s);
 		float DEfactor = 1.0;
 
-		float theta = 0.15*push.time;
-		mat3 rotato1 = buildRot3(normalize(push.smooth_high.xyz), theta);
-		theta = 0.225*sin(0.5*push.time);
-		mat3 rotato2 = buildRot3(normalize(push.smooth_mids.xyz), theta);
+		float theta = 0.08*push.time;
+		mat3 rotato1 = buildRot3(safe_normalize(push.smooth_high.xyz), theta);
+		theta = 0.22*sin(0.25*push.time);
+		mat3 rotato2 = buildRot3(safe_normalize(push.smooth_mids.xyz), theta);
 
 		for(int i = 0; i < maxIterations && r2 < 1000.0; i++)
 		{
@@ -286,14 +297,14 @@ float distanceEstimator(vec3 t)
 		return (sqrt(r2) - 2.0) / DEfactor / reScale;
 	}
 
-	return 1000.0;
+	return 10000.0;
 }
 
 const float maxBrightness = 1.6;
 const float maxBrightnessR2 = maxBrightness*maxBrightness;
 vec3 scaleColor(float distanceRatio, float iterationRatio, vec3 col)
 {
-	col *= pow(1.0 - distanceRatio, 1.2) * pow(1.0 - iterationRatio, 2.5);
+	col *= pow(1.0 - distanceRatio, 1.2) * pow(1.0 - iterationRatio, 2.75);
 	if(dot(col, col) > maxBrightnessR2)
 	{
 		col = maxBrightness*normalize(col);
@@ -338,8 +349,8 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY)
 				unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
 
 				vec3 sinDir = sin(100.0*unmodDirection);
-				vec3 base = vec3(exp(-3.0*length(sin(pi * push.reactive_bass.xyz + 1.0) - sinDir)), exp(-4.0*length(sin(e * push.reactive_mids.xyz + 1.3) - sinDir)), exp(-3.0*length(sin(9.6*push.reactive_high.xyz + 117.69420) - sinDir)));
-				return (push.distance_estimator_id == 0 ? 0.75 : 0.55) * base;
+				vec3 base = vec3(exp(-2.9*length(sin(pi * push.reactive_bass.xyz + 1.0) - sinDir)), exp(-2.9*length(sin(e * push.reactive_mids.xyz + 1.3) - sinDir)), exp(-2.9*length(sin(9.6*push.reactive_high.xyz + 117.69420) - sinDir)));
+				return (push.distance_estimator_id == 0 ? 0.8 : 0.575) * base;
 			}
 			break;
 		}
