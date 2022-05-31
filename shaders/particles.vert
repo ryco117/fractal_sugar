@@ -10,6 +10,7 @@ layout (push_constant) uniform Push
 	float time;
 	float particle_count;
 	bool rendering_fractal;
+	bool alternate_colors;
 } push;
 
 const vec4 speedConst1 = vec4(0.0, 0.425, 0.55, 0.2);
@@ -27,29 +28,76 @@ void main() {
 	gl_PointSize = 2.0;
 
 	float t = fract(float(gl_VertexIndex)/push.particle_count + 0.0485*push.time);
-	vec4 indexColor;
-	if(t < indexConst0.w) {
-		indexColor = vec4(mix(indexConst0.xyz, indexConst1.xyz, t / indexConst0.w), 1.0);
-	} else if(t <  indexConst1.w) {
-		indexColor = vec4(mix(indexConst1.xyz, indexConst2.xyz, (t - indexConst0.w)/(indexConst1.w - indexConst0.w)), 1.0);
-	} else if(t <  indexConst2.w) {
-		indexColor = vec4(mix(indexConst2.xyz, indexConst3.xyz, (t - indexConst1.w)/(indexConst2.w - indexConst1.w)), 1.0);
-	} else {
-		indexColor = vec4(mix(indexConst3.xyz, indexConst0.xyz, (t - indexConst2.w)/(indexConst3.w - indexConst2.w)), 1.0);
+	vec3 indexColor;
+	{
+		vec3 indexStart;
+		vec3 indexEnd;
+		float indexScale;
+		if(t < indexConst0.w) {
+			indexStart = indexConst0.xyz;
+			indexEnd = indexConst1.xyz;
+			indexScale = t / indexConst0.w;
+		} else if(t <  indexConst1.w) {
+			indexStart = indexConst1.xyz;
+			indexEnd = indexConst2.xyz;
+			indexScale = (t - indexConst0.w)/(indexConst1.w - indexConst0.w);
+		} else if(t <  indexConst2.w) {
+			indexStart = indexConst2.xyz;
+			indexEnd = indexConst3.xyz;
+			indexScale = (t - indexConst1.w)/(indexConst2.w - indexConst1.w);
+		} else {
+			indexStart = indexConst3.xyz;
+			indexEnd = indexConst0.xyz;
+			indexScale = (t - indexConst2.w)/(indexConst3.w - indexConst2.w);
+		}
+		if(push.alternate_colors) {
+			indexStart = abs(vec3(1.0) - indexStart);
+			indexEnd = abs(vec3(1.0) - indexEnd);
+		}
+		indexColor = mix(indexStart, indexEnd, indexScale);
 	}
 
 	float speed = min(length(vel), maxSpeed);
-	vec4 speedColor;
-	if(speed < speedConst1.w) {
-		vec3 basesColor = (push.rendering_fractal ? 0.325 : 0.55) * indexColor.xyz;
-		speedColor = vec4(mix(basesColor, vec3(speedConst1.x, speedConst1.y * speed/speedConst1.w, speedConst1.z), speed / speedConst1.w), 1.0);
-	} else if(speed < speedConst2.w) {
-		speedColor = vec4(mix(speedConst1.xyz, speedConst2.xyz, (speed - speedConst1.w)/(speedConst2.w - speedConst1.w)), 1.0);
-	} else if(speed < speedConst3.w) {
-		speedColor = vec4(mix(speedConst2.xyz, speedConst3.xyz, (speed - speedConst2.w)/(speedConst3.w - speedConst2.w)), 1.0);
-	} else {
-		speedColor = vec4(mix(speedConst3.xyz, vec3(1.0, 0.4, 0.4), (speed - speedConst3.w)/(maxSpeed - speedConst3.w)), 1.0);
+	vec3 speedColor;
+	{
+		vec3 speedStart;
+		vec3 speedEnd;
+		float speedScale;
+		if(speed < speedConst1.w) {
+			vec3 basesColor = (push.rendering_fractal ? 0.35 : 0.575) * indexColor;
+			speedStart = basesColor;
+			speedEnd = vec3(speedConst1.x, speedConst1.y * speed/speedConst1.w, speedConst1.z);
+			if(push.alternate_colors) {
+				speedEnd = abs(vec3(1.0) - speedEnd);
+			}
+			speedScale = speed / speedConst1.w;
+		} else if(speed < speedConst2.w) {
+			speedStart = speedConst1.xyz;
+			speedEnd = speedConst2.xyz;
+			if(push.alternate_colors) {
+				speedStart = abs(vec3(1.0) - speedStart);
+				speedEnd = abs(vec3(1.0) - speedEnd);
+			}
+			speedScale = (speed - speedConst1.w)/(speedConst2.w - speedConst1.w);
+		} else if(speed < speedConst3.w) {
+			speedStart = speedConst2.xyz;
+			speedEnd = speedConst3.xyz;
+			if(push.alternate_colors) {
+				speedStart = abs(vec3(1.0) - speedStart);
+				speedEnd = abs(vec3(1.0) - speedEnd);
+			}
+			speedScale = (speed - speedConst2.w)/(speedConst3.w - speedConst2.w);
+		} else {
+			speedStart = speedConst3.xyz;
+			speedEnd = vec3(1.0, 0.4, 0.4);
+			if(push.alternate_colors) {
+				speedStart = abs(vec3(1.0) - speedStart);
+				speedEnd = abs(vec3(1.0) - speedEnd);
+			}
+			speedScale = (speed - speedConst3.w)/(maxSpeed - speedConst3.w);
+		}
+		speedColor = mix(speedStart, speedEnd, speedScale);
 	}
 
-	outColor = mix(speedColor, indexColor, pow(max(speed - maxSpeed/100.0, 0.0)/maxSpeed, 0.35));
+	outColor = vec4(mix(speedColor, indexColor, pow(max(speed - maxSpeed/100.0, 0.0)/maxSpeed, 0.35)), 1.0);
 }

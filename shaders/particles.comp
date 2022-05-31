@@ -26,6 +26,8 @@ layout (push_constant) uniform PushConstants
 
 	float time;
 	float delta_time;
+	float width;
+	float height;
 	bool fix_particles;
 } push;
 
@@ -52,15 +54,25 @@ void main(void)
 	// Read the current position and velocity from the buffers
 	vec2 pos = vert.pos;
 	vec2 vel = vert.vel;
-	
+
+	mat2 aspect;
+	mat2 invaspect;
+	if (push.width > push.height) {
+		aspect = mat2(push.width / push.height, 0.0 , 0.0, 1.0);
+		invaspect = mat2(push.height / push.width, 0.0 , 0.0, 1.0);
+	} else {
+		aspect = mat2(1.0, 0.0 , 0.0, push.height / push.width);
+		invaspect = mat2(1.0, 0.0 , 0.0, push.width / push.height);
+	}
+
 	vec2 g = vec2(0.0);
 	float friction;
 	if(push.fix_particles)
 	{
 		friction = -6.5;
-
 		{
 			vec2 t = push.big_boomer - pos;
+			t = aspect * t;
 			float r = max(length(t), min_length);
 			g -= push.big_boomer_strength * safe_normalize(t) / (r*r*r) * 0.6;
 		}
@@ -68,6 +80,7 @@ void main(void)
 		for(int i = 0; i < push.curl_attractors.length(); i++)
 		{
 			vec2 t = push.curl_attractors[i] - pos;
+			t = aspect * t;
 			float r = max(length(t), min_length);
 			g += push.curl_attractor_strengths[i] * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 2.7;
 		}
@@ -75,13 +88,14 @@ void main(void)
 		for(int i = 0; i < push.attractors.length(); i++)
 		{
 			vec2 t = push.attractors[i] - pos;
+			t = aspect * t;
 			float r = max(length(t), min_length);
 			g += push.attractor_strengths[i] * safe_normalize(t) / (r*r) * 5.25;
 		}
 
 		g *= audio_scale;
 
-		g += spring_coefficient * (fixed_positions[index] - pos);
+		g += spring_coefficient * (aspect * (fixed_positions[index] - pos));
 	}
 	else
 	{
@@ -89,6 +103,7 @@ void main(void)
 
 		{
 			vec2 t = push.big_boomer - pos;
+			t = aspect * t;
 			float r = max(length(t), min_length);
 			g -= push.big_boomer_strength * safe_normalize(t) / (r*r*r) * 0.85;
 		}
@@ -96,6 +111,7 @@ void main(void)
 		for(int i = 0; i < push.curl_attractors.length(); i++)
 		{
 			vec2 t = push.curl_attractors[i] - pos;
+			t = aspect * t;
 			float r = max(length(t), min_length);
 			g += push.curl_attractor_strengths[i] * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 5.0;
 		}
@@ -103,6 +119,7 @@ void main(void)
 		for(int i = 0; i < push.attractors.length(); i++)
 		{
 			vec2 t = push.attractors[i] - pos;
+			t = aspect * t;
 			float r = max(length(t), min_length);
 			g += push.attractor_strengths[i] * safe_normalize(t) / (r*r) * 8.75;
 		}
@@ -110,7 +127,7 @@ void main(void)
 		g *= audio_scale;
 	}
 
-	vel += push.delta_time * g;
+	vel += push.delta_time * (invaspect*g);
 	
 	if(length(vel) > max_speed) {
 		vel = max_speed*normalize(vel);

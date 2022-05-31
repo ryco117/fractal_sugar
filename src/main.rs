@@ -1,3 +1,8 @@
+// Windows API for CMD management
+extern crate kernel32;
+extern crate user32;
+extern crate winapi;
+
 use std::sync::mpsc;
 use std::time::SystemTime;
 
@@ -7,6 +12,8 @@ use winit::event::{
 };
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
+
+use winapi::um::winuser::{SW_HIDE, SW_SHOW};
 
 use engine::swapchain::RecreateSwapchainResult;
 
@@ -22,7 +29,7 @@ use my_math::{Quaternion, Vector2, Vector3, Vector4};
 const BASE_ANGULAR_VELOCITY: f32 = 0.02;
 const CURSOR_LOOSE_STRENGTH: f32 = 0.75;
 const CURSOR_FIXED_STRENGTH: f32 = 1.75;
-const KALEIDOSCOPE_SPEED: f32 = 0.25;
+const KALEIDOSCOPE_SPEED: f32 = 0.275;
 const SCROLL_SENSITIVITY: f32 = 0.15;
 
 #[derive(Clone, Copy)]
@@ -52,6 +59,11 @@ fn main() {
     engine.get_surface().window().focus_window();
     let mut last_frame_time = SystemTime::now();
     let mut last_mouse_movement = SystemTime::now();
+    let (console_handle, mut console_visible) = unsafe {
+        let hwnd = kernel32::GetConsoleWindow();
+        user32::ShowWindow(hwnd, 0);
+        (hwnd, false)
+    };
 
     // Audio state vars?
     let mut game_time: f32 = 0.;
@@ -68,6 +80,7 @@ fn main() {
     let mut cursor_force_mult = 1.5;
     let mut kaleidoscope = 0.;
     let mut kaleidoscope_dir = KaleidoscopeDirection::BackwardComplete;
+    let mut alternate_colors = false;
 
     // Create local copies so they can be upated more frequently than FFT
     let mut local_volume = 0.;
@@ -149,10 +162,10 @@ fn main() {
                         audio_state.big_boomer = big_boomer
                     }
                     // Update 2D (curl)attractors
-                    for i in 0..2 {
-                        audio_state.curl_attractors[i] = curl_attractors[i];
-                        audio_state.attractors[i] = attractors[i]
-                    }
+                    let c_len = curl_attractors.len();
+                    let a_len = attractors.len();
+                    audio_state.curl_attractors[..c_len].copy_from_slice(&curl_attractors[..c_len]);
+                    audio_state.attractors[..a_len].copy_from_slice(&attractors[..a_len]);
 
                     // Update fractal state
                     if let Some(omega) = kick_angular_velocity {
@@ -195,9 +208,9 @@ fn main() {
                 &audio_state.reactive_high,
                 (0.8 * audio_state.attractors[0].1.sqrt()).min(1.) * 0.36,
             );
-            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.16);
-            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.16);
-            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, 0.16);
+            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.15);
+            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.15);
+            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, 0.15);
             (kaleidoscope, kaleidoscope_dir) = match kaleidoscope_dir {
                 KaleidoscopeDirection::Forward => {
                     kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
@@ -239,6 +252,9 @@ fn main() {
                 }
             }
 
+            let width = dimensions.width as f32;
+            let height = dimensions.height as f32;
+
             // Unzip (point, strength) arrays for passing to shader
             fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([[f32; 2]; 2], [f32; 2]) {
                 (arr.map(|e| e.0.into()), arr.map(|e| e.1))
@@ -276,6 +292,8 @@ fn main() {
 
                     time: game_time,
                     delta_time,
+                    width,
+                    height,
                     fix_particles: if fix_particles { 1 } else { 0 },
                 })
             } else {
@@ -295,15 +313,15 @@ fn main() {
                 smooth_high: local_smooth_high.into(),
 
                 time: game_time,
-                width: dimensions.width as f32,
-                height: dimensions.height as f32,
+                width,
+                height,
                 kaleidoscope: kaleidoscope.powf(0.65),
                 distance_estimator_id,
                 render_background: if render_particles { 0 } else { 1 },
             };
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
-            recreate_swapchain |= engine.draw_frame(compute_push_constants, fractal_data)
+            recreate_swapchain |= engine.draw_frame(compute_push_constants, fractal_data, alternate_colors)
         }
 
         // Handle some keyboard input
@@ -321,7 +339,7 @@ fn main() {
             ..
         } => {
             match keycode {
-                // Handle fullscreen togle (F11)
+                // Handle fullscreen toggle (F11)
                 VirtualKeyCode::F11 => {
                     if window_is_fullscreen {
                         engine.get_surface().window().set_fullscreen(None);
@@ -363,6 +381,9 @@ fn main() {
                 // Handle toggling of particle rendering
                 VirtualKeyCode::P => render_particles = !render_particles,
 
+                // Handle toggling of alternate colors
+                VirtualKeyCode::Capital => alternate_colors = !alternate_colors,
+
                 // Set different fractal types
                 VirtualKeyCode::Key0 => distance_estimator_id = 0,
                 VirtualKeyCode::Key1 => distance_estimator_id = 1,
@@ -370,6 +391,16 @@ fn main() {
                 VirtualKeyCode::Key3 => distance_estimator_id = 3,
                 VirtualKeyCode::Key4 => distance_estimator_id = 4,
                 VirtualKeyCode::Key5 => distance_estimator_id = 5,
+
+                // Handle toggling the debug-console.
+                // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
+                VirtualKeyCode::Return => unsafe {
+                    user32::ShowWindow(
+                        console_handle,
+                        if console_visible { SW_HIDE } else { SW_SHOW },
+                    );
+                    console_visible = !console_visible
+                },
 
                 // No-op
                 _ => {}

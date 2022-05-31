@@ -26,6 +26,7 @@ pub fn create_render_commands(
     vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
     particle_data: Option<ComputePushConstants>,
     fractal_data: FractalPushConstants,
+    alternate_colors: bool,
 ) -> PrimaryAutoCommandBuffer {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
@@ -81,6 +82,7 @@ pub fn create_render_commands(
             &vertex_buffer,
             time,
             fractal_data.distance_estimator_id != 0,
+            alternate_colors,
         )
     } else {
         // Begin the same render pass as with particles, but skip commands to draw particles
@@ -111,7 +113,8 @@ fn inline_particles_cmds(
     vertex_buffer: &Arc<DeviceLocalBuffer<[Vertex]>>,
     time: f32,
     rendering_fractal: bool,
-) -> () {
+    alternate_colors: bool,
+) {
     use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
     let buffer_count = vertex_buffer.len() as u32;
 
@@ -126,6 +129,7 @@ fn inline_particles_cmds(
                 time,
                 particle_count: buffer_count as f32,
                 rendering_fractal: if rendering_fractal { 1 } else { 0 },
+                alternate_colors: if alternate_colors { 1 } else { 0 },
             },
         )
         .bind_vertex_buffers(0, vertex_buffer.clone())
@@ -138,7 +142,7 @@ fn inline_fractal_cmds(
     pipeline: &Arc<GraphicsPipeline>,
     push_constants: FractalPushConstants,
     particle_input: Arc<dyn ImageViewAbstract>,
-) -> () {
+) {
     // Need a descriptor set to use previous pass in the draw
     let layout = pipeline.layout().set_layouts().get(0).unwrap();
     let descriptor_set = PersistentDescriptorSet::new(

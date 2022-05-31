@@ -460,6 +460,7 @@ impl Engine {
         &mut self,
         compute_data: Option<ComputePushConstants>,
         fractal_data: FractalPushConstants,
+        alternate_colors: bool,
     ) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
         let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
@@ -505,6 +506,7 @@ impl Engine {
             self.vertex_buffer.clone(),
             compute_data,
             fractal_data,
+            alternate_colors,
         );
 
         // Create synchronization future for rendering the current frame

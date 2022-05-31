@@ -100,10 +100,10 @@ fn processing_thread_from_sample_rate(
                 };
                 audio_storage_buffer.append(&mut d)
             }
-            let mut complex = &mut audio_storage_buffer[0..size];
+            let complex = &mut audio_storage_buffer[0..size];
 
             // Perform FFT on data in-place
-            fft.process(&mut complex);
+            fft.process(complex);
 
             // Create helper closure for determining the loudest frequency bin(s) within a frequency range
             let analyze_frequency_range = |frequency_range: std::ops::Range<f32>,
@@ -130,7 +130,7 @@ fn processing_thread_from_sample_rate(
                     .collect();
 
                 let mut loudest: Vec<(f32, f32)> = Vec::with_capacity(count);
-                while sorted.len() > 0 && loudest.len() < count {
+                while !sorted.is_empty() && loudest.len() < count {
                     sorted.sort_unstable_by(|x, y| {
                         y.1.partial_cmp(&x.1).unwrap_or(std::cmp::Ordering::Equal)
                     });
@@ -192,14 +192,14 @@ fn processing_thread_from_sample_rate(
             let mids_analysis = {
                 let frequency_range: std::ops::Range<f32> = 225.0..1_600.;
                 let delta: f32 = 0.1;
-                let min_volume: f32 = 0.065;
-                let scale = 2.25;
+                let min_volume: f32 = 0.06;
+                let scale = 2.5;
                 analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
             };
             let high_analysis = {
                 let frequency_range: std::ops::Range<f32> = 1_600.0..16_000.;
                 let delta: f32 = 0.1;
-                let min_volume: f32 = 0.0125;
+                let min_volume: f32 = 0.012;
                 let scale = 4.;
                 analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
             };
@@ -352,7 +352,7 @@ fn create_audio_loopback(
     // Create loopback stream for passing for processing
     match default_audio_out.build_input_stream(
         &audio_config.config(),
-        move |data: &[f32], _| -> () {
+        move |data: &[f32], _| {
             // Account for audio-channel packing of samples
             let size = data.len() / channel_count;
 
@@ -408,7 +408,7 @@ pub fn create_default_loopback(tx: Sender<AudioState>) -> cpal::Stream {
         "Default audio out: {:?}",
         default_audio_out
             .name()
-            .unwrap_or(String::from("Unnamed device"))
+            .unwrap_or_else(|_| String::from("Unnamed device"))
     );
 
     // Search device for a supported Float32 compatible format
