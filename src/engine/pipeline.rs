@@ -32,7 +32,7 @@ pub fn create_particles_pipeline(
         // Specify the subpass that this pipeline will be used in
         .render_pass(subpass)
         // Now that everything is specified, we call `build`
-        .build(device.clone())
+        .build(device)
         .unwrap()
 }
 
@@ -56,6 +56,6 @@ pub fn create_fractal_pipeline(
         // Specify the subpass that this pipeline will be used in
         .render_pass(subpass)
         // Now that everything is specified, we call `build`
-        .build(device.clone())
+        .build(device)
         .unwrap()
 }

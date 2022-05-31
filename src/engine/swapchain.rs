@@ -82,8 +82,8 @@ impl EngineSwapchain {
 
         // Create new swapchain with specified properties
         let (swapchain, images) = Swapchain::new(
-            device.clone(),
-            surface.clone(),
+            device,
+            surface,
             SwapchainCreateInfo {
                 min_image_count: image_count, // Use one more buffer than the minimum in swapchain
                 image_format: Some(image_format),
@@ -95,7 +95,7 @@ impl EngineSwapchain {
                     u
                 },
                 composite_alpha,
-                present_mode: present_mode,
+                present_mode,
                 ..Default::default()
             },
         )

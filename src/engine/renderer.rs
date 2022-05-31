@@ -30,7 +30,7 @@ pub fn create_render_commands(
 ) -> PrimaryAutoCommandBuffer {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
-        device.clone(),
+        device,
         queue.family(),
         CommandBufferUsage::OneTimeSubmit,
     )

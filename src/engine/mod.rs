@@ -250,7 +250,7 @@ impl Engine {
             let (vertex_buffer, vertex_future) = create_buffer(
                 &device,
                 &queue,
-                vertex_iter.clone(),
+                vertex_iter,
                 BufferUsage::storage_buffer() | BufferUsage::vertex_buffer(),
             );
 
@@ -286,7 +286,7 @@ impl Engine {
                 .clone(),
             [
                 WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
-                WriteDescriptorSet::buffer(1, fixed_position_buffer.clone()),
+                WriteDescriptorSet::buffer(1, fixed_position_buffer),
             ],
         )
         .unwrap();

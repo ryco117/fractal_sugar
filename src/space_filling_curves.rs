@@ -33,27 +33,21 @@ pub mod cube {
                 } else {
                     (Vertex::Vertex1, (x - 0.125) * 8.)
                 }
+            } else if x < 0.375 {
+                (Vertex::Vertex2, (x - 0.25) * 8.)
             } else {
-                if x < 0.375 {
-                    (Vertex::Vertex2, (x - 0.25) * 8.)
-                } else {
-                    (Vertex::Vertex3, (x - 0.375) * 8.)
-                }
+                (Vertex::Vertex3, (x - 0.375) * 8.)
             }
+        } else if x < 0.75 {
+            if x < 0.625 {
+                (Vertex::Vertex4, (x - 0.5) * 8.)
+            } else {
+                (Vertex::Vertex5, (x - 0.625) * 8.)
+            }
+        } else if x < 0.875 {
+            (Vertex::Vertex6, (x - 0.75) * 8.)
         } else {
-            if x < 0.75 {
-                if x < 0.625 {
-                    (Vertex::Vertex4, (x - 0.5) * 8.)
-                } else {
-                    (Vertex::Vertex5, (x - 0.625) * 8.)
-                }
-            } else {
-                if x < 0.875 {
-                    (Vertex::Vertex6, (x - 0.75) * 8.)
-                } else {
-                    (Vertex::Vertex7, (x - 0.875) * 8.)
-                }
-            }
+            (Vertex::Vertex7, (x - 0.875) * 8.)
         }
     }
 
@@ -111,29 +105,24 @@ pub mod cube {
     fn cell_transform(p: Vector3, v: Vertex) -> Vector3 {
         // Set of functions that rotate a point about the origin to align with a vertex
         fn r0(p: Vector3) -> Vector3 {
-            match p {
-                Vector3 { x, y, z } => Vector3::new(y, -z, -x),
-            }
+            let Vector3 { x, y, z } = p;
+            Vector3::new(y, -z, -x)
         }
         fn r1(p: Vector3) -> Vector3 {
-            match p {
-                Vector3 { x, y, z } => Vector3::new(-z, x, -y),
-            }
+            let Vector3 { x, y, z } = p;
+            Vector3::new(-z, x, -y)
         }
         fn r2(p: Vector3) -> Vector3 {
-            match p {
-                Vector3 { x, y, z } => Vector3::new(-x, -y, z),
-            }
+            let Vector3 { x, y, z } = p;
+            Vector3::new(-x, -y, z)
         }
         fn r3(p: Vector3) -> Vector3 {
-            match p {
-                Vector3 { x, y, z } => Vector3::new(z, x, y),
-            }
+            let Vector3 { x, y, z } = p;
+            Vector3::new(z, x, y)
         }
         fn r4(p: Vector3) -> Vector3 {
-            match p {
-                Vector3 { x, y, z } => Vector3::new(y, z, x),
-            }
+            let Vector3 { x, y, z } = p;
+            Vector3::new(y, z, x)
         }
 
         match v {
@@ -153,7 +142,7 @@ pub mod cube {
     pub fn curve_to_cube_n(x: f32, n: usize) -> Vector3 {
         fn f(n: usize, x: f32) -> Vector3 {
             let (v, x_prime) = nearest_vertex(x);
-            if n <= 0 {
+            if n == 0 {
                 vertex_pos(x_prime, v)
             } else {
                 let p_prime = f(n - 1, x_prime);
@@ -194,12 +183,10 @@ pub mod square {
             } else {
                 (Vertex::Vertex1, (x - 0.25) * 4.)
             }
+        } else if x < 0.75 {
+            (Vertex::Vertex2, (x - 0.5) * 4.)
         } else {
-            if x < 0.75 {
-                (Vertex::Vertex2, (x - 0.5) * 4.)
-            } else {
-                (Vertex::Vertex3, (x - 0.75) * 4.)
-            }
+            (Vertex::Vertex3, (x - 0.75) * 4.)
         }
     }
 
@@ -264,7 +251,7 @@ pub mod square {
     pub fn curve_to_square_n(x: f32, n: usize) -> Vector2 {
         fn f(n: usize, x: f32) -> Vector2 {
             let (v, x_prime) = nearest_vertex(x);
-            if n <= 0 {
+            if n == 0 {
                 vertex_pos(x_prime, v)
             } else {
                 let mut p_prime = f(n - 1, x_prime);

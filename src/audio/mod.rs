@@ -293,7 +293,7 @@ fn processing_thread_from_sample_rate(
                 let r = (display_end_index - display_start_index) / DISPLAY_FFT_SIZE;
                 let mut volume: f32 = 0.;
                 let mut max_volume: (usize, f32) = (display_start_index, 0.);
-                for i in 0..DISPLAY_FFT_SIZE {
+                for (i, display_bin) in display_bins.iter_mut().enumerate() {
                     let mut t = 0.;
                     let index = display_start_index + i * r;
                     for j in 0..r {
@@ -308,7 +308,7 @@ fn processing_thread_from_sample_rate(
                     }
 
                     let v = scale * t;
-                    display_bins[i] = v;
+                    *display_bin = v;
                     volume += v;
                 }
 
