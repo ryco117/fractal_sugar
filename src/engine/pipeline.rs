@@ -11,10 +11,10 @@ use vulkano::shader::ShaderModule;
 use super::vertex::Vertex;
 
 // Create a graphics pipeline for displaying a list of particles
-pub fn create_particles_pipeline(
+pub fn create_particle(
     device: Arc<Device>,
-    vert_shader: Arc<ShaderModule>,
-    frag_shader: Arc<ShaderModule>,
+    vert_shader: &Arc<ShaderModule>,
+    frag_shader: &Arc<ShaderModule>,
     subpass: Subpass,
     viewport: Viewport,
 ) -> Arc<GraphicsPipeline> {
@@ -37,10 +37,10 @@ pub fn create_particles_pipeline(
 }
 
 // Create a graphics pipeline for displaying fractals
-pub fn create_fractal_pipeline(
+pub fn create_fractal(
     device: Arc<Device>,
-    vert_shader: Arc<ShaderModule>,
-    frag_shader: Arc<ShaderModule>,
+    vert_shader: &Arc<ShaderModule>,
+    frag_shader: &Arc<ShaderModule>,
     subpass: Subpass,
     viewport: Viewport,
 ) -> Arc<GraphicsPipeline> {

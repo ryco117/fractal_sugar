@@ -11,23 +11,24 @@ use crate::space_filling_curves;
 
 const PRINT_SPECTRUM: bool = true;
 
-const EMPTY_NOTE: (Vector2, f32) = (Vector2::new(0., 0.), 0.);
+const EMPTY_NOTE: Vector4 = Vector4::new(0., 0., 0., 0.);
 
 // Set some constants for scaling frequencies to sound/appear more linear
-const BASS_POW: f32 = 0.9;
-const MIDS_POW: f32 = 0.775;
+const BASS_POW: f32 = 0.85;
+const MIDS_POW: f32 = 0.75;
 const HIGH_POW: f32 = 0.45;
 
 const BASS_KICK: f32 = 0.05;
+const PREVIOUS_BASS_COUNT: usize = 10;
 
 // Audio state to pass to UI thread
 pub struct AudioState {
     pub volume: f32,
 
     // 2D (Particles)
-    pub big_boomer: (Vector2, f32),
-    pub curl_attractors: [(Vector2, f32); 2],
-    pub attractors: [(Vector2, f32); 2],
+    pub big_boomer: Vector4,
+    pub curl_attractors: [Vector4; 2],
+    pub attractors: [Vector4; 2],
 
     // 3D (Fractals)
     pub kick_angular_velocity: Option<Vector4>,
@@ -58,6 +59,18 @@ struct FrequencyAnalysis {
     pub total_volume: f32,
 }
 
+// Convert note analysis to 2D vectors with strengths
+fn map_note_to_square(note: (f32, f32), pow: f32) -> Vector4 {
+    let Vector2 { x, y } =
+        0.95 * space_filling_curves::square::curve_to_square_n(note.0.powf(pow), 5);
+    Vector4::new(x, y, 0., note.1)
+}
+
+// Convert note analysis to 3D vectors
+fn map_freq_to_cube(freq: f32, pow: f32) -> Vector3 {
+    space_filling_curves::cube::curve_to_cube_n(freq.powf(pow), 6)
+}
+
 fn processing_thread_from_sample_rate(
     sample_rate: f32,
     tx: Sender<AudioState>,
@@ -85,8 +98,7 @@ fn processing_thread_from_sample_rate(
         let mut kick_angular_velocity = None;
         let mut last_kick = SystemTime::now();
         let mut previous_bass_index = 0;
-        let mut previous_bass: [Option<Vec<f32>>; 8] =
-            [None, None, None, None, None, None, None, None];
+        let mut previous_bass: [Option<Vec<f32>>; PREVIOUS_BASS_COUNT] = Default::default();
 
         loop {
             // Append incoming audio data until we have sufficient samples
@@ -98,7 +110,7 @@ fn processing_thread_from_sample_rate(
                         e
                     ),
                 };
-                audio_storage_buffer.append(&mut d)
+                audio_storage_buffer.append(&mut d);
             }
             let complex = &mut audio_storage_buffer[0..size];
 
@@ -143,7 +155,7 @@ fn processing_thread_from_sample_rate(
 
                     // Update the strongest and the remaining lists. Reject values too quiet
                     loudest.push((t, if v >= min_volume { v } else { 0. }));
-                    sorted = remaining
+                    sorted = remaining;
                 }
                 assert_eq!(
                     count,
@@ -159,10 +171,10 @@ fn processing_thread_from_sample_rate(
 
             // Analyze each frequency ranges
             let (bass_analysis, current_bass) = {
-                let frequency_range: std::ops::Range<f32> = 30.0..225.;
+                let frequency_range: std::ops::Range<f32> = 30.0..275.;
                 let delta: f32 = 1.;
-                let min_volume: f32 = 0.3;
-                let vol_freq_scale = 1.75;
+                let min_volume: f32 = 0.25;
+                let vol_freq_scale = 1.8;
                 let analysis = analyze_frequency_range(
                     frequency_range.clone(),
                     1,
@@ -190,31 +202,19 @@ fn processing_thread_from_sample_rate(
                 (analysis, current_bass)
             };
             let mids_analysis = {
-                let frequency_range: std::ops::Range<f32> = 225.0..1_600.;
+                let frequency_range: std::ops::Range<f32> = 275.0..1_600.;
                 let delta: f32 = 0.1;
-                let min_volume: f32 = 0.06;
-                let scale = 2.5;
+                let min_volume: f32 = 0.05;
+                let scale = 2.75;
                 analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
             };
             let high_analysis = {
                 let frequency_range: std::ops::Range<f32> = 1_600.0..16_000.;
                 let delta: f32 = 0.1;
-                let min_volume: f32 = 0.012;
+                let min_volume: f32 = 0.01;
                 let scale = 4.;
                 analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
             };
-
-            // Convert note analysis to 2D vectors with strengths
-            fn map_note_to_square(x: (f32, f32), pow: f32) -> (Vector2, f32) {
-                (
-                    0.95 * space_filling_curves::square::curve_to_square_n(x.0.powf(pow), 5),
-                    x.1,
-                )
-            }
-            // Convert note analysis to 3D vectors
-            fn map_note_to_cube(x: (f32, f32), pow: f32) -> Vector3 {
-                space_filling_curves::cube::curve_to_cube_n(x.0.powf(pow), 6)
-            }
 
             // Get total volume from all (relevant) frequencies
             let volume = bass_analysis.total_volume
@@ -240,10 +240,10 @@ fn processing_thread_from_sample_rate(
                     None => 0.,
                 }
             }) / (previous_bass.len() as f32);
-            if (bass_analysis.loudest[0].1 > 4. || bass_analysis.loudest[0].1 * kick_elapsed > 7.5)
-                && kick_elapsed > 0.6
+            if (bass_analysis.loudest[0].1 > 4. || bass_analysis.loudest[0].1 * kick_elapsed > 8.)
+                && kick_elapsed > 0.8
                 && bass_analysis.loudest[0].1 > 1.25
-                && bass_analysis.loudest[0].1 > 2.75 * avg_prev_bass
+                && bass_analysis.loudest[0].1 > 3. * avg_prev_bass
             {
                 let v = space_filling_curves::cube::curve_to_cube_n(
                     bass_analysis.loudest[0].0.powf(BASS_POW),
@@ -255,7 +255,7 @@ fn processing_thread_from_sample_rate(
                     v.z,
                     BASS_KICK * bass_analysis.total_volume.sqrt(),
                 ));
-                last_kick = SystemTime::now()
+                last_kick = SystemTime::now();
             }
             // Regardless, update bass history
             previous_bass[previous_bass_index] = Some(current_bass);
@@ -276,9 +276,9 @@ fn processing_thread_from_sample_rate(
                 ],
 
                 kick_angular_velocity: kick_angular_velocity.take(),
-                reactive_bass: map_note_to_cube(bass_analysis.loudest[0], BASS_POW),
-                reactive_mids: map_note_to_cube(mids_analysis.loudest[0], MIDS_POW),
-                reactive_high: map_note_to_cube(high_analysis.loudest[0], HIGH_POW),
+                reactive_bass: map_freq_to_cube(bass_analysis.loudest[0].0, BASS_POW),
+                reactive_mids: map_freq_to_cube(mids_analysis.loudest[0].0, MIDS_POW),
+                reactive_high: map_freq_to_cube(high_analysis.loudest[0].0, HIGH_POW),
             }) {
                 Ok(()) => {}
                 Err(_) => println!("UI thread receiver disconnected.."),
@@ -303,7 +303,7 @@ fn processing_thread_from_sample_rate(
 
                         // Basics of determining largest frequency bins
                         if v > max_volume.1 {
-                            max_volume = (k, v)
+                            max_volume = (k, v);
                         }
                     }
 
@@ -335,14 +335,14 @@ fn processing_thread_from_sample_rate(
 
             // Copy elements with index >= `size` to the start of array since they haven't been used yet
             audio_storage_buffer.copy_within(size.., 0);
-            audio_storage_buffer.truncate(audio_storage_buffer.len() - size)
+            audio_storage_buffer.truncate(audio_storage_buffer.len() - size);
         } // end unconditional loop
     });
 }
 
 fn create_audio_loopback(
-    default_audio_out: Device,
-    audio_config: SupportedStreamConfig,
+    default_audio_out: &Device,
+    audio_config: &SupportedStreamConfig,
     tx_acc: Sender<Vec<Complex<f32>>>,
 ) -> cpal::Stream {
     // Store channel constants for use in callback
@@ -430,8 +430,8 @@ pub fn create_default_loopback(tx: Sender<AudioState>) -> cpal::Stream {
 
     // Create an accumulator channel to compose enough bytes for a reasonable FFT
     let (tx_acc, rx_acc) = mpsc::channel();
-    let _ = processing_thread_from_sample_rate(sample_rate, tx, rx_acc);
+    processing_thread_from_sample_rate(sample_rate, tx, rx_acc);
 
     // Create and return loopback capture stream
-    create_audio_loopback(default_audio_out, audio_config, tx_acc)
+    create_audio_loopback(&default_audio_out, &audio_config, tx_acc)
 }

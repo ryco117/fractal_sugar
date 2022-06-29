@@ -35,6 +35,7 @@ fn select_best_physical_device<'a>(
         .expect("Could not find a compatible GPU")
 }
 
+#[allow(clippy::module_name_repetitions)]
 // Retrieve resources best suited for graphical Vulkan operations
 pub fn select_hardware<'a>(
     instance: &'a Arc<Instance>,

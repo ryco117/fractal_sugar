@@ -5,57 +5,55 @@ use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, SubpassContents,
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::device::{Device, Queue};
 use vulkano::format::ClearValue;
 use vulkano::image::ImageViewAbstract;
-use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline, PipelineBindPoint};
+use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::Framebuffer;
 
 use super::vertex::Vertex;
+use super::Engine;
 use super::{ComputePushConstants, FractalPushConstants};
 type ParticleVertexPushConstants = super::particle_shaders::vs::ty::Push;
 
+// Helper for initializing the rendering of a frame. Must specify clear value of each subpass
+fn begin_render_pass(
+    builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
+    framebuffer: &Arc<Framebuffer>,
+) {
+    builder
+        .begin_render_pass(
+            framebuffer.clone(),
+            SubpassContents::Inline, // Use secondary command buffers to specify later passses
+            vec![[0., 0., 0., 1.].into(), ClearValue::None, ClearValue::None], // Clear values for attachments
+        )
+        .unwrap();
+}
+
 pub fn create_render_commands(
-    device: Arc<Device>,
-    queue: Arc<Queue>,
-    compute_pipeline: Arc<ComputePipeline>,
-    particles_pipeline: Arc<GraphicsPipeline>,
-    fractal_pipeline: Arc<GraphicsPipeline>,
-    framebuffer: Arc<Framebuffer>,
-    descriptor_set: Arc<PersistentDescriptorSet>,
-    vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
+    engine: &Engine,
+    framebuffer: &Arc<Framebuffer>,
     particle_data: Option<ComputePushConstants>,
     fractal_data: FractalPushConstants,
     alternate_colors: bool,
 ) -> PrimaryAutoCommandBuffer {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
-        device,
-        queue.family(),
+        engine.device(),
+        engine.queue().family(),
         CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();
 
-    // Helper for initializing the rendering of a frame. Must specify clear value of each subpass
-    fn begin_render_pass(
-        builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        framebuffer: &Arc<Framebuffer>,
-    ) {
-        builder
-            .begin_render_pass(
-                framebuffer.clone(),
-                SubpassContents::Inline, // Use secondary command buffers to specify later passses
-                vec![[0., 0., 0., 1.].into(), ClearValue::None, ClearValue::None], // Clear values for attachments
-            )
-            .unwrap();
-    }
-
     // Allow toggling of particle effects and avoid unnecesary computation
     if let Some(compute_push_constants) = particle_data {
         use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
+        let vertex_buffer = engine.vertex_buffer.clone();
         let buffer_count = vertex_buffer.len() as u32;
 
-        let time = compute_push_constants.time; // Use `time` in both pipelines
+        let compute_pipeline = engine.compute_pipeline();
+        let descriptor_set = engine.descriptor_set();
+
+        let time = compute_push_constants.time; // Use `time` after moving `compute_push_constants`
 
         // Build compute commands
         builder
@@ -73,20 +71,20 @@ pub fn create_render_commands(
             .unwrap();
 
         // Start render pass
-        begin_render_pass(&mut builder, &framebuffer);
+        begin_render_pass(&mut builder, framebuffer);
 
         // Add inline commands to render particles
         inline_particles_cmds(
             &mut builder,
-            &particles_pipeline,
+            &engine.particle_pipeline(),
             &vertex_buffer,
             time,
             fractal_data.distance_estimator_id != 0,
             alternate_colors,
-        )
+        );
     } else {
         // Begin the same render pass as with particles, but skip commands to draw particles
-        begin_render_pass(&mut builder, &framebuffer)
+        begin_render_pass(&mut builder, framebuffer);
     }
 
     // Move to next subpass
@@ -95,7 +93,7 @@ pub fn create_render_commands(
     // Add inline commands to render fractal
     inline_fractal_cmds(
         &mut builder,
-        &fractal_pipeline,
+        &engine.fractal_pipeline(),
         fractal_data,
         (*framebuffer.attachments())[1].clone(),
     );

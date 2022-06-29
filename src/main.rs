@@ -1,3 +1,6 @@
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)]
+
 // Windows API for CMD management
 extern crate kernel32;
 extern crate user32;
@@ -23,7 +26,7 @@ mod my_math;
 mod space_filling_curves;
 
 use audio::AudioState;
-use my_math::{Quaternion, Vector2, Vector3, Vector4};
+use my_math::{Quaternion, Vector3, Vector4};
 
 // App constants
 const BASE_ANGULAR_VELOCITY: f32 = 0.02;
@@ -56,7 +59,7 @@ fn main() {
     let mut recreate_swapchain = false;
     let mut window_is_fullscreen = false;
     let mut window_is_focused = true;
-    engine.get_surface().window().focus_window();
+    engine.surface().window().focus_window();
     let mut last_frame_time = SystemTime::now();
     let mut last_mouse_movement = SystemTime::now();
     let (console_handle, mut console_visible) = unsafe {
@@ -101,7 +104,7 @@ fn main() {
             ..
         } => {
             println!("The close button was pressed, exiting");
-            *control_flow = ControlFlow::Exit
+            *control_flow = ControlFlow::Exit;
         }
 
         // Handle resize
@@ -122,13 +125,9 @@ fn main() {
                 let smooth = 1. - (delta_time * -scale).exp();
                 source + smooth * (target - source)
             };
-            let interpolate_vec2 = |source: &mut Vector2, target: &Vector2, scale: f32| {
-                let smooth = 1. - (delta_time * -scale).exp();
-                *source += smooth * (*target - *source)
-            };
             let interpolate_vec3 = |source: &mut Vector3, target: &Vector3, scale: f32| {
                 let smooth = 1. - (delta_time * -scale).exp();
-                *source += smooth * (*target - *source)
+                *source += smooth * (*target - *source);
             };
 
             // Handle any changes to audio state
@@ -152,14 +151,16 @@ fn main() {
 
                     // Update 2D big boomers
                     if fix_particles {
-                        interpolate_vec2(
-                            &mut audio_state.big_boomer.0,
-                            &big_boomer.0,
-                            7.25 * audio_state.big_boomer.1,
-                        );
-                        audio_state.big_boomer.1 = big_boomer.1
+                        let smooth = 1. - (-7.25 * big_boomer.w * delta_time).exp();
+                        audio_state.big_boomer.x +=
+                            smooth * (big_boomer.x - audio_state.big_boomer.x);
+                        audio_state.big_boomer.y +=
+                            smooth * (big_boomer.y - audio_state.big_boomer.y);
+                        audio_state.big_boomer.z +=
+                            smooth * (big_boomer.z - audio_state.big_boomer.z);
+                        audio_state.big_boomer.w = big_boomer.w;
                     } else {
-                        audio_state.big_boomer = big_boomer
+                        audio_state.big_boomer = big_boomer;
                     }
                     // Update 2D (curl)attractors
                     let c_len = curl_attractors.len();
@@ -196,17 +197,17 @@ fn main() {
             interpolate_vec3(
                 &mut local_reactive_bass,
                 &audio_state.reactive_bass,
-                (0.8 * audio_state.big_boomer.1.sqrt()).min(1.) * 0.36,
+                (0.8 * audio_state.big_boomer.w.sqrt()).min(1.) * 0.36,
             );
             interpolate_vec3(
                 &mut local_reactive_mids,
                 &audio_state.reactive_mids,
-                (0.8 * audio_state.curl_attractors[0].1.sqrt()).min(1.) * 0.36,
+                (0.8 * audio_state.curl_attractors[0].w.sqrt()).min(1.) * 0.36,
             );
             interpolate_vec3(
                 &mut local_reactive_high,
                 &audio_state.reactive_high,
-                (0.8 * audio_state.attractors[0].1.sqrt()).min(1.) * 0.36,
+                (0.8 * audio_state.attractors[0].w.sqrt()).min(1.) * 0.36,
             );
             interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.15);
             interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.15);
@@ -231,63 +232,56 @@ fn main() {
                 _ => (kaleidoscope, kaleidoscope_dir),
             };
 
+            let surface = engine.surface();
+
             // If cursor is visible and has been stationary then hide it
             if is_cursor_visible
                 && window_is_focused
                 && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 2.
             {
-                engine.get_surface().window().set_cursor_visible(false);
-                is_cursor_visible = false
+                surface.window().set_cursor_visible(false);
+                is_cursor_visible = false;
             }
 
             // Handle any necessary recreations (usually from window resizing)
-            let dimensions = engine.get_surface().window().inner_size();
+            let dimensions = surface.window().inner_size();
             if window_resized || recreate_swapchain {
                 match engine.recreate_swapchain(dimensions, window_resized) {
                     RecreateSwapchainResult::Success => {
                         recreate_swapchain = false;
-                        window_resized = false
+                        window_resized = false;
                     }
                     RecreateSwapchainResult::ExtentNotSupported => return,
                 }
             }
 
-            let width = dimensions.width as f32;
-            let height = dimensions.height as f32;
-
-            // Unzip (point, strength) arrays for passing to shader
-            fn simple_unzip(arr: &[(Vector2, f32); 2]) -> ([[f32; 2]; 2], [f32; 2]) {
-                (arr.map(|e| e.0.into()), arr.map(|e| e.1))
-            }
-            let (curl_attractors, curl_attractor_strengths) =
-                simple_unzip(&audio_state.curl_attractors);
-            let (attractors, attractor_strengths) = simple_unzip(&audio_state.attractors);
-
             // Create a unique attractor based on mouse position
             let cursor_attractor = [
-                2. * (cursor_position.x as f32 / dimensions.width as f32) - 1.,
-                2. * (cursor_position.y as f32 / dimensions.height as f32) - 1.,
+                (2. * (cursor_position.x / dimensions.width as f64) - 1.) as f32,
+                (2. * (cursor_position.y / dimensions.height as f64) - 1.) as f32,
+                0.,
+                if fix_particles {
+                    CURSOR_FIXED_STRENGTH
+                } else {
+                    CURSOR_LOOSE_STRENGTH
+                } * cursor_force_mult
+                    * cursor_force,
             ];
+
+            let width = dimensions.width as f32;
+            let height = dimensions.height as f32;
 
             // Create per-frame data for particle compute-shader
             let compute_push_constants = if render_particles {
                 Some(engine::ComputePushConstants {
-                    big_boomer: audio_state.big_boomer.0.into(),
-                    big_boomer_strength: audio_state.big_boomer.1,
+                    big_boomer: audio_state.big_boomer.into(),
 
-                    curl_attractors,
-                    curl_attractor_strengths,
+                    curl_attractors: audio_state.curl_attractors.map(std::convert::Into::into),
 
-                    attractors: [attractors[0], attractors[1], cursor_attractor],
-                    attractor_strengths: [
-                        attractor_strengths[0],
-                        attractor_strengths[1],
-                        if fix_particles {
-                            CURSOR_FIXED_STRENGTH
-                        } else {
-                            CURSOR_LOOSE_STRENGTH
-                        } * cursor_force_mult
-                            * cursor_force,
+                    attractors: [
+                        audio_state.attractors[0].into(),
+                        audio_state.attractors[1].into(),
+                        cursor_attractor,
                     ],
 
                     time: game_time,
@@ -295,6 +289,7 @@ fn main() {
                     width,
                     height,
                     fix_particles: if fix_particles { 1 } else { 0 },
+                    use_third_dimension: 0,
                 })
             } else {
                 None
@@ -321,7 +316,8 @@ fn main() {
             };
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
-            recreate_swapchain |= engine.draw_frame(compute_push_constants, fractal_data, alternate_colors)
+            recreate_swapchain |=
+                engine.draw_frame(compute_push_constants, fractal_data, alternate_colors);
         }
 
         // Handle some keyboard input
@@ -342,14 +338,14 @@ fn main() {
                 // Handle fullscreen toggle (F11)
                 VirtualKeyCode::F11 => {
                     if window_is_fullscreen {
-                        engine.get_surface().window().set_fullscreen(None);
-                        window_is_fullscreen = false
+                        engine.surface().window().set_fullscreen(None);
+                        window_is_fullscreen = false;
                     } else {
                         engine
-                            .get_surface()
+                            .surface()
                             .window()
                             .set_fullscreen(Some(Fullscreen::Borderless(None)));
-                        window_is_fullscreen = true
+                        window_is_fullscreen = true;
                     }
                 }
 
@@ -357,17 +353,18 @@ fn main() {
                 VirtualKeyCode::Escape => {
                     if window_is_fullscreen {
                         // Leave fullscreen
-                        engine.get_surface().window().set_fullscreen(None);
-                        window_is_fullscreen = false
+                        engine.surface().window().set_fullscreen(None);
+                        window_is_fullscreen = false;
                     } else {
                         // Exit window loop
                         println!("The Escape key was pressed, exiting");
-                        *control_flow = ControlFlow::Exit
+                        *control_flow = ControlFlow::Exit;
                     }
                 }
 
                 // Handle Space bar for toggling Kaleidoscope effect
                 VirtualKeyCode::Space => {
+                    #[allow(clippy::enum_glob_use)]
                     use KaleidoscopeDirection::*;
                     kaleidoscope_dir = match kaleidoscope_dir {
                         Forward | ForwardComplete => Backward,
@@ -399,7 +396,7 @@ fn main() {
                         console_handle,
                         if console_visible { SW_HIDE } else { SW_SHOW },
                     );
-                    console_visible = !console_visible
+                    console_visible = !console_visible;
                 },
 
                 // No-op
@@ -414,10 +411,10 @@ fn main() {
         } => {
             if !focused {
                 // Force cursor visibility when focus is lost
-                engine.get_surface().window().set_cursor_visible(true);
-                is_cursor_visible = true
+                engine.surface().window().set_cursor_visible(true);
+                is_cursor_visible = true;
             }
-            window_is_focused = focused
+            window_is_focused = focused;
         }
 
         // Handle mouse movement
@@ -426,10 +423,10 @@ fn main() {
             ..
         } => {
             last_mouse_movement = SystemTime::now();
-            engine.get_surface().window().set_cursor_visible(true);
+            engine.surface().window().set_cursor_visible(true);
             is_cursor_visible = true;
 
-            cursor_position = position
+            cursor_position = position;
         }
 
         // Handle mouse buttons to allow cursor-applied forces
@@ -458,7 +455,7 @@ fn main() {
                 MouseScrollDelta::LineDelta(_, y) => y,
                 MouseScrollDelta::PixelDelta(p) => p.y as f32,
             };
-            cursor_force_mult *= (SCROLL_SENSITIVITY * delta).exp()
+            cursor_force_mult *= (SCROLL_SENSITIVITY * delta).exp();
         }
 
         // Catch-all

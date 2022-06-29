@@ -24,6 +24,16 @@ pub mod cube {
     const V6: Vector3 = Vector3::new(1., -1., 1.);
     const V7: Vector3 = Vector3::new(1., 1., 1.);
 
+    // Create half-points to avoid redundant computation
+    const HALF_V0: Vector3 = Vector3::new(0.5, 0.5, -0.5);
+    const HALF_V1: Vector3 = Vector3::new(0.5, -0.5, -0.5);
+    const HALF_V2: Vector3 = Vector3::new(-0.5, -0.5, -0.5);
+    const HALF_V3: Vector3 = Vector3::new(-0.5, 0.5, -0.5);
+    const HALF_V4: Vector3 = Vector3::new(-0.5, 0.5, 0.5);
+    const HALF_V5: Vector3 = Vector3::new(-0.5, -0.5, 0.5);
+    const HALF_V6: Vector3 = Vector3::new(0.5, -0.5, 0.5);
+    const HALF_V7: Vector3 = Vector3::new(0.5, 0.5, 0.5);
+
     // Function to turn a number `x` into nearest vertex and remainder
     fn nearest_vertex(x: f32) -> (Vertex, f32) {
         if x < 0.5 {
@@ -52,7 +62,7 @@ pub mod cube {
     }
 
     // Function to map number `x` and vertex to a point along an edge
-    fn vertex_pos(x: f32, v: Vertex) -> Vector3 {
+    fn vertex_pos(x: f32, v: &Vertex) -> Vector3 {
         match v {
             Vertex::Vertex0 => V0 + Vector3::new(0., -x, 0.),
             Vertex::Vertex1 => {
@@ -102,38 +112,38 @@ pub mod cube {
     }
 
     // Function to map a point `p` to its location in a specified vertex cell
-    fn cell_transform(p: Vector3, v: Vertex) -> Vector3 {
+    fn cell_transform(p: Vector3, v: &Vertex) -> Vector3 {
         // Set of functions that rotate a point about the origin to align with a vertex
         fn r0(p: Vector3) -> Vector3 {
-            let Vector3 { x, y, z } = p;
+            let Vector3 { x, y, z, .. } = p;
             Vector3::new(y, -z, -x)
         }
         fn r1(p: Vector3) -> Vector3 {
-            let Vector3 { x, y, z } = p;
+            let Vector3 { x, y, z, .. } = p;
             Vector3::new(-z, x, -y)
         }
         fn r2(p: Vector3) -> Vector3 {
-            let Vector3 { x, y, z } = p;
+            let Vector3 { x, y, z, .. } = p;
             Vector3::new(-x, -y, z)
         }
         fn r3(p: Vector3) -> Vector3 {
-            let Vector3 { x, y, z } = p;
+            let Vector3 { x, y, z, .. } = p;
             Vector3::new(z, x, y)
         }
         fn r4(p: Vector3) -> Vector3 {
-            let Vector3 { x, y, z } = p;
+            let Vector3 { x, y, z, .. } = p;
             Vector3::new(y, z, x)
         }
 
         match v {
-            Vertex::Vertex0 => Vector3::new(0.5, 0.5, -0.5) + 0.5 * r0(p),
-            Vertex::Vertex1 => Vector3::new(0.5, -0.5, -0.5) + 0.5 * r1(p),
-            Vertex::Vertex2 => Vector3::new(-0.5, -0.5, -0.5) + 0.5 * r1(p),
-            Vertex::Vertex3 => Vector3::new(-0.5, 0.5, -0.5) + 0.5 * r2(p),
-            Vertex::Vertex4 => Vector3::new(-0.5, 0.5, 0.5) + 0.5 * r2(p),
-            Vertex::Vertex5 => Vector3::new(-0.5, -0.5, 0.5) + 0.5 * r3(p),
-            Vertex::Vertex6 => Vector3::new(0.5, -0.5, 0.5) + 0.5 * r3(p),
-            Vertex::Vertex7 => Vector3::new(0.5, 0.5, 0.5) + 0.5 * r4(p),
+            Vertex::Vertex0 => HALF_V0 + 0.5 * r0(p),
+            Vertex::Vertex1 => HALF_V1 + 0.5 * r1(p),
+            Vertex::Vertex2 => HALF_V2 + 0.5 * r1(p),
+            Vertex::Vertex3 => HALF_V3 + 0.5 * r2(p),
+            Vertex::Vertex4 => HALF_V4 + 0.5 * r2(p),
+            Vertex::Vertex5 => HALF_V5 + 0.5 * r3(p),
+            Vertex::Vertex6 => HALF_V6 + 0.5 * r3(p),
+            Vertex::Vertex7 => HALF_V7 + 0.5 * r4(p),
         }
     }
 
@@ -143,10 +153,10 @@ pub mod cube {
         fn f(n: usize, x: f32) -> Vector3 {
             let (v, x_prime) = nearest_vertex(x);
             if n == 0 {
-                vertex_pos(x_prime, v)
+                vertex_pos(x_prime, &v)
             } else {
                 let p_prime = f(n - 1, x_prime);
-                cell_transform(p_prime, v)
+                cell_transform(p_prime, &v)
             }
         }
         f(n, x)
@@ -170,6 +180,8 @@ pub mod square {
     const V1: Vector2 = Vector2::new(1., -1.);
     const V2: Vector2 = Vector2::new(-1., -1.);
     const V3: Vector2 = Vector2::new(-1., 1.);
+
+    // Create half-points to avoid redundant computation
     const HALF_V0: Vector2 = Vector2::new(0.5, 0.5);
     const HALF_V1: Vector2 = Vector2::new(0.5, -0.5);
     const HALF_V2: Vector2 = Vector2::new(-0.5, -0.5);
@@ -191,7 +203,7 @@ pub mod square {
     }
 
     // Function to map number `x` and vertex to a point along an edge
-    fn vertex_pos(x: f32, v: Vertex) -> Vector2 {
+    fn vertex_pos(x: f32, v: &Vertex) -> Vector2 {
         match v {
             Vertex::Vertex0 => V0 + Vector2::new(0., -x),
             Vertex::Vertex1 => {
@@ -213,15 +225,15 @@ pub mod square {
     }
 
     // Function to map a point `p` to its location in a specified vertex cell
-    fn cell_transform(p: &mut Vector2, v: Vertex) -> Vector2 {
+    fn cell_transform(p: &mut Vector2, v: &Vertex) -> Vector2 {
         // Set of functions that rotate a point about the origin to align with a vertex
         fn r0(p: &mut Vector2) {
-            std::mem::swap(&mut p.x, &mut p.y)
+            std::mem::swap(&mut p.x, &mut p.y);
         }
         fn r1(p: &mut Vector2) {
             let x = p.x;
             p.x = -p.y;
-            p.y = -x
+            p.y = -x;
         }
 
         match v {
@@ -252,10 +264,10 @@ pub mod square {
         fn f(n: usize, x: f32) -> Vector2 {
             let (v, x_prime) = nearest_vertex(x);
             if n == 0 {
-                vertex_pos(x_prime, v)
+                vertex_pos(x_prime, &v)
             } else {
                 let mut p_prime = f(n - 1, x_prime);
-                cell_transform(&mut p_prime, v)
+                cell_transform(&mut p_prime, &v)
             }
         }
         f(n, x)

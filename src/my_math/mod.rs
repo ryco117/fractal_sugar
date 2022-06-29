@@ -34,7 +34,7 @@ impl AddAssign for Vector4 {
         self.x += v.x;
         self.y += v.y;
         self.z += v.z;
-        self.w += v.w
+        self.w += v.w;
     }
 }
 impl Sub for Vector4 {
@@ -88,7 +88,7 @@ impl Quaternion {
             v.y,
             v.z,
             self.v.w * q.v.w - Vector3::dot(p_prime, q_prime),
-        )
+        );
     }
 }
 impl Default for Quaternion {
@@ -115,16 +115,23 @@ pub struct Vector3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+    _unused: f32,
 }
 impl Vector3 {
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
+        Self {
+            x,
+            y,
+            z,
+            _unused: 0.,
+        }
     }
     pub fn scale(self, s: f32) -> Self {
         Self {
             x: self.x * s,
             y: self.y * s,
             z: self.z * s,
+            _unused: 0.,
         }
     }
     pub fn cross(a: Self, b: Self) -> Self {
@@ -132,6 +139,7 @@ impl Vector3 {
             x: a.y * b.z - a.z * b.y,
             y: (-a.x) * b.z + a.z * b.x,
             z: a.x * b.y - a.y * b.x,
+            _unused: 0.,
         }
     }
     pub fn dot(a: Self, b: Self) -> f32 {
@@ -139,7 +147,7 @@ impl Vector3 {
     }
     pub fn norm(self) -> Self {
         let r2 = Vector3::dot(self, self);
-        if r2 < 0.0000001 {
+        if r2 < 0.000_000_1 {
             Vector3::new(1., 0., 0.)
         } else {
             let r = r2.sqrt();
@@ -154,6 +162,7 @@ impl Add for Vector3 {
             x: self.x + v.x,
             y: self.y + v.y,
             z: self.z + v.z,
+            _unused: 0.,
         }
     }
 }
@@ -161,7 +170,7 @@ impl AddAssign for Vector3 {
     fn add_assign(&mut self, v: Self) {
         self.x += v.x;
         self.y += v.y;
-        self.z += v.z
+        self.z += v.z;
     }
 }
 impl Sub for Vector3 {
@@ -171,6 +180,7 @@ impl Sub for Vector3 {
             x: self.x - v.x,
             y: self.y - v.y,
             z: self.z - v.z,
+            _unused: 0.,
         }
     }
 }
@@ -204,7 +214,7 @@ impl Vector2 {
     }
     pub fn scale_self(&mut self, s: f32) {
         self.x *= s;
-        self.y *= s
+        self.y *= s;
     }
     pub fn scale(self, s: f32) -> Self {
         Self {
@@ -225,7 +235,7 @@ impl Add for Vector2 {
 impl AddAssign for Vector2 {
     fn add_assign(&mut self, v: Self) {
         self.x += v.x;
-        self.y += v.y
+        self.y += v.y;
     }
 }
 impl Sub for Vector2 {

@@ -5,7 +5,7 @@ use vulkano::device::Device;
 use vulkano::format::Format;
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::swapchain::{
-    PresentMode, Surface, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
+    PresentMode, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
 };
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -29,7 +29,7 @@ impl EngineSwapchain {
     ) -> Self {
         // Determine what features our surface can support
         let surface_capabilities = physical_device
-            .surface_capabilities(&surface, Default::default())
+            .surface_capabilities(&surface, SurfaceInfo::default())
             .expect("Failed to get surface capabilities");
 
         // Determine properties of surface (on this physical device)
@@ -42,7 +42,7 @@ impl EngineSwapchain {
         let image_format = {
             let desired_formats = [Format::R8G8B8A8_UNORM, Format::B8G8R8A8_UNORM];
             physical_device
-                .surface_formats(&surface, Default::default())
+                .surface_formats(&surface, SurfaceInfo::default())
                 .unwrap()
                 .into_iter()
                 .find_map(|(format, _)| {

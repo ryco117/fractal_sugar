@@ -1,9 +1,9 @@
 #version 450
 
-layout(location = 0) in vec2 pos;
-layout(location = 1) in vec2 vel;
+layout (location = 0) in vec2 pos;
+layout (location = 1) in vec2 vel;
 
-layout(location = 0) out vec4 outColor;
+layout (location = 0) out vec4 outColor;
 
 layout (push_constant) uniform Push
 {
@@ -64,7 +64,7 @@ void main() {
 		vec3 speedEnd;
 		float speedScale;
 		if(speed < speedConst1.w) {
-			vec3 basesColor = (push.rendering_fractal ? 0.35 : 0.575) * indexColor;
+			vec3 basesColor = (push.rendering_fractal ? 0.325 : 0.575) * indexColor;
 			speedStart = basesColor;
 			speedEnd = vec3(speedConst1.x, speedConst1.y * speed/speedConst1.w, speedConst1.z);
 			if(push.alternate_colors) {
