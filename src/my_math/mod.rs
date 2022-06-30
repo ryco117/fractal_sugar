@@ -115,7 +115,7 @@ pub struct Vector3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-    _unused: f32,
+    _unused: f32, // This is needed because of how `vec3`s are aligned on the GPU. This float is only to be used to preserve alignment
 }
 impl Vector3 {
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
@@ -266,5 +266,17 @@ impl Neg for Vector2 {
 impl From<Vector2> for [f32; 2] {
     fn from(v: Vector2) -> Self {
         [v.x, v.y]
+    }
+}
+
+pub mod helpers {
+    // Helpers for exponential value interpolation
+    pub fn interpolate_floats(source: &mut f32, target: f32, scale: f32) {
+        let smooth = 1. - (scale).exp();
+        *source += smooth * (target - *source);
+    }
+    pub fn interpolate_vec3(source: &mut super::Vector3, target: &super::Vector3, scale: f32) {
+        let smooth = 1. - (scale).exp();
+        *source += smooth * (*target - *source);
     }
 }

@@ -30,7 +30,7 @@ pub mod renderer;
 pub mod swapchain;
 mod vertex;
 
-use crate::my_math::Vector2;
+use crate::my_math::{Vector2, Vector3};
 use crate::space_filling_curves;
 use vertex::Vertex;
 
@@ -256,11 +256,14 @@ impl Engine {
 
             // Create vertex data by re-calculating position
             let vertex_iter = (0..PARTICLE_COUNT).map(|i| Vertex {
-                pos: space_filling_curves::square::curve_to_square_n(
-                    i as f32 / PARTICLE_COUNT_F32,
-                    SPACE_FILLING_CURVE_DEPTH,
-                ),
-                vel: Vector2::default(),
+                pos: {
+                    let Vector2 { x, y } = space_filling_curves::square::curve_to_square_n(
+                        i as f32 / PARTICLE_COUNT_F32,
+                        SPACE_FILLING_CURVE_DEPTH,
+                    );
+                    Vector3::new(x, y, 0.)
+                },
+                vel: Vector3::default(),
             });
 
             // Create position buffer

@@ -1,19 +1,19 @@
 use bytemuck::{Pod, Zeroable};
 use vulkano::pipeline::graphics::vertex_input::{VertexMember, VertexMemberTy};
 
-use crate::my_math::Vector2;
+use crate::my_math::Vector3;
 
 #[repr(C)]
 #[derive(Default, Copy, Clone, Zeroable, Pod)]
 pub struct Vertex {
-    pub pos: Vector2,
-    pub vel: Vector2,
+    pub pos: Vector3,
+    pub vel: Vector3,
 }
 
-// Allow us to use Vector2 as vec2 type
-unsafe impl VertexMember for Vector2 {
+// Allow us to use Vector3 as vec3 type
+unsafe impl VertexMember for Vector3 {
     fn format() -> (VertexMemberTy, usize) {
-        (VertexMemberTy::F32, 2)
+        (VertexMemberTy::F32, 3) // Each member is a vec3
     }
 }
 

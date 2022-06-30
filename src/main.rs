@@ -27,6 +27,7 @@ mod space_filling_curves;
 
 use audio::AudioState;
 use my_math::{Quaternion, Vector3, Vector4};
+use my_math::helpers::{interpolate_floats, interpolate_vec3};
 
 // App constants
 const BASE_ANGULAR_VELOCITY: f32 = 0.02;
@@ -120,16 +121,6 @@ fn main() {
             let delta_time = now.duration_since(last_frame_time).unwrap().as_secs_f32();
             last_frame_time = now;
 
-            // Closures for exponential value interpolation
-            let interpolate_floats = |source: f32, target: f32, scale: f32| -> f32 {
-                let smooth = 1. - (delta_time * -scale).exp();
-                source + smooth * (target - source)
-            };
-            let interpolate_vec3 = |source: &mut Vector3, target: &Vector3, scale: f32| {
-                let smooth = 1. - (delta_time * -scale).exp();
-                *source += smooth * (*target - *source);
-            };
-
             // Handle any changes to audio state
             match rx.try_recv() {
                 // Update audio state vars
@@ -162,6 +153,7 @@ fn main() {
                     } else {
                         audio_state.big_boomer = big_boomer;
                     }
+                    
                     // Update 2D (curl)attractors
                     let c_len = curl_attractors.len();
                     let a_len = attractors.len();
@@ -185,33 +177,32 @@ fn main() {
             }
 
             // Update per-frame state
-            local_volume = interpolate_floats(local_volume, audio_state.volume, 1.8);
+            interpolate_floats(&mut local_volume, audio_state.volume, delta_time * -1.8);
             let audio_scaled_delta_time = delta_time * local_volume.sqrt();
             game_time += audio_scaled_delta_time;
             camera_quaternion.rotate_by(Quaternion::build(
                 local_angular_velocity.xyz(),
                 delta_time * local_angular_velocity.w,
             ));
-            local_angular_velocity.w =
-                interpolate_floats(local_angular_velocity.w, BASE_ANGULAR_VELOCITY, 0.375);
+            interpolate_floats(&mut local_angular_velocity.w, BASE_ANGULAR_VELOCITY, delta_time * -0.375);
             interpolate_vec3(
                 &mut local_reactive_bass,
                 &audio_state.reactive_bass,
-                (0.8 * audio_state.big_boomer.w.sqrt()).min(1.) * 0.36,
+                delta_time * (0.8 * audio_state.big_boomer.w.sqrt()).min(1.) * -0.36,
             );
             interpolate_vec3(
                 &mut local_reactive_mids,
                 &audio_state.reactive_mids,
-                (0.8 * audio_state.curl_attractors[0].w.sqrt()).min(1.) * 0.36,
+                delta_time * (0.8 * audio_state.curl_attractors[0].w.sqrt()).min(1.) * -0.36,
             );
             interpolate_vec3(
                 &mut local_reactive_high,
                 &audio_state.reactive_high,
-                (0.8 * audio_state.attractors[0].w.sqrt()).min(1.) * 0.36,
+                delta_time * (0.8 * audio_state.attractors[0].w.sqrt()).min(1.) * -0.36,
             );
-            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, 0.15);
-            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, 0.15);
-            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, 0.15);
+            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, delta_time * -0.15);
+            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, delta_time * -0.15);
+            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, delta_time * -0.15);
             (kaleidoscope, kaleidoscope_dir) = match kaleidoscope_dir {
                 KaleidoscopeDirection::Forward => {
                     kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
