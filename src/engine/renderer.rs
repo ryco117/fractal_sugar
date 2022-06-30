@@ -12,8 +12,7 @@ use vulkano::render_pass::Framebuffer;
 
 use super::vertex::Vertex;
 use super::Engine;
-use super::{ComputePushConstants, FractalPushConstants};
-type ParticleVertexPushConstants = super::particle_shaders::vs::ty::Push;
+use super::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
 
 // Helper for initializing the rendering of a frame. Must specify clear value of each subpass
 fn begin_render_pass(
@@ -32,9 +31,8 @@ fn begin_render_pass(
 pub fn create_render_commands(
     engine: &Engine,
     framebuffer: &Arc<Framebuffer>,
-    particle_data: Option<ComputePushConstants>,
+    particle_data: Option<(ParticleComputePushConstants, ParticleVertexPushConstants)>,
     fractal_data: FractalPushConstants,
-    alternate_colors: bool,
 ) -> PrimaryAutoCommandBuffer {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
@@ -45,15 +43,13 @@ pub fn create_render_commands(
     .unwrap();
 
     // Allow toggling of particle effects and avoid unnecesary computation
-    if let Some(compute_push_constants) = particle_data {
+    if let Some((compute_push_constants, vertex_push_constants)) = particle_data {
         use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
         let vertex_buffer = engine.vertex_buffer.clone();
         let buffer_count = vertex_buffer.len() as u32;
 
         let compute_pipeline = engine.compute_pipeline();
         let descriptor_set = engine.descriptor_set();
-
-        let time = compute_push_constants.time; // Use `time` after moving `compute_push_constants`
 
         // Build compute commands
         builder
@@ -78,9 +74,7 @@ pub fn create_render_commands(
             &mut builder,
             &engine.particle_pipeline(),
             &vertex_buffer,
-            time,
-            fractal_data.distance_estimator_id != 0,
-            alternate_colors,
+            vertex_push_constants,
         );
     } else {
         // Begin the same render pass as with particles, but skip commands to draw particles
@@ -109,9 +103,7 @@ fn inline_particles_cmds(
     builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     pipeline: &Arc<GraphicsPipeline>,
     vertex_buffer: &Arc<DeviceLocalBuffer<[Vertex]>>,
-    time: f32,
-    rendering_fractal: bool,
-    alternate_colors: bool,
+    push_constants: ParticleVertexPushConstants,
 ) {
     use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
     let buffer_count = vertex_buffer.len() as u32;
@@ -123,12 +115,7 @@ fn inline_particles_cmds(
         .push_constants(
             pipeline.layout().clone(),
             0,
-            ParticleVertexPushConstants {
-                time,
-                particle_count: buffer_count as f32,
-                rendering_fractal: if rendering_fractal { 1 } else { 0 },
-                alternate_colors: if alternate_colors { 1 } else { 0 },
-            },
+            push_constants,
         )
         .bind_vertex_buffers(0, vertex_buffer.clone())
         .draw(buffer_count, 1, 0, 0)

@@ -43,7 +43,14 @@ vec2 safe_normalize(vec2 t) {
 	if(dot(t,t) < 0.0000001) {
 		return t;
 	}
-	
+
+	return normalize(t);
+}
+vec3 safe_normalize(vec3 t) {
+	if(dot(t,t) < 0.0000001) {
+		return t;
+	}
+
 	return normalize(t);
 }
 
@@ -56,9 +63,59 @@ void main(void) {
 	vec3 pos = vert.pos;
 	vec3 vel = vert.vel;
 
-	mat2 aspect;
-	mat2 invaspect;
-	if(!push.use_third_dimension) {
+	vec3 g = vec3(0.0);
+	float friction;
+	if(push.use_third_dimension) {
+		if(push.fix_particles) {
+			friction = -6.5;
+
+			{
+				vec3 t = push.big_boomer.xyz - pos;
+				float r = max(length(t), min_length);
+				g -= push.big_boomer.w * safe_normalize(t) / (r*r*r) * 0.6;
+			}
+
+			for(int i = 0; i < push.curl_attractors.length(); i++) {
+				vec3 t = push.curl_attractors[i].xyz - pos;
+				float r = max(length(t), min_length);
+				g += push.curl_attractors[i].w * (safe_normalize(cross(t, pos)) + safe_normalize(t)/1.25) / (r*r) * 1.75;
+			}
+
+			for(int i = 0; i < push.attractors.length(); i++) {
+				vec3 t = push.attractors[i].xyz - pos;
+				float r = max(length(t), min_length);
+				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 5.25;
+			}
+
+			g *= audio_scale;
+
+			g += spring_coefficient * (fixed_cube_positions[index] - pos);
+		} else {
+			friction = -1.5;
+
+			{
+				vec3 t = push.big_boomer.xyz - pos;
+				float r = max(length(t), min_length);
+				g -= push.big_boomer.w * safe_normalize(t) / (r*r*r) * 0.85;
+			}
+
+			for(int i = 0; i < push.curl_attractors.length(); i++) {
+				vec3 t = push.curl_attractors[i].xyz - pos;
+				float r = max(length(t), min_length);
+				g += push.curl_attractors[i].w * (safe_normalize(cross(t, pos)) + safe_normalize(t)/1.25) / (r*r) * 1.25;
+			}
+
+			for(int i = 0; i < push.attractors.length(); i++) {
+				vec3 t = push.attractors[i].xyz - pos;
+				float r = max(length(t), min_length);
+				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 8.75;
+			}
+
+			g *= audio_scale;
+		}
+	} else {
+		mat2 aspect;
+		mat2 invaspect;
 		if(push.width > push.height) {
 			aspect = mat2(push.width / push.height, 0.0 , 0.0, 1.0);
 			invaspect = mat2(push.height / push.width, 0.0 , 0.0, 1.0);
@@ -66,72 +123,64 @@ void main(void) {
 			aspect = mat2(1.0, 0.0 , 0.0, push.height / push.width);
 			invaspect = mat2(1.0, 0.0 , 0.0, push.width / push.height);
 		}
-	}
 
-	vec3 g = vec3(0.0);
-	float friction;
-	if(push.fix_particles) {
-		friction = -6.5;
-		
-		{
-			vec2 t = push.big_boomer.xy - pos.xy;
-			t = aspect * t;
-			float r = max(length(t), min_length);
-			g.xy -= push.big_boomer.w * safe_normalize(t) / (r*r*r) * 0.6;
-		}
+		if(push.fix_particles) {
+			friction = -6.5;
 
-		for(int i = 0; i < push.curl_attractors.length(); i++) {
-			vec2 t = push.curl_attractors[i].xy - pos.xy;
-			t = aspect * t;
-			float r = max(length(t), min_length);
-			g.xy += push.curl_attractors[i].w * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 2.7;
-		}
+			{
+				vec2 t = push.big_boomer.xy - pos.xy;
+				t = aspect * t;
+				float r = max(length(t), min_length);
+				g.xy -= push.big_boomer.w * safe_normalize(t) / (r*r*r) * 0.6;
+			}
 
-		for(int i = 0; i < push.attractors.length(); i++) {
-			vec2 t = push.attractors[i].xy - pos.xy;
-			t = aspect * t;
-			float r = max(length(t), min_length);
-			g.xy += push.attractors[i].w * safe_normalize(t) / (r*r) * 5.25;
-		}
+			for(int i = 0; i < push.curl_attractors.length(); i++) {
+				vec2 t = push.curl_attractors[i].xy - pos.xy;
+				t = aspect * t;
+				float r = max(length(t), min_length);
+				g.xy += push.curl_attractors[i].w * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 2.7;
+			}
 
-		g *= audio_scale;
+			for(int i = 0; i < push.attractors.length(); i++) {
+				vec2 t = push.attractors[i].xy - pos.xy;
+				t = aspect * t;
+				float r = max(length(t), min_length);
+				g.xy += push.attractors[i].w * safe_normalize(t) / (r*r) * 5.25;
+			}
 
-		if(push.use_third_dimension) {
-			g += spring_coefficient * (fixed_cube_positions[index] - pos);
-		} else {
+			g *= audio_scale;
+
 			g.xy += spring_coefficient * (aspect * (fixed_square_positions[index] - pos.xy));
+		} else {
+			friction = -1.5;
+
+			{
+				vec2 t = push.big_boomer.xy - pos.xy;
+				t = aspect * t;
+				float r = max(length(t), min_length);
+				g.xy -= push.big_boomer.w * safe_normalize(t) / (r*r*r) * 0.85;
+			}
+
+			for(int i = 0; i < push.curl_attractors.length(); i++) {
+				vec2 t = push.curl_attractors[i].xy - pos.xy;
+				t = aspect * t;
+				float r = max(length(t), min_length);
+				g.xy += push.curl_attractors[i].w * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 5.0;
+			}
+
+			for(int i = 0; i < push.attractors.length(); i++) {
+				vec2 t = push.attractors[i].xy - pos.xy;
+				t = aspect * t;
+				float r = max(length(t), min_length);
+				g.xy += push.attractors[i].w * safe_normalize(t) / (r*r) * 8.75;
+			}
+
+			g *= audio_scale;
 		}
-	}
-	else {
-		friction = -1.5;
 
-		{
-			vec2 t = push.big_boomer.xy - pos.xy;
-			t = aspect * t;
-			float r = max(length(t), min_length);
-			g.xy -= push.big_boomer.w * safe_normalize(t) / (r*r*r) * 0.85;
-		}
-
-		for(int i = 0; i < push.curl_attractors.length(); i++) {
-			vec2 t = push.curl_attractors[i].xy - pos.xy;
-			t = aspect * t;
-			float r = max(length(t), min_length);
-			g.xy += push.curl_attractors[i].w * safe_normalize(vec2(-t.y, t.x) + t/1.5) / (r*r) * 5.0;
-		}
-
-		for(int i = 0; i < push.attractors.length(); i++) {
-			vec2 t = push.attractors[i].xy - pos.xy;
-			t = aspect * t;
-			float r = max(length(t), min_length);
-			g.xy += push.attractors[i].w * safe_normalize(t) / (r*r) * 8.75;
-		}
-
-		g *= audio_scale;
-	}
-
-	if(!push.use_third_dimension) {
 		g.xy = invaspect*g.xy;
 	}
+
 	vel += push.delta_time * g;
 	
 	if(length(vel) > max_speed) {

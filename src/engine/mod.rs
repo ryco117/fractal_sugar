@@ -91,7 +91,8 @@ mod particle_shaders {
 }
 
 // Export push constant types to callers
-pub type ComputePushConstants = particle_shaders::cs::ty::PushConstants;
+pub type ParticleComputePushConstants = particle_shaders::cs::ty::PushConstants;
+pub type ParticleVertexPushConstants = particle_shaders::vs::ty::PushConstants;
 
 // Create module for the fractal shader macros
 #[allow(clippy::expl_impl_clone_on_copy)]
@@ -484,9 +485,8 @@ impl Engine {
     // Returns whether a swapchain recreation was deemed necessary
     pub fn draw_frame(
         &mut self,
-        compute_data: Option<ComputePushConstants>,
+        particle_data: Option<(ParticleComputePushConstants, ParticleVertexPushConstants)>,
         fractal_data: FractalPushConstants,
-        alternate_colors: bool,
     ) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
         let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
@@ -524,9 +524,8 @@ impl Engine {
         let colored_sugar_commands = renderer::create_render_commands(
             self,
             &self.framebuffers[image_index],
-            compute_data,
+            particle_data,
             fractal_data,
-            alternate_colors,
         );
 
         // Create synchronization future for rendering the current frame
@@ -639,10 +638,14 @@ impl Engine {
     pub fn particle_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.particle_pipeline.clone()
     }
+    pub fn queue(&self) -> Arc<Queue> {
+        self.queue.clone()
+    }
     pub fn surface(&self) -> Arc<Surface<Window>> {
         self.surface.clone()
     }
-    pub fn queue(&self) -> Arc<Queue> {
-        self.queue.clone()
+    pub fn vertex_count(&self) -> u64 {
+        use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
+        self.vertex_buffer.len()
     }
 }

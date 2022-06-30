@@ -90,6 +90,11 @@ impl Quaternion {
             self.v.w * q.v.w - Vector3::dot(p_prime, q_prime),
         );
     }
+    pub fn rotate_point(&self, p: Vector3) -> Vector3 {
+        let q = Vector3::new(self.v.x, self.v.y, self.v.z);
+        let temp = Vector3::cross(q, Vector3::cross(q, p) + self.v.w * p);
+        p + temp + temp
+    }
 }
 impl Default for Quaternion {
     fn default() -> Self {

@@ -5,11 +5,12 @@ layout (location = 1) in vec3 vel;
 
 layout (location = 0) out vec4 outColor;
 
-layout (push_constant) uniform Push {
+layout (push_constant) uniform PushConstants {
 	float time;
 	float particle_count;
 	bool rendering_fractal;
 	bool alternate_colors;
+	bool use_third_dimension;
 } push;
 
 const vec4 speedConst1 = vec4(0.0, 0.425, 0.55, 0.2);
@@ -23,7 +24,7 @@ const vec4 indexConst2 = vec4(0.8, 0.5, 0.6, 0.75);
 const vec4 indexConst3 = vec4(0.7, 0.1, 0.75, 1.0);
 
 void main() {
-	gl_Position = vec4(pos, 1.0);
+	gl_Position = vec4(pos.xy, 0.0, 1.0);
 	gl_PointSize = 2.0;
 
 	float t = fract(float(gl_VertexIndex)/push.particle_count + 0.0485*push.time);

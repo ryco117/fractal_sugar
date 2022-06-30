@@ -26,8 +26,8 @@ mod my_math;
 mod space_filling_curves;
 
 use audio::AudioState;
-use my_math::{Quaternion, Vector3, Vector4};
 use my_math::helpers::{interpolate_floats, interpolate_vec3};
+use my_math::{Quaternion, Vector3, Vector4};
 
 // App constants
 const BASE_ANGULAR_VELOCITY: f32 = 0.02;
@@ -42,6 +42,14 @@ enum KaleidoscopeDirection {
     ForwardComplete,
     Backward,
     BackwardComplete,
+}
+
+fn bool_to_u32(b: bool) -> u32 {
+    if b {
+        1
+    } else {
+        0
+    }
 }
 
 fn main() {
@@ -85,6 +93,7 @@ fn main() {
     let mut kaleidoscope = 0.;
     let mut kaleidoscope_dir = KaleidoscopeDirection::BackwardComplete;
     let mut alternate_colors = false;
+    let mut particles_are_3d = false;
 
     // Create local copies so they can be upated more frequently than FFT
     let mut local_volume = 0.;
@@ -153,7 +162,7 @@ fn main() {
                     } else {
                         audio_state.big_boomer = big_boomer;
                     }
-                    
+
                     // Update 2D (curl)attractors
                     let c_len = curl_attractors.len();
                     let a_len = attractors.len();
@@ -184,7 +193,11 @@ fn main() {
                 local_angular_velocity.xyz(),
                 delta_time * local_angular_velocity.w,
             ));
-            interpolate_floats(&mut local_angular_velocity.w, BASE_ANGULAR_VELOCITY, delta_time * -0.375);
+            interpolate_floats(
+                &mut local_angular_velocity.w,
+                BASE_ANGULAR_VELOCITY,
+                delta_time * -0.375,
+            );
             interpolate_vec3(
                 &mut local_reactive_bass,
                 &audio_state.reactive_bass,
@@ -200,9 +213,21 @@ fn main() {
                 &audio_state.reactive_high,
                 delta_time * (0.8 * audio_state.attractors[0].w.sqrt()).min(1.) * -0.36,
             );
-            interpolate_vec3(&mut local_smooth_bass, &local_reactive_bass, delta_time * -0.15);
-            interpolate_vec3(&mut local_smooth_mids, &local_reactive_mids, delta_time * -0.15);
-            interpolate_vec3(&mut local_smooth_high, &local_reactive_high, delta_time * -0.15);
+            interpolate_vec3(
+                &mut local_smooth_bass,
+                &local_reactive_bass,
+                delta_time * -0.15,
+            );
+            interpolate_vec3(
+                &mut local_smooth_mids,
+                &local_reactive_mids,
+                delta_time * -0.15,
+            );
+            interpolate_vec3(
+                &mut local_smooth_high,
+                &local_reactive_high,
+                delta_time * -0.15,
+            );
             (kaleidoscope, kaleidoscope_dir) = match kaleidoscope_dir {
                 KaleidoscopeDirection::Forward => {
                     kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
@@ -263,8 +288,8 @@ fn main() {
             let height = dimensions.height as f32;
 
             // Create per-frame data for particle compute-shader
-            let compute_push_constants = if render_particles {
-                Some(engine::ComputePushConstants {
+            let particle_data = if render_particles {
+                let compute = engine::ParticleComputePushConstants {
                     big_boomer: audio_state.big_boomer.into(),
 
                     curl_attractors: audio_state.curl_attractors.map(std::convert::Into::into),
@@ -279,9 +304,19 @@ fn main() {
                     delta_time,
                     width,
                     height,
-                    fix_particles: if fix_particles { 1 } else { 0 },
-                    use_third_dimension: 0,
-                })
+                    fix_particles: bool_to_u32(fix_particles),
+                    use_third_dimension: bool_to_u32(particles_are_3d),
+                };
+
+                let vertex = engine::ParticleVertexPushConstants {
+                    time: game_time,
+                    particle_count: engine.vertex_count() as f32,
+                    rendering_fractal: bool_to_u32(distance_estimator_id != 0),
+                    alternate_colors: bool_to_u32(alternate_colors),
+                    use_third_dimension: bool_to_u32(particles_are_3d),
+                };
+
+                Some((compute, vertex))
             } else {
                 None
             };
@@ -303,12 +338,11 @@ fn main() {
                 height,
                 kaleidoscope: kaleidoscope.powf(0.65),
                 distance_estimator_id,
-                render_background: if render_particles { 0 } else { 1 },
+                render_background: bool_to_u32(!render_particles),
             };
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
-            recreate_swapchain |=
-                engine.draw_frame(compute_push_constants, fractal_data, alternate_colors);
+            recreate_swapchain |= engine.draw_frame(particle_data, fractal_data);
         }
 
         // Handle some keyboard input
@@ -371,6 +405,9 @@ fn main() {
 
                 // Handle toggling of alternate colors
                 VirtualKeyCode::Capital => alternate_colors = !alternate_colors,
+
+                // Handle toggling of 3D particles
+                VirtualKeyCode::D => particles_are_3d = !particles_are_3d,
 
                 // Set different fractal types
                 VirtualKeyCode::Key0 => distance_estimator_id = 0,
