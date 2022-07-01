@@ -44,12 +44,10 @@ pub fn create_render_commands(
 
     // Allow toggling of particle effects and avoid unnecesary computation
     if let Some((compute_push_constants, vertex_push_constants)) = particle_data {
-        use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
-        let vertex_buffer = engine.vertex_buffer.clone();
-        let buffer_count = vertex_buffer.len() as u32;
-
         let compute_pipeline = engine.compute_pipeline();
         let descriptor_set = engine.descriptor_set();
+        let vertex_buffer = engine.vertex_buffer.clone();
+        let buffer_count = engine.vertex_count() as u32;
 
         // Build compute commands
         builder
@@ -112,11 +110,7 @@ fn inline_particles_cmds(
     builder
         // Draw particles
         .bind_pipeline_graphics(pipeline.clone())
-        .push_constants(
-            pipeline.layout().clone(),
-            0,
-            push_constants,
-        )
+        .push_constants(pipeline.layout().clone(), 0, push_constants)
         .bind_vertex_buffers(0, vertex_buffer.clone())
         .draw(buffer_count, 1, 0, 0)
         .expect("Failed to draw particle subpass");

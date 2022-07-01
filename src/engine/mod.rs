@@ -62,7 +62,8 @@ const DEFAULT_HEIGHT: u32 = 450;
 
 const DEBUG_VULKAN: bool = false;
 
-const SPACE_FILLING_CURVE_DEPTH: usize = 6;
+const SQUARE_FILLING_CURVE_DEPTH: usize = 6;
+const CUBE_FILLING_CURVE_DEPTH: usize = 4;
 
 const PARTICLE_COUNT: usize = 1_250_000;
 const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
@@ -228,13 +229,13 @@ impl Engine {
             let square_position_iter = (0..PARTICLE_COUNT).map(|i| {
                 space_filling_curves::square::curve_to_square_n(
                     i as f32 / PARTICLE_COUNT_F32,
-                    SPACE_FILLING_CURVE_DEPTH,
+                    SQUARE_FILLING_CURVE_DEPTH,
                 )
             });
             let cube_position_iter = (0..PARTICLE_COUNT).map(|i| {
                 space_filling_curves::cube::curve_to_cube_n(
                     i as f32 / PARTICLE_COUNT_F32,
-                    SPACE_FILLING_CURVE_DEPTH,
+                    CUBE_FILLING_CURVE_DEPTH,
                 )
             });
 
@@ -260,7 +261,7 @@ impl Engine {
                 pos: {
                     let Vector2 { x, y } = space_filling_curves::square::curve_to_square_n(
                         i as f32 / PARTICLE_COUNT_F32,
-                        SPACE_FILLING_CURVE_DEPTH,
+                        SQUARE_FILLING_CURVE_DEPTH,
                     );
                     Vector3::new(x, y, 0.)
                 },

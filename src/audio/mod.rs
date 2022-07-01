@@ -8,27 +8,40 @@ use rustfft::{num_complex::Complex, FftPlanner};
 
 use crate::my_math::{Vector2, Vector3, Vector4};
 use crate::space_filling_curves;
+use crate::space_filling_curves::{cube::curve_to_cube_n, square::curve_to_square_n};
 
 const PRINT_SPECTRUM: bool = true;
 
-const EMPTY_NOTE: Vector4 = Vector4::new(0., 0., 0., 0.);
-
 // Set some constants for scaling frequencies to sound/appear more linear
-const BASS_POW: f32 = 0.85;
-const MIDS_POW: f32 = 0.75;
-const HIGH_POW: f32 = 0.45;
+pub const BASS_POW: f32 = 0.85;
+pub const MIDS_POW: f32 = 0.75;
+pub const HIGH_POW: f32 = 0.45;
 
 const BASS_KICK: f32 = 0.05;
 const PREVIOUS_BASS_COUNT: usize = 10;
 
+// Simple type to store a single note with normalized frequency and strength
+#[derive(Clone, Copy, Default)]
+pub struct Note {
+    pub freq: f32,
+    pub mag: f32,
+}
+impl Note {
+    pub const fn new(freq: f32, mag: f32) -> Self {
+        Self { freq, mag }
+    }
+}
+
 // Audio state to pass to UI thread
+#[derive(Default)]
 pub struct AudioState {
     pub volume: f32,
 
-    // 2D (Particles)
-    pub big_boomer: Vector4,
-    pub curl_attractors: [Vector4; 2],
-    pub attractors: [Vector4; 2],
+    // Notes for each instrument range (bass/mids/high).
+    // Allow caller to determine mapping notes to space
+    pub bass_note: Note,
+    pub mids_notes: [Note; 2],
+    pub high_notes: [Note; 2],
 
     // 3D (Fractals)
     pub kick_angular_velocity: Option<Vector4>,
@@ -36,39 +49,26 @@ pub struct AudioState {
     pub reactive_mids: Vector3,
     pub reactive_high: Vector3,
 }
-impl Default for AudioState {
-    fn default() -> Self {
-        AudioState {
-            volume: 0.,
-
-            big_boomer: EMPTY_NOTE,
-            curl_attractors: [EMPTY_NOTE; 2],
-            attractors: [EMPTY_NOTE; 2],
-
-            kick_angular_velocity: None,
-            reactive_bass: Vector3::default(),
-            reactive_mids: Vector3::default(),
-            reactive_high: Vector3::default(),
-        }
-    }
-}
 
 // Simple type to help understand results from `analyze_frequency_range` closure
 struct FrequencyAnalysis {
-    pub loudest: Vec<(f32, f32)>,
+    pub loudest: Vec<Note>,
     pub total_volume: f32,
 }
 
-// Convert note analysis to 2D vectors with strengths
-fn map_note_to_square(note: (f32, f32), pow: f32) -> Vector4 {
-    let Vector2 { x, y } =
-        0.95 * space_filling_curves::square::curve_to_square_n(note.0.powf(pow), 5);
-    Vector4::new(x, y, 0., note.1)
+// Convert normalized frequency to position in cube
+fn map_freq_to_cube(freq: f32, pow: f32) -> Vector3 {
+    curve_to_cube_n(freq.powf(pow), 6)
 }
 
-// Convert note analysis to 3D vectors
-fn map_freq_to_cube(freq: f32, pow: f32) -> Vector3 {
-    space_filling_curves::cube::curve_to_cube_n(freq.powf(pow), 6)
+// Convert note analysis to 4D vector containing position and note strength
+pub fn map_note_to_square(note: Note, pow: f32) -> Vector4 {
+    let Vector2 { x, y } = 0.95 * curve_to_square_n(note.freq.powf(pow), 5);
+    Vector4::new(x, y, 0., note.mag)
+}
+pub fn map_note_to_cube(note: Note, pow: f32) -> Vector4 {
+    let Vector3 { x, y, z, .. } = 0.9 * map_freq_to_cube(note.freq, pow);
+    Vector4::new(x, y, z, note.mag)
 }
 
 fn processing_thread_from_sample_rate(
@@ -132,29 +132,31 @@ fn processing_thread_from_sample_rate(
 
                 // Create sorted array of notes in this frequency range
                 let mut total_volume = 0.;
-                let mut sorted: Vec<(f32, f32)> = (0..len)
+                let mut sorted: Vec<Note> = (0..len)
                     .map(|i| {
                         let frac = i as f32 / flen;
                         let v = scale * complex[start_index + i].norm();
                         total_volume += v;
-                        (frac, f32::powf(vol_freq_scale, frac) * v)
+                        Note::new(frac, f32::powf(vol_freq_scale, frac) * v)
                     })
                     .collect();
 
-                let mut loudest: Vec<(f32, f32)> = Vec::with_capacity(count);
+                let mut loudest: Vec<Note> = Vec::with_capacity(count);
                 while !sorted.is_empty() && loudest.len() < count {
                     sorted.sort_unstable_by(|x, y| {
-                        y.1.partial_cmp(&x.1).unwrap_or(std::cmp::Ordering::Equal)
+                        y.mag
+                            .partial_cmp(&x.mag)
+                            .unwrap_or(std::cmp::Ordering::Equal)
                     });
 
-                    let (t, v) = sorted[0];
-                    let remaining: Vec<(f32, f32)> = sorted
+                    let Note { freq, mag } = sorted[0];
+                    let remaining: Vec<Note> = sorted
                         .into_iter()
-                        .filter(|x| (t - x.0).abs() > delta)
+                        .filter(|x| (freq - x.freq).abs() > delta)
                         .collect();
 
                     // Update the strongest and the remaining lists. Reject values too quiet
-                    loudest.push((t, if v >= min_volume { v } else { 0. }));
+                    loudest.push(Note::new(freq, if mag >= min_volume { mag } else { 0. }));
                     sorted = remaining;
                 }
                 assert_eq!(
@@ -231,7 +233,7 @@ fn processing_thread_from_sample_rate(
                     Some(v) => {
                         let l = v.len();
                         if l > 0 {
-                            v[(((l as f32) * bass_analysis.loudest[0].0).round() as usize)
+                            v[(((l as f32) * bass_analysis.loudest[0].freq).round() as usize)
                                 .min(l - 1)]
                         } else {
                             0.
@@ -240,13 +242,14 @@ fn processing_thread_from_sample_rate(
                     None => 0.,
                 }
             }) / (previous_bass.len() as f32);
-            if (bass_analysis.loudest[0].1 > 4. || bass_analysis.loudest[0].1 * kick_elapsed > 8.)
+            if (bass_analysis.loudest[0].mag > 4.
+                || bass_analysis.loudest[0].mag * kick_elapsed > 8.)
                 && kick_elapsed > 0.8
-                && bass_analysis.loudest[0].1 > 1.25
-                && bass_analysis.loudest[0].1 > 3. * avg_prev_bass
+                && bass_analysis.loudest[0].mag > 1.25
+                && bass_analysis.loudest[0].mag > 3. * avg_prev_bass
             {
                 let v = space_filling_curves::cube::curve_to_cube_n(
-                    bass_analysis.loudest[0].0.powf(BASS_POW),
+                    bass_analysis.loudest[0].freq.powf(BASS_POW),
                     6,
                 );
                 kick_angular_velocity = Some(Vector4::new(
@@ -265,20 +268,14 @@ fn processing_thread_from_sample_rate(
             match tx.send(AudioState {
                 volume,
 
-                big_boomer: map_note_to_square(bass_analysis.loudest[0], BASS_POW),
-                curl_attractors: [
-                    map_note_to_square(mids_analysis.loudest[0], MIDS_POW),
-                    map_note_to_square(mids_analysis.loudest[1], MIDS_POW),
-                ],
-                attractors: [
-                    map_note_to_square(high_analysis.loudest[0], HIGH_POW),
-                    map_note_to_square(high_analysis.loudest[1], HIGH_POW),
-                ],
+                bass_note: bass_analysis.loudest[0],
+                mids_notes: [mids_analysis.loudest[0], mids_analysis.loudest[1]],
+                high_notes: [high_analysis.loudest[0], high_analysis.loudest[1]],
 
                 kick_angular_velocity: kick_angular_velocity.take(),
-                reactive_bass: map_freq_to_cube(bass_analysis.loudest[0].0, BASS_POW),
-                reactive_mids: map_freq_to_cube(mids_analysis.loudest[0].0, MIDS_POW),
-                reactive_high: map_freq_to_cube(high_analysis.loudest[0].0, HIGH_POW),
+                reactive_bass: map_freq_to_cube(bass_analysis.loudest[0].freq, BASS_POW),
+                reactive_mids: map_freq_to_cube(mids_analysis.loudest[0].freq, MIDS_POW),
+                reactive_high: map_freq_to_cube(high_analysis.loudest[0].freq, HIGH_POW),
             }) {
                 Ok(()) => {}
                 Err(_) => println!("UI thread receiver disconnected.."),

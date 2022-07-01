@@ -44,6 +44,55 @@ enum KaleidoscopeDirection {
     BackwardComplete,
 }
 
+struct LocalAudioState {
+    pub latest_volume: f32,
+
+    // Particle forces to apply
+    pub big_boomer: Vector4,
+    pub curl_attractors: [Vector4; 2],
+    pub attractors: [Vector4; 2],
+
+    // Target vectors used for fractal coloring
+    pub reactive_bass: Vector3,
+    pub reactive_mids: Vector3,
+    pub reactive_high: Vector3,
+
+    // Local values used for interpolating values between updates from audio thread
+    pub local_volume: f32,
+    pub local_angular_velocity: Vector4,
+    pub local_reactive_bass: Vector3,
+    pub local_reactive_mids: Vector3,
+    pub local_reactive_high: Vector3,
+    pub local_smooth_bass: Vector3,
+    pub local_smooth_mids: Vector3,
+    pub local_smooth_high: Vector3,
+}
+impl Default for LocalAudioState {
+    fn default() -> Self {
+        Self {
+            latest_volume: 0.,
+
+            big_boomer: Vector4::default(),
+            curl_attractors: [Vector4::default(); 2],
+            attractors: [Vector4::default(); 2],
+
+            // 3D (Fractals)
+            reactive_bass: Vector3::default(),
+            reactive_mids: Vector3::default(),
+            reactive_high: Vector3::default(),
+
+            local_volume: 0.,
+            local_angular_velocity: Vector4::new(0., 1., 0., 0.),
+            local_reactive_bass: Vector3::default(),
+            local_reactive_mids: Vector3::default(),
+            local_reactive_high: Vector3::default(),
+            local_smooth_bass: Vector3::default(),
+            local_smooth_mids: Vector3::default(),
+            local_smooth_high: Vector3::default(),
+        }
+    }
+}
+
 fn bool_to_u32(b: bool) -> u32 {
     if b {
         1
@@ -79,7 +128,7 @@ fn main() {
 
     // Audio state vars?
     let mut game_time: f32 = 0.;
-    let mut audio_state = AudioState::default();
+    let mut audio_state = LocalAudioState::default();
 
     // Game state vars?
     let mut fix_particles = true;
@@ -94,16 +143,6 @@ fn main() {
     let mut kaleidoscope_dir = KaleidoscopeDirection::BackwardComplete;
     let mut alternate_colors = false;
     let mut particles_are_3d = false;
-
-    // Create local copies so they can be upated more frequently than FFT
-    let mut local_volume = 0.;
-    let mut local_angular_velocity = Vector4::new(0., 1., 0., 0.);
-    let mut local_reactive_bass = Vector3::default();
-    let mut local_reactive_mids = Vector3::default();
-    let mut local_reactive_high = Vector3::default();
-    let mut local_smooth_bass = Vector3::default();
-    let mut local_smooth_mids = Vector3::default();
-    let mut local_smooth_high = Vector3::default();
 
     // Run window loop
     println!("Begin window loop...");
@@ -136,9 +175,9 @@ fn main() {
                 Ok(AudioState {
                     volume,
 
-                    big_boomer,
-                    curl_attractors,
-                    attractors,
+                    bass_note,
+                    mids_notes,
+                    high_notes,
 
                     reactive_bass,
                     reactive_mids,
@@ -147,7 +186,21 @@ fn main() {
                     kick_angular_velocity,
                 }) => {
                     // Update volume
-                    audio_state.volume = volume;
+                    audio_state.latest_volume = volume;
+
+                    let (big_boomer, curl_attractors, attractors) = if particles_are_3d {
+                        (
+                            audio::map_note_to_cube(bass_note, audio::BASS_POW),
+                            mids_notes.map(|n| audio::map_note_to_cube(n, audio::MIDS_POW)),
+                            high_notes.map(|n| audio::map_note_to_cube(n, audio::HIGH_POW)),
+                        )
+                    } else {
+                        (
+                            audio::map_note_to_square(bass_note, audio::BASS_POW),
+                            mids_notes.map(|n| audio::map_note_to_square(n, audio::MIDS_POW)),
+                            high_notes.map(|n| audio::map_note_to_square(n, audio::HIGH_POW)),
+                        )
+                    };
 
                     // Update 2D big boomers
                     if fix_particles {
@@ -171,7 +224,7 @@ fn main() {
 
                     // Update fractal state
                     if let Some(omega) = kick_angular_velocity {
-                        local_angular_velocity = omega;
+                        audio_state.local_angular_velocity = omega;
                     }
                     audio_state.reactive_bass = reactive_bass;
                     audio_state.reactive_mids = reactive_mids;
@@ -186,46 +239,50 @@ fn main() {
             }
 
             // Update per-frame state
-            interpolate_floats(&mut local_volume, audio_state.volume, delta_time * -1.8);
-            let audio_scaled_delta_time = delta_time * local_volume.sqrt();
+            interpolate_floats(
+                &mut audio_state.local_volume,
+                audio_state.latest_volume,
+                delta_time * -1.8,
+            );
+            let audio_scaled_delta_time = delta_time * audio_state.local_volume.sqrt();
             game_time += audio_scaled_delta_time;
             camera_quaternion.rotate_by(Quaternion::build(
-                local_angular_velocity.xyz(),
-                delta_time * local_angular_velocity.w,
+                audio_state.local_angular_velocity.xyz(),
+                delta_time * audio_state.local_angular_velocity.w,
             ));
             interpolate_floats(
-                &mut local_angular_velocity.w,
+                &mut audio_state.local_angular_velocity.w,
                 BASE_ANGULAR_VELOCITY,
                 delta_time * -0.375,
             );
             interpolate_vec3(
-                &mut local_reactive_bass,
+                &mut audio_state.local_reactive_bass,
                 &audio_state.reactive_bass,
                 delta_time * (0.8 * audio_state.big_boomer.w.sqrt()).min(1.) * -0.36,
             );
             interpolate_vec3(
-                &mut local_reactive_mids,
+                &mut audio_state.local_reactive_mids,
                 &audio_state.reactive_mids,
                 delta_time * (0.8 * audio_state.curl_attractors[0].w.sqrt()).min(1.) * -0.36,
             );
             interpolate_vec3(
-                &mut local_reactive_high,
+                &mut audio_state.local_reactive_high,
                 &audio_state.reactive_high,
                 delta_time * (0.8 * audio_state.attractors[0].w.sqrt()).min(1.) * -0.36,
             );
             interpolate_vec3(
-                &mut local_smooth_bass,
-                &local_reactive_bass,
+                &mut audio_state.local_smooth_bass,
+                &audio_state.local_reactive_bass,
                 delta_time * -0.15,
             );
             interpolate_vec3(
-                &mut local_smooth_mids,
-                &local_reactive_mids,
+                &mut audio_state.local_smooth_mids,
+                &audio_state.local_reactive_mids,
                 delta_time * -0.15,
             );
             interpolate_vec3(
-                &mut local_smooth_high,
-                &local_reactive_high,
+                &mut audio_state.local_smooth_high,
+                &audio_state.local_reactive_high,
                 delta_time * -0.15,
             );
             (kaleidoscope, kaleidoscope_dir) = match kaleidoscope_dir {
@@ -286,6 +343,7 @@ fn main() {
 
             let width = dimensions.width as f32;
             let height = dimensions.height as f32;
+            let aspect_ratio = width / height;
 
             // Create per-frame data for particle compute-shader
             let particle_data = if render_particles {
@@ -309,8 +367,10 @@ fn main() {
                 };
 
                 let vertex = engine::ParticleVertexPushConstants {
+                    quaternion: camera_quaternion.into(),
                     time: game_time,
                     particle_count: engine.vertex_count() as f32,
+                    aspect_ratio,
                     rendering_fractal: bool_to_u32(distance_estimator_id != 0),
                     alternate_colors: bool_to_u32(alternate_colors),
                     use_third_dimension: bool_to_u32(particles_are_3d),
@@ -325,19 +385,23 @@ fn main() {
             let fractal_data = engine::FractalPushConstants {
                 quaternion: camera_quaternion.into(),
 
-                reactive_bass: local_reactive_bass.into(),
-                reactive_mids: local_reactive_mids.into(),
-                reactive_high: local_reactive_high.into(),
+                reactive_bass: audio_state.local_reactive_bass.into(),
+                reactive_mids: audio_state.local_reactive_mids.into(),
+                reactive_high: audio_state.local_reactive_high.into(),
 
-                smooth_bass: local_smooth_bass.into(),
-                smooth_mids: local_smooth_mids.into(),
-                smooth_high: local_smooth_high.into(),
+                smooth_bass: audio_state.local_smooth_bass.into(),
+                smooth_mids: audio_state.local_smooth_mids.into(),
+                smooth_high: audio_state.local_smooth_high.into(),
 
                 time: game_time,
-                width,
-                height,
+                aspect_ratio,
                 kaleidoscope: kaleidoscope.powf(0.65),
                 distance_estimator_id,
+                orbit_distance: if render_particles && particles_are_3d {
+                    1.25
+                } else {
+                    1.
+                },
                 render_background: bool_to_u32(!render_particles),
             };
 

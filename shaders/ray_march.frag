@@ -18,10 +18,10 @@ layout (push_constant) uniform PushConstants {
     vec4 smooth_high;
 
 	float time;
-	float width;
-	float height;
+	float aspect_ratio;
 	float kaleidoscope;
 	uint distance_estimator_id;
+	float orbit_distance;
 	bool render_background;
 } push;
 
@@ -310,7 +310,7 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY) {
 		travel += dist;
 		if(travel >= maxDistance) {
 			if(push.render_background) {
-				vec3 unmodDirection = normalize(vec3(coord.x*fovX, -coord.y*fovY, 1.0));
+				vec3 unmodDirection = normalize(vec3(coord.x*fovX, coord.y*fovY, 1.0));
 				unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
 
 				vec3 sinDir = sin(100.0*unmodDirection);
@@ -326,14 +326,14 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY) {
 void main(void) {
 	const float verticalFov = (pi/2.5) / 2.0;	// Roughly 70 degress vertical FOV
 	const float fovY = tan(verticalFov);
-	float fovX = push.width/push.height * fovY;
+	float fovX = push.aspect_ratio * fovY;
 
 	float kaleidoTheta = boundReflect(getAngle(coord), push.kaleidoscope*(pi/6.0 - tau) + tau);
 	vec2 newCoord = length(coord) * vec2(cos(kaleidoTheta), sin(kaleidoTheta));
-	vec3 direction = normalize(vec3(newCoord.x*fovX, -newCoord.y*fovY, 1.0));
+	vec3 direction = normalize(vec3(newCoord.x*fovX, newCoord.y*fovY, 1.0));
 	direction = rotateByQuaternion(direction, push.quaternion);
 	
-	vec3 position = rotateByQuaternion(-dirZ, push.quaternion);
+	vec3 position = rotateByQuaternion(vec3(0.0, 0.0, -push.orbit_distance), push.quaternion);
 	vec3 tFragColor = castRay(position, direction, fovX, fovY);
 
 	vec3 particle = subpassLoad(particle_color).rgb;
