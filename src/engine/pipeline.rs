@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use vulkano::device::Device;
+use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology};
 use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
@@ -29,6 +30,8 @@ pub fn create_particle(
         .viewport_state(ViewportState::viewport_fixed_scissor_irrelevant([viewport]))
         // Same as the vertex input, but this for the fragment input
         .fragment_shader(frag_shader.entry_point("main").unwrap(), ())
+        // Explicitly enable depth testing
+        .depth_stencil_state(DepthStencilState::simple_depth_test())
         // Specify the subpass that this pipeline will be used in
         .render_pass(subpass)
         // Now that everything is specified, we call `build`

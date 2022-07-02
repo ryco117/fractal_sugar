@@ -398,7 +398,7 @@ fn main() {
                 kaleidoscope: kaleidoscope.powf(0.65),
                 distance_estimator_id,
                 orbit_distance: if render_particles && particles_are_3d {
-                    1.25
+                    1.42
                 } else {
                     1.
                 },

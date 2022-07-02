@@ -327,28 +327,35 @@ impl Engine {
                     load: Clear,
                     store: DontCare,
                     format: image_format,
-                    samples: 8, // MSAA for smooth particles
+                    samples: 8, // MSAA for smooth particles. Must be resolved to non-sampled image for presentation
                 },
 
                 particle_color: {
                     load: DontCare, // Resolve does not need destination image to be cleared
                     store: DontCare,
                     format: image_format, // Use swapchain's format since we are writing to its buffers
-                    samples: 1, // Must resolve to non-sampled image for presentation
+                    samples: 1,
+                },
+
+                particle_depth: {
+                    load: Clear,
+                    store: DontCare,
+                    format: vulkano::format::Format::D16_UNORM,
+                    samples: 8, // Must match sample count of color
                 },
 
                 fractal_color: {
                     load: DontCare,
                     store: Store,
                     format: image_format, // Use swapchain's format since we are writing to its buffers
-                    samples: 1, // No MSAA necessary when rendering a single quad with shading ;)
+                    samples: 1, // No MSAA necessary when rendering a single quad with shaders ;)
                 }
             },
             passes: [
                 // Particles pass
                 {
                     color: [intermediary],
-                    depth_stencil: {},
+                    depth_stencil: {particle_depth},
                     input: [],
 
                     // The `resolve` array here must contain either zero entries (if you don't use
@@ -363,7 +370,7 @@ impl Engine {
                 {
                     color: [fractal_color],
                     depth_stencil: {},
-                    input: [particle_color]
+                    input: [particle_color, particle_depth]
                 }
             ]
         )
@@ -575,8 +582,8 @@ impl Engine {
     ) -> Vec<Arc<Framebuffer>> {
         (0..images.len())
             .map(|i| {
-                // To interact with image buffers or framebuffers from shaders must create view defining how image will be used.
-                // This view, which belongs to the swapchain, will be the destination view
+                // To interact with image buffers or framebuffers from shaders we create a view defining how the image will be used.
+                // This view, which belongs to the swapchain, will be the destination (i.e. fractal) view
                 let view = ImageView::new_default(images[i].clone()).unwrap();
 
                 // Create image attachment for MSAA particles.
@@ -610,11 +617,23 @@ impl Engine {
                 )
                 .unwrap();
 
+                // Create an attachement for the particle's depth buffer
+                let particle_depth = ImageView::new_default(
+                    AttachmentImage::transient_multisampled_input_attachment(
+                        device.clone(),
+                        dimensions,
+                        vulkano::image::SampleCount::Sample8,
+                        vulkano::format::Format::D16_UNORM,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+
                 // Create framebuffer specifying underlying renderpass and image attachments
                 Framebuffer::new(
                     render_pass.clone(),
                     FramebufferCreateInfo {
-                        attachments: vec![msaa_view, particle_view, view], // Must add specified attachments in order
+                        attachments: vec![msaa_view, particle_view, particle_depth, view], // Must add specified attachments in order
                         ..Default::default()
                     },
                 )

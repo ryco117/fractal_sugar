@@ -79,9 +79,9 @@ fn processing_thread_from_sample_rate(
     std::thread::spawn(move || {
         // Calculate some processing constants outside loop
         let size = if sample_rate > 48_000. { 4096 } else { 2048 }; // Use a fixed power-of-two for best performance
-        let fsize = size as f32; // Size of the sample buffer as floating point
-        let scale = 1. / fsize.sqrt(); // Rescale elements by 1/sqrt(n)
-        let frequency_resolution = sample_rate / fsize; // Hertz per frequency bin after applying FFT
+        let size_float = size as f32; // Size of the sample buffer as floating point
+        let scale = 1. / size_float.sqrt(); // Rescale elements by 1/sqrt(n)
+        let frequency_resolution = sample_rate / size_float; // Hertz per frequency bin after applying FFT
 
         // Helper function for converting frequency in Hertz to buffer index
         let frequency_to_index =
@@ -127,14 +127,14 @@ fn processing_thread_from_sample_rate(
                 let start_index = frequency_to_index(frequency_range.start);
                 let end_index = frequency_to_index(frequency_range.end);
                 let len = end_index - start_index;
-                let flen = len as f32;
+                let len_float = len as f32;
                 delta /= 2.; // Allow caller to specify total width, even though we use distance from center
 
                 // Create sorted array of notes in this frequency range
                 let mut total_volume = 0.;
                 let mut sorted: Vec<Note> = (0..len)
                     .map(|i| {
-                        let frac = i as f32 / flen;
+                        let frac = i as f32 / len_float;
                         let v = scale * complex[start_index + i].norm();
                         total_volume += v;
                         Note::new(frac, f32::powf(vol_freq_scale, frac) * v)

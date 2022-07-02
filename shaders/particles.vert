@@ -27,6 +27,7 @@ const vec4 indexConst2 = vec4(0.8, 0.5, 0.6, 0.75);
 const vec4 indexConst3 = vec4(0.7, 0.1, 0.75, 1.0);
 
 // Define constants for perspective rendering
+// Distances must match those used in `ray_march.frag`
 const float pi = 3.14159265358;
 const float verticalFov = (pi/2.5) / 2.0;	// Roughly 70 degress vertical FOV
 const float far = 8.0;
@@ -54,7 +55,7 @@ void main() {
 	if(push.use_third_dimension) {
 		vec4 q = push.quaternion;
 		q.w = -q.w;
-		vec4 temp = createPerspective(push.aspect_ratio) * vec4(rotateByQuaternion(pos, q) - vec3(0.0, 0.0, 1.85), 1.0);
+		vec4 temp = createPerspective(push.aspect_ratio) * vec4(rotateByQuaternion(pos, q) - vec3(0.0, 0.0, 1.8), 1.0);
 		gl_Position = temp;
 	} else {
 		gl_Position = vec4(pos.xy, 0.0, 1.0);

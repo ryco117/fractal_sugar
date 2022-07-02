@@ -23,7 +23,12 @@ fn begin_render_pass(
         .begin_render_pass(
             framebuffer.clone(),
             SubpassContents::Inline, // Use secondary command buffers to specify later passses
-            vec![[0., 0., 0., 1.].into(), ClearValue::None, ClearValue::None], // Clear values for attachments
+            vec![
+                [0., 0., 0., 1.].into(),
+                ClearValue::None,
+                ClearValue::Depth(1.),
+                ClearValue::None,
+            ], // Clear values for attachments
         )
         .unwrap();
 }
@@ -88,6 +93,7 @@ pub fn create_render_commands(
         &engine.fractal_pipeline(),
         fractal_data,
         (*framebuffer.attachments())[1].clone(),
+        (*framebuffer.attachments())[2].clone(),
     );
 
     // Mark completion of frame rendering (for this pass)
@@ -121,12 +127,16 @@ fn inline_fractal_cmds(
     pipeline: &Arc<GraphicsPipeline>,
     push_constants: FractalPushConstants,
     particle_input: Arc<dyn ImageViewAbstract>,
+    particle_depth: Arc<dyn ImageViewAbstract>,
 ) {
     // Need a descriptor set to use previous pass in the draw
     let layout = pipeline.layout().set_layouts().get(0).unwrap();
     let descriptor_set = PersistentDescriptorSet::new(
         layout.clone(),
-        [WriteDescriptorSet::image_view(0, particle_input)],
+        [
+            WriteDescriptorSet::image_view(0, particle_input),
+            WriteDescriptorSet::image_view(1, particle_depth),
+        ],
     )
     .unwrap();
 

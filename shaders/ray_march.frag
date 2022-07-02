@@ -5,6 +5,7 @@ layout (location = 0) in vec2 coord;
 layout (location = 0) out vec4 fragColor;
 
 layout (input_attachment_index = 0, set = 0, binding = 0) uniform subpassInput particle_color;
+layout (input_attachment_index = 1, set = 0, binding = 1) uniform subpassInputMS particle_depth;
 
 layout (push_constant) uniform PushConstants {
 	vec4 quaternion;
@@ -23,6 +24,7 @@ layout (push_constant) uniform PushConstants {
 	uint distance_estimator_id;
 	float orbit_distance;
 	bool render_background;
+	//bool particles_are_3d;
 } push;
 
 const float pi = 3.14159265358;
@@ -86,7 +88,6 @@ float boundReflect(float x, float b) {
 	}
 }
 
-vec3 gradient;
 vec4 orbitTrap;
 float distanceEstimator(vec3 t) {
 	orbitTrap = vec4(1.0, 1.0, 1.0, 1.0);
@@ -190,8 +191,6 @@ float distanceEstimator(vec3 t) {
 			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato));
 		}
 	
-		//return max((0.25*abs(s.z)/scale), dot(t, t)-0.25) / reScale;
-		//return max((0.25*abs(s.z)/scale)/reScale, length(vec3(boundReflect(t.x/reScale, 5.0), boundReflect(t.y/reScale, 5.0), boundReflect(t.z/reScale, 5.0)))-0.62);
 		return max((0.25*abs(s.z)/scale)/reScale, length(t/reScale)-0.62);
 	}
 	else if(push.distance_estimator_id == 4) {
@@ -270,7 +269,7 @@ float distanceEstimator(vec3 t) {
 		return (sqrt(r2) - 2.0) / DEfactor / reScale;
 	}
 
-	return 10000.0;
+	return 1024.0;
 }
 
 const float maxBrightness = 1.6;
@@ -284,9 +283,9 @@ vec3 scaleColor(float distanceRatio, float iterationRatio, vec3 col) {
 	return col;
 }
 
-vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY) {
-	const int maxIterations = 130;
-	const float maxDistance = 50.0;
+vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float travel) {
+	const int maxIterations = 128;
+	const float maxDistance = 32.0;
 	const float hitDistance = epsilon;
 	float minTravel = 0.3;
 	if(push.distance_estimator_id == 1) {
@@ -295,7 +294,7 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY) {
 
 	float lastDistance = maxDistance;
 	position += minTravel * direction;
-	float travel = minTravel;
+	travel = minTravel;
 	for(int i = 0; i < maxIterations; i++) {
 		float dist = distanceEstimator(position);
 
@@ -306,7 +305,8 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY) {
 
 		lastDistance = dist;
 
-		position += (0.99*dist)*direction;
+		dist = 0.99*dist;
+		position += dist*direction;
 		travel += dist;
 		if(travel >= maxDistance) {
 			if(push.render_background) {
@@ -334,8 +334,31 @@ void main(void) {
 	direction = rotateByQuaternion(direction, push.quaternion);
 	
 	vec3 position = rotateByQuaternion(vec3(0.0, 0.0, -push.orbit_distance), push.quaternion);
-	vec3 tFragColor = castRay(position, direction, fovX, fovY);
+
+	float travel;
+	vec3 tFragColor = castRay(position, direction, fovX, fovY, travel);
 
 	vec3 particle = subpassLoad(particle_color).rgb;
-	fragColor = vec4(abs(tFragColor - particle), 1.0);
+
+	// Distances must match those used in `particles.vert`
+	const float far = 8.0;
+	const float near = 0.03125;
+	float minDepth = subpassLoad(particle_depth, 0).x;
+	for(int i = 1; i < 8; i++) {
+		minDepth = min(subpassLoad(particle_depth, i).x, minDepth);
+	}
+	const float farNearDiff = far - near;
+	minDepth = (-2.0*far*near) / ((minDepth - (far + near)/farNearDiff)*farNearDiff); // Calcualte inverse of projection on z coordinate
+
+	minDepth = minDepth*sqrt(1.0 + newCoord.x*fovX*newCoord.x*fovX + newCoord.y*fovY*newCoord.y*fovY); // Use screen space to determine 3D distance
+
+	if(travel >= minDepth) {
+		tFragColor = abs(tFragColor - particle);
+
+		if(abs(travel - minDepth) < 0.018) {
+			tFragColor = vec3(1.0) - sqrt(tFragColor);
+		}
+	}
+
+	fragColor = vec4(tFragColor, 1.0);
 }
