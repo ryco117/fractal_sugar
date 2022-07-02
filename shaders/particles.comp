@@ -34,7 +34,7 @@ layout (push_constant) uniform PushConstants {
 
 const float spring_coefficient = 75.0;
 
-const float max_speed = 6.0; // Must match `max_speed` in vertex shader
+const float max_speed = 8.0; // Must match `max_speed` in vertex shader
 const float min_length = 0.01;
 
 const float audio_scale = 0.01;

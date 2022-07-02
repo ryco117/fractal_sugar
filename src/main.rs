@@ -328,22 +328,38 @@ fn main() {
                 }
             }
 
+            let width = dimensions.width as f32;
+            let height = dimensions.height as f32;
+            let aspect_ratio = width / height;
+
             // Create a unique attractor based on mouse position
-            let cursor_attractor = [
-                (2. * (cursor_position.x / dimensions.width as f64) - 1.) as f32,
-                (2. * (cursor_position.y / dimensions.height as f64) - 1.) as f32,
-                0.,
-                if fix_particles {
+            let cursor_attractor = {
+                let strength = if fix_particles {
                     CURSOR_FIXED_STRENGTH
                 } else {
                     CURSOR_LOOSE_STRENGTH
                 } * cursor_force_mult
-                    * cursor_force,
-            ];
+                    * cursor_force;
 
-            let width = dimensions.width as f32;
-            let height = dimensions.height as f32;
-            let aspect_ratio = width / height;
+                let x_norm = (2. * (cursor_position.x / dimensions.width as f64) - 1.) as f32;
+                let y_norm = (2. * (cursor_position.y / dimensions.height as f64) - 1.) as f32;
+                if render_particles && particles_are_3d && cursor_force != 0. {
+                    const VERTICAL_FOV: f32 = std::f32::consts::FRAC_PI_2 / 2.5; // Roughly 70 degree vertical VERTICAL_FOV
+                    const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
+                    const PERSPECTIVE_DISTANCE: f32 = 1.275;
+                    let fov_y = VERTICAL_FOV.tan();
+                    let fov_x = fov_y * aspect_ratio;
+
+                    // Map cursor to 3D world using camera orientation
+                    let mut v = camera_quaternion.rotate_point(
+                        PERSPECTIVE_DISTANCE * Vector3::new(x_norm * fov_x, y_norm * fov_y, -1.),
+                    );
+                    v += camera_quaternion.rotate_point(PARTICLE_CAMERA_ORBIT);
+                    [v.x, v.y, v.z, strength]
+                } else {
+                    [x_norm, y_norm, 0., strength]
+                }
+            };
 
             // Create per-frame data for particle compute-shader
             let particle_data = if render_particles {
@@ -398,7 +414,7 @@ fn main() {
                 kaleidoscope: kaleidoscope.powf(0.65),
                 distance_estimator_id,
                 orbit_distance: if render_particles && particles_are_3d {
-                    1.42
+                    1.45
                 } else {
                     1.
                 },

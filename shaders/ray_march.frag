@@ -355,7 +355,8 @@ void main(void) {
 	if(travel >= minDepth) {
 		tFragColor = abs(tFragColor - particle);
 
-		if(abs(travel - minDepth) < 0.018) {
+		// If particle and fractal are nearly touching in world-space then highlight
+		if(abs(travel - minDepth) < 0.015) {
 			tFragColor = vec3(1.0) - sqrt(tFragColor);
 		}
 	}
