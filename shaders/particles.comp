@@ -34,7 +34,7 @@ layout (push_constant) uniform PushConstants {
 
 const float spring_coefficient = 75.0;
 
-const float max_speed = 8.0; // Must match `max_speed` in vertex shader
+const float max_speed = 7.0; // Must match `max_speed` in vertex shader
 const float min_length = 0.01;
 
 const float audio_scale = 0.01;
@@ -67,48 +67,48 @@ void main(void) {
 	float friction;
 	if(push.use_third_dimension) {
 		if(push.fix_particles) {
-			friction = -6.5;
+			friction = -7.0;
 
 			{
 				vec3 t = push.big_boomer.xyz - pos;
 				float r = max(length(t), min_length);
-				g -= push.big_boomer.w * safe_normalize(t) / (r*r*r*r*r) * 2.2;
+				g -= push.big_boomer.w * safe_normalize(t) / (r*r*r*r*r) * 2.15;
 			}
 
 			for(int i = 0; i < push.curl_attractors.length(); i++) {
 				vec3 t = push.curl_attractors[i].xyz - pos;
 				float r = max(length(t), min_length);
-				g += push.curl_attractors[i].w * (safe_normalize(cross(t, pos)) + safe_normalize(t)/1.25) / (r*r) * 17.0;
+				g += push.curl_attractors[i].w * (safe_normalize(cross(t, pos)) + safe_normalize(t)/1.25) / (r*r) * 18.5;
 			}
 
 			for(int i = 0; i < push.attractors.length(); i++) {
 				vec3 t = push.attractors[i].xyz - pos;
 				float r = max(length(t), min_length);
-				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 27.5;
+				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 34.0;
 			}
 
 			g *= audio_scale;
 
 			g += spring_coefficient * (fixed_cube_positions[index] - pos);
 		} else {
-			friction = -1.5;
+			friction = -2.1;
 
 			{
 				vec3 t = push.big_boomer.xyz - pos;
 				float r = max(length(t), min_length);
-				g -= push.big_boomer.w * safe_normalize(t) / (r*r*r*r*r) * 1.5;
+				g -= push.big_boomer.w * safe_normalize(t) / (r*r*r*r*r) * 1.4;
 			}
 
 			for(int i = 0; i < push.curl_attractors.length(); i++) {
 				vec3 t = push.curl_attractors[i].xyz - pos;
 				float r = max(length(t), min_length);
-				g += push.curl_attractors[i].w * (safe_normalize(cross(t, pos)) + safe_normalize(t)/1.25) / (r*r) * 12.0;
+				g += push.curl_attractors[i].w * (safe_normalize(cross(t, pos)) + safe_normalize(t)/1.25) / (r*r) * 11.5;
 			}
 
 			for(int i = 0; i < push.attractors.length(); i++) {
 				vec3 t = push.attractors[i].xyz - pos;
 				float r = max(length(t), min_length);
-				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 16.0;
+				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 17.5;
 			}
 
 			g *= audio_scale;

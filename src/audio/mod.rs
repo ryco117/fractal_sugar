@@ -13,9 +13,9 @@ use crate::space_filling_curves::{cube::curve_to_cube_n, square::curve_to_square
 const PRINT_SPECTRUM: bool = true;
 
 // Set some constants for scaling frequencies to sound/appear more linear
-pub const BASS_POW: f32 = 0.85;
+pub const BASS_POW: f32 = 0.84;
 pub const MIDS_POW: f32 = 0.75;
-pub const HIGH_POW: f32 = 0.45;
+pub const HIGH_POW: f32 = 0.445;
 
 const BASS_KICK: f32 = 0.05;
 const PREVIOUS_BASS_COUNT: usize = 10;
@@ -176,7 +176,7 @@ fn processing_thread_from_sample_rate(
                 let frequency_range: std::ops::Range<f32> = 30.0..275.;
                 let delta: f32 = 1.;
                 let min_volume: f32 = 0.25;
-                let vol_freq_scale = 1.8;
+                let vol_freq_scale = 1.825;
                 let analysis = analyze_frequency_range(
                     frequency_range.clone(),
                     1,
@@ -207,14 +207,14 @@ fn processing_thread_from_sample_rate(
                 let frequency_range: std::ops::Range<f32> = 275.0..1_600.;
                 let delta: f32 = 0.1;
                 let min_volume: f32 = 0.05;
-                let scale = 2.75;
+                let scale = 3.;
                 analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
             };
             let high_analysis = {
                 let frequency_range: std::ops::Range<f32> = 1_600.0..16_000.;
                 let delta: f32 = 0.1;
-                let min_volume: f32 = 0.01;
-                let scale = 4.;
+                let min_volume: f32 = 0.0075;
+                let scale = 8.;
                 analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
             };
 

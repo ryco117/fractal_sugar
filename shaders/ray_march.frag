@@ -24,7 +24,6 @@ layout (push_constant) uniform PushConstants {
 	uint distance_estimator_id;
 	float orbit_distance;
 	bool render_background;
-	//bool particles_are_3d;
 } push;
 
 const float pi = 3.14159265358;
@@ -343,8 +342,10 @@ void main(void) {
 	// Distances must match those used in `particles.vert`
 	const float far = 8.0;
 	const float near = 0.03125;
+
+	const uint sampleCount = 8; // Must be kept up to date with MSAA sample count used in `src/`
 	float minDepth = subpassLoad(particle_depth, 0).x;
-	for(int i = 1; i < 8; i++) {
+	for(int i = 1; i < sampleCount; i++) {
 		minDepth = min(subpassLoad(particle_depth, i).x, minDepth);
 	}
 	const float farNearDiff = far - near;
@@ -352,12 +353,13 @@ void main(void) {
 
 	minDepth = minDepth*sqrt(1.0 + newCoord.x*fovX*newCoord.x*fovX + newCoord.y*fovY*newCoord.y*fovY); // Use screen space to determine 3D distance
 
+	travel *= 1.75/push.orbit_distance;
 	if(travel >= minDepth) {
 		tFragColor = abs(tFragColor - particle);
 
 		// If particle and fractal are nearly touching in world-space then highlight
-		if(abs(travel - minDepth) < 0.015) {
-			tFragColor = vec3(1.0) - sqrt(tFragColor);
+		if(abs(travel - minDepth) < 0.016) {
+			tFragColor = vec3(1.0) - vec3(pow(tFragColor.x, 0.386), pow(tFragColor.y, 0.386), pow(tFragColor.z, 0.386));
 		}
 	}
 

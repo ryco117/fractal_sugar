@@ -346,7 +346,7 @@ fn main() {
                 if render_particles && particles_are_3d && cursor_force != 0. {
                     const VERTICAL_FOV: f32 = std::f32::consts::FRAC_PI_2 / 2.5; // Roughly 70 degree vertical VERTICAL_FOV
                     const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
-                    const PERSPECTIVE_DISTANCE: f32 = 1.275;
+                    const PERSPECTIVE_DISTANCE: f32 = 1.35;
                     let fov_y = VERTICAL_FOV.tan();
                     let fov_x = fov_y * aspect_ratio;
 
@@ -414,7 +414,7 @@ fn main() {
                 kaleidoscope: kaleidoscope.powf(0.65),
                 distance_estimator_id,
                 orbit_distance: if render_particles && particles_are_3d {
-                    1.45
+                    1.42
                 } else {
                     1.
                 },

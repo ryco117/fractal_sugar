@@ -19,7 +19,7 @@ layout (push_constant) uniform PushConstants {
 const vec4 speedConst1 = vec4(0.0, 0.425, 0.55, 0.2);
 const vec4 speedConst2 = vec4(0.5, 0.725, 0.1, 0.5);
 const vec4 speedConst3 = vec4(0.7, 0.2, 1.0, 3.5);
-const float maxSpeed = 8.0; // Must match `max_speed` in compute shader
+const float maxSpeed = 7.0; // Must match `max_speed` in compute shader
 
 const vec4 indexConst0 = vec4(0.8, 0.5, 0.3, 0.25);
 const vec4 indexConst1 = vec4(0.35, 0.4, 0.8, 0.5);
