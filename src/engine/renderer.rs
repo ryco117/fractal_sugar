@@ -50,7 +50,7 @@ pub fn create_render_commands(
     // Allow toggling of particle effects and avoid unnecesary computation
     if let Some((compute_push_constants, vertex_push_constants)) = particle_data {
         let compute_pipeline = engine.compute_pipeline();
-        let descriptor_set = engine.descriptor_set();
+        let descriptor_set = engine.compute_descriptor_set();
         let vertex_buffer = engine.vertex_buffer.clone();
         let buffer_count = engine.vertex_count() as u32;
 
@@ -78,6 +78,7 @@ pub fn create_render_commands(
             &engine.particle_pipeline(),
             &vertex_buffer,
             vertex_push_constants,
+            engine.particle_descriptor_set(),
         );
     } else {
         // Begin the same render pass as with particles, but skip commands to draw particles
@@ -108,6 +109,7 @@ fn inline_particles_cmds(
     pipeline: &Arc<GraphicsPipeline>,
     vertex_buffer: &Arc<DeviceLocalBuffer<[Vertex]>>,
     push_constants: ParticleVertexPushConstants,
+    descriptor_set: Arc<PersistentDescriptorSet>,
 ) {
     use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
     let buffer_count = vertex_buffer.len() as u32;
@@ -118,6 +120,12 @@ fn inline_particles_cmds(
         .bind_pipeline_graphics(pipeline.clone())
         .push_constants(pipeline.layout().clone(), 0, push_constants)
         .bind_vertex_buffers(0, vertex_buffer.clone())
+        .bind_descriptor_sets(
+            PipelineBindPoint::Graphics,
+            pipeline.layout().clone(),
+            0, // Bind this descriptor set to index 0
+            descriptor_set,
+        )
         .draw(buffer_count, 1, 0, 0)
         .expect("Failed to draw particle subpass");
 }
@@ -131,6 +139,7 @@ fn inline_fractal_cmds(
 ) {
     // Need a descriptor set to use previous pass in the draw
     let layout = pipeline.layout().set_layouts().get(0).unwrap();
+    // TODO: Use https://docs.rs/vulkano/latest/vulkano/descriptor_set/single_layout_pool/struct.SingleLayoutDescSetPool.html ?
     let descriptor_set = PersistentDescriptorSet::new(
         layout.clone(),
         [

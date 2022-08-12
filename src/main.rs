@@ -21,11 +21,13 @@ use winapi::um::winuser::{SW_HIDE, SW_SHOW};
 use engine::swapchain::RecreateSwapchainResult;
 
 mod audio;
+mod color_scheme;
 mod engine;
 mod my_math;
 mod space_filling_curves;
 
 use audio::AudioState;
+use color_scheme::Scheme;
 use my_math::helpers::{interpolate_floats, interpolate_vec3};
 use my_math::{Quaternion, Vector3, Vector4};
 
@@ -35,6 +37,13 @@ const CURSOR_LOOSE_STRENGTH: f32 = 0.75;
 const CURSOR_FIXED_STRENGTH: f32 = 1.75;
 const KALEIDOSCOPE_SPEED: f32 = 0.275;
 const SCROLL_SENSITIVITY: f32 = 0.15;
+
+const COLOR_SCHEMES: [Scheme; 4] = [
+    color_scheme::ORIGINAL,
+    color_scheme::NORTHERN_LIGHTS,
+    color_scheme::ARCTIC,
+    color_scheme::MAGMA_CORE,
+];
 
 #[derive(Clone, Copy)]
 enum KaleidoscopeDirection {
@@ -106,7 +115,7 @@ fn main() {
     let event_loop = EventLoop::new();
 
     // Use Engine helper to initialize Vulkan instance
-    let mut engine = engine::Engine::new(&event_loop);
+    let mut engine = engine::Engine::new(&event_loop, COLOR_SCHEMES[0]);
 
     // Capture reference to audio stream and use message passing to receive data
     let (tx, rx) = mpsc::channel();
@@ -143,6 +152,7 @@ fn main() {
     let mut kaleidoscope_dir = KaleidoscopeDirection::BackwardComplete;
     let mut alternate_colors = false;
     let mut particles_are_3d = false;
+    let mut color_scheme_index = 0;
 
     // Run window loop
     println!("Begin window loop...");
@@ -488,6 +498,12 @@ fn main() {
 
                 // Handle toggling of 3D particles
                 VirtualKeyCode::D => particles_are_3d = !particles_are_3d,
+
+                // Tab through different color schemes / palattes ?
+                VirtualKeyCode::Tab => {
+                    color_scheme_index = (color_scheme_index + 1) % COLOR_SCHEMES.len();
+                    engine.update_color_scheme(COLOR_SCHEMES[color_scheme_index]);
+                }
 
                 // Set different fractal types
                 VirtualKeyCode::Key0 => distance_estimator_id = 0,

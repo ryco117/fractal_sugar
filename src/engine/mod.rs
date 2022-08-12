@@ -30,6 +30,7 @@ pub mod renderer;
 pub mod swapchain;
 mod vertex;
 
+use crate::color_scheme::Scheme;
 use crate::my_math::{Vector2, Vector3};
 use crate::space_filling_curves;
 use vertex::Vertex;
@@ -37,14 +38,15 @@ use vertex::Vertex;
 type EngineFrameFuture = Arc<FenceSignalFuture<Box<dyn GpuFuture>>>;
 
 pub struct Engine {
+    compute_descriptor_set: Arc<PersistentDescriptorSet>,
     compute_pipeline: Arc<ComputePipeline>,
-    descriptor_set: Arc<PersistentDescriptorSet>,
     device: Arc<Device>,
     fences: Vec<Option<EngineFrameFuture>>,
     fractal_frag: Arc<ShaderModule>,
     fractal_pipeline: Arc<GraphicsPipeline>,
     fractal_vert: Arc<ShaderModule>,
     framebuffers: Vec<Arc<Framebuffer>>,
+    particle_descriptor_set: Arc<PersistentDescriptorSet>,
     particle_frag: Arc<ShaderModule>,
     particle_pipeline: Arc<GraphicsPipeline>,
     particle_vert: Arc<ShaderModule>,
@@ -80,7 +82,11 @@ mod particle_shaders {
     pub mod vs {
         vulkano_shaders::shader! {
             ty: "vertex",
-            path: "shaders/particles.vert"
+            path: "shaders/particles.vert",
+            types_meta: {
+                use bytemuck::{Pod, Zeroable};
+                #[derive(Clone, Copy, Zeroable, Pod)]
+            },
         }
     }
     pub mod cs {
@@ -116,7 +122,7 @@ mod fractal_shaders {
 pub type FractalPushConstants = fractal_shaders::fs::ty::PushConstants;
 
 impl Engine {
-    pub fn new(event_loop: &EventLoop<()>) -> Self {
+    pub fn new(event_loop: &EventLoop<()>, initial_color_scheme: Scheme) -> Self {
         // Create instance with extensions required for windowing (and optional debugging layer(s))
         let required_extensions = vulkano::instance::InstanceExtensions {
             ..vulkano_win::required_extensions()
@@ -304,7 +310,7 @@ impl Engine {
 
         // Create a new descriptor set for binding particle storage buffers
         // Required to access layout() method
-        let descriptor_set = PersistentDescriptorSet::new(
+        let compute_descriptor_set = PersistentDescriptorSet::new(
             compute_pipeline
                 .layout()
                 .set_layouts()
@@ -400,6 +406,25 @@ impl Engine {
             viewport.clone(),
         );
 
+        // Particle color schemes?!
+        let color_scheme_buffer = CpuAccessibleBuffer::from_data(
+            device.clone(),
+            BufferUsage::uniform_buffer(),
+            false,
+            initial_color_scheme,
+        )
+        .unwrap();
+        let particle_descriptor_set = PersistentDescriptorSet::new(
+            particle_pipeline
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap()
+                .clone(),
+            [WriteDescriptorSet::buffer(0, color_scheme_buffer.clone())],
+        )
+        .unwrap();
+
         // Create a framebuffer to store results of render pass
         let framebuffers = Self::create_framebuffers(
             &device,
@@ -411,14 +436,15 @@ impl Engine {
 
         // Construct new Engine
         Self {
+            compute_descriptor_set,
             compute_pipeline,
-            descriptor_set,
             device,
             fences,
             fractal_frag,
             fractal_pipeline,
             fractal_vert,
             framebuffers,
+            particle_descriptor_set,
             particle_frag,
             particle_pipeline,
             particle_vert,
@@ -642,6 +668,27 @@ impl Engine {
             .collect()
     }
 
+    pub fn update_color_scheme(&mut self, scheme: Scheme) -> () {
+        let color_scheme_buffer = CpuAccessibleBuffer::from_data(
+            self.device.clone(),
+            BufferUsage::uniform_buffer(),
+            false,
+            scheme,
+        )
+        .unwrap();
+
+        self.particle_descriptor_set = PersistentDescriptorSet::new(
+            self.particle_pipeline
+                .layout()
+                .set_layouts()
+                .get(0)
+                .unwrap()
+                .clone(),
+            [WriteDescriptorSet::buffer(0, color_scheme_buffer.clone())],
+        )
+        .unwrap();
+    }
+
     // Engine getters
     pub fn compute_pipeline(&self) -> Arc<ComputePipeline> {
         self.compute_pipeline.clone()
@@ -649,11 +696,14 @@ impl Engine {
     pub fn device(&self) -> Arc<Device> {
         self.device.clone()
     }
-    pub fn descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
-        self.descriptor_set.clone()
+    pub fn compute_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
+        self.compute_descriptor_set.clone()
     }
     pub fn fractal_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.fractal_pipeline.clone()
+    }
+    pub fn particle_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
+        self.particle_descriptor_set.clone()
     }
     pub fn particle_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.particle_pipeline.clone()

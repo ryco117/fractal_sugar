@@ -15,16 +15,13 @@ layout (push_constant) uniform PushConstants {
 	bool use_third_dimension;
 } push;
 
-// Define color constants
-const vec4 speedConst1 = vec4(0.0, 0.425, 0.55, 0.2);
-const vec4 speedConst2 = vec4(0.5, 0.725, 0.1, 0.5);
-const vec4 speedConst3 = vec4(0.7, 0.2, 1.0, 3.5);
-const float maxSpeed = 7.0; // Must match `max_speed` in compute shader
+layout (binding = 0) uniform ParticleColorScheme {
+    vec4 speedConst[4];
+	vec4 indexConst[4];
+} particleColors;
 
-const vec4 indexConst0 = vec4(0.8, 0.5, 0.3, 0.25);
-const vec4 indexConst1 = vec4(0.35, 0.4, 0.8, 0.5);
-const vec4 indexConst2 = vec4(0.8, 0.5, 0.6, 0.75);
-const vec4 indexConst3 = vec4(0.7, 0.1, 0.75, 1.0);
+// Must match `max_speed` in compute shader. TODO: Pass from app to shader
+const float maxSpeed = 7.0;
 
 // Define constants for perspective rendering
 // Distances must match those used in `ray_march.frag`
@@ -67,22 +64,22 @@ void main() {
 		vec3 indexStart;
 		vec3 indexEnd;
 		float indexScale;
-		if(t < indexConst0.w) {
-			indexStart = indexConst0.xyz;
-			indexEnd = indexConst1.xyz;
-			indexScale = t / indexConst0.w;
-		} else if(t <  indexConst1.w) {
-			indexStart = indexConst1.xyz;
-			indexEnd = indexConst2.xyz;
-			indexScale = (t - indexConst0.w)/(indexConst1.w - indexConst0.w);
-		} else if(t <  indexConst2.w) {
-			indexStart = indexConst2.xyz;
-			indexEnd = indexConst3.xyz;
-			indexScale = (t - indexConst1.w)/(indexConst2.w - indexConst1.w);
+		if(t < particleColors.indexConst[0].w) {
+			indexStart = particleColors.indexConst[0].xyz;
+			indexEnd = particleColors.indexConst[1].xyz;
+			indexScale = t / particleColors.indexConst[0].w;
+		} else if(t <  particleColors.indexConst[1].w) {
+			indexStart = particleColors.indexConst[1].xyz;
+			indexEnd = particleColors.indexConst[2].xyz;
+			indexScale = (t - particleColors.indexConst[0].w)/(particleColors.indexConst[1].w - particleColors.indexConst[0].w);
+		} else if(t <  particleColors.indexConst[2].w) {
+			indexStart = particleColors.indexConst[2].xyz;
+			indexEnd = particleColors.indexConst[3].xyz;
+			indexScale = (t - particleColors.indexConst[1].w)/(particleColors.indexConst[2].w - particleColors.indexConst[1].w);
 		} else {
-			indexStart = indexConst3.xyz;
-			indexEnd = indexConst0.xyz;
-			indexScale = (t - indexConst2.w)/(indexConst3.w - indexConst2.w);
+			indexStart = particleColors.indexConst[3].xyz;
+			indexEnd = particleColors.indexConst[0].xyz;
+			indexScale = (t - particleColors.indexConst[2].w)/(particleColors.indexConst[3].w - particleColors.indexConst[2].w);
 		}
 		if(push.alternate_colors) {
 			indexStart = abs(vec3(1.0) - indexStart);
@@ -97,41 +94,42 @@ void main() {
 		vec3 speedStart;
 		vec3 speedEnd;
 		float speedScale;
-		if(speed < speedConst1.w) {
+		if(speed < particleColors.speedConst[0].w) {
 			vec3 basesColor = (push.use_third_dimension ? 0.3 : (push.rendering_fractal ? 0.325 : 0.575)) * indexColor;
 			speedStart = basesColor;
-			speedEnd = vec3(speedConst1.x, speedConst1.y * speed/speedConst1.w, speedConst1.z);
+			speedEnd = vec3(particleColors.speedConst[0].x, particleColors.speedConst[0].y * speed/particleColors.speedConst[0].w, particleColors.speedConst[0].z);
 			if(push.alternate_colors) {
 				speedEnd = abs(vec3(1.0) - speedEnd);
 			}
-			speedScale = speed / speedConst1.w;
-		} else if(speed < speedConst2.w) {
-			speedStart = speedConst1.xyz;
-			speedEnd = speedConst2.xyz;
-			if(push.alternate_colors) {
-				speedStart = abs(vec3(1.0) - speedStart);
-				speedEnd = abs(vec3(1.0) - speedEnd);
-			}
-			speedScale = (speed - speedConst1.w)/(speedConst2.w - speedConst1.w);
-		} else if(speed < speedConst3.w) {
-			speedStart = speedConst2.xyz;
-			speedEnd = speedConst3.xyz;
+			speedScale = speed / particleColors.speedConst[0].w;
+		} else if(speed < particleColors.speedConst[1].w) {
+			speedStart = particleColors.speedConst[0].xyz;
+			speedEnd = particleColors.speedConst[1].xyz;
 			if(push.alternate_colors) {
 				speedStart = abs(vec3(1.0) - speedStart);
 				speedEnd = abs(vec3(1.0) - speedEnd);
 			}
-			speedScale = (speed - speedConst2.w)/(speedConst3.w - speedConst2.w);
+			speedScale = (speed - particleColors.speedConst[0].w)/(particleColors.speedConst[1].w - particleColors.speedConst[0].w);
+		} else if(speed < particleColors.speedConst[2].w) {
+			speedStart = particleColors.speedConst[1].xyz;
+			speedEnd = particleColors.speedConst[2].xyz;
+			if(push.alternate_colors) {
+				speedStart = abs(vec3(1.0) - speedStart);
+				speedEnd = abs(vec3(1.0) - speedEnd);
+			}
+			speedScale = (speed - particleColors.speedConst[1].w)/(particleColors.speedConst[2].w - particleColors.speedConst[1].w);
 		} else {
-			speedStart = speedConst3.xyz;
-			speedEnd = vec3(1.0, 0.4, 0.4);
+			speedStart = particleColors.speedConst[2].xyz;
+			speedEnd = particleColors.speedConst[3].xyz;
 			if(push.alternate_colors) {
 				speedStart = abs(vec3(1.0) - speedStart);
 				speedEnd = abs(vec3(1.0) - speedEnd);
 			}
-			speedScale = (speed - speedConst3.w)/(maxSpeed - speedConst3.w);
+			speedScale = (speed - particleColors.speedConst[2].w)/(maxSpeed - particleColors.speedConst[2].w);
 		}
 		speedColor = mix(speedStart, speedEnd, speedScale);
 	}
 
-	outColor = vec4(mix(speedColor, indexColor, pow(max(speed - maxSpeed/100.0, 0.0)/maxSpeed, 0.35)), 1.0);
+	//outColor = vec4(mix(speedColor, indexColor, pow(max(speed - maxSpeed/100.0, 0.0)/maxSpeed, 0.35)), 1.0);
+	outColor = vec4(speedColor, 1.0);
 }

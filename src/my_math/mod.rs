@@ -120,7 +120,7 @@ pub struct Vector3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-    _unused: f32, // This is needed because of how `vec3`s are aligned on the GPU. This float is only to be used to preserve alignment
+    _unused: f32, // NOTE: This is needed because of how `vec3`s are aligned on the GPU. This float is only to be used to preserve alignment
 }
 impl Vector3 {
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
