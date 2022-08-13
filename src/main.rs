@@ -38,11 +38,13 @@ const CURSOR_FIXED_STRENGTH: f32 = 1.75;
 const KALEIDOSCOPE_SPEED: f32 = 0.275;
 const SCROLL_SENSITIVITY: f32 = 0.15;
 
-const COLOR_SCHEMES: [Scheme; 4] = [
+const COLOR_SCHEMES: [Scheme; 6] = [
     color_scheme::ORIGINAL,
     color_scheme::NORTHERN_LIGHTS,
     color_scheme::ARCTIC,
     color_scheme::MAGMA_CORE,
+    color_scheme::JUNGLE,
+    color_scheme::BLACK_AND_YELLOW,
 ];
 
 #[derive(Clone, Copy)]
@@ -111,11 +113,25 @@ fn bool_to_u32(b: bool) -> u32 {
 }
 
 fn main() {
+    let color_schmes = {
+        let filepath = "color_schemes.json";
+        match color_scheme::parse_custom_schemes(filepath) {
+            Ok(schemes) => schemes,
+            Err(e) => {
+                println!(
+                    "Failed to process custom color schemes file `{}`: {:?}",
+                    filepath, e
+                );
+                COLOR_SCHEMES.to_vec()
+            }
+        }
+    };
+
     // First, create global event loop to manage window events
     let event_loop = EventLoop::new();
 
     // Use Engine helper to initialize Vulkan instance
-    let mut engine = engine::Engine::new(&event_loop, COLOR_SCHEMES[0]);
+    let mut engine = engine::Engine::new(&event_loop, color_schmes[0]);
 
     // Capture reference to audio stream and use message passing to receive data
     let (tx, rx) = mpsc::channel();
@@ -501,8 +517,8 @@ fn main() {
 
                 // Tab through different color schemes / palattes ?
                 VirtualKeyCode::Tab => {
-                    color_scheme_index = (color_scheme_index + 1) % COLOR_SCHEMES.len();
-                    engine.update_color_scheme(COLOR_SCHEMES[color_scheme_index]);
+                    color_scheme_index = (color_scheme_index + 1) % color_schmes.len();
+                    engine.update_color_scheme(color_schmes[color_scheme_index]);
                 }
 
                 // Set different fractal types
