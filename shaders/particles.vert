@@ -65,21 +65,21 @@ void main() {
 		vec3 indexEnd;
 		float indexScale;
 		if(t < particleColors.indexConst[0].w) {
-			indexStart = particleColors.indexConst[0].xyz;
-			indexEnd = particleColors.indexConst[1].xyz;
-			indexScale = t / particleColors.indexConst[0].w;
-		} else if(t <  particleColors.indexConst[1].w) {
-			indexStart = particleColors.indexConst[1].xyz;
-			indexEnd = particleColors.indexConst[2].xyz;
-			indexScale = (t - particleColors.indexConst[0].w)/(particleColors.indexConst[1].w - particleColors.indexConst[0].w);
-		} else if(t <  particleColors.indexConst[2].w) {
-			indexStart = particleColors.indexConst[2].xyz;
-			indexEnd = particleColors.indexConst[3].xyz;
-			indexScale = (t - particleColors.indexConst[1].w)/(particleColors.indexConst[2].w - particleColors.indexConst[1].w);
-		} else {
 			indexStart = particleColors.indexConst[3].xyz;
 			indexEnd = particleColors.indexConst[0].xyz;
-			indexScale = (t - particleColors.indexConst[2].w)/(particleColors.indexConst[3].w - particleColors.indexConst[2].w);
+			indexScale = t / particleColors.indexConst[0].w;
+		} else if(t <  particleColors.indexConst[1].w) {
+			indexStart = particleColors.indexConst[0].xyz;
+			indexEnd = particleColors.indexConst[1].xyz;
+			indexScale = (t - particleColors.indexConst[0].w)/(particleColors.indexConst[1].w - particleColors.indexConst[0].w);
+		} else if(t <  particleColors.indexConst[2].w) {
+			indexStart = particleColors.indexConst[1].xyz;
+			indexEnd = particleColors.indexConst[2].xyz;
+			indexScale = (t - particleColors.indexConst[1].w)/(particleColors.indexConst[2].w - particleColors.indexConst[1].w);
+		} else {
+			indexStart = particleColors.indexConst[2].xyz;
+			indexEnd = particleColors.indexConst[3].xyz;
+			indexScale = (t - particleColors.indexConst[2].w)/(1.0 - particleColors.indexConst[2].w);
 		}
 		if(push.alternate_colors) {
 			indexStart = abs(vec3(1.0) - indexStart);

@@ -1,9 +1,11 @@
 # This file defines a series of color schemes that may be applied to each particle.
 # Each color scheme requires a title, 4 speed-dependent color values, and 4 index-dependent color values.
-# NOTE: The order in which schemes are defined here does not define the ordering at runtime. :/
 
-# The title in [brackets] defines a name for this color scheme. It is not used in code (atm...)
-[Original]
+# NOTE: This file may latter contain more configuration options, but it currently does not.
+
+# The field [[color_schemes]] specifies that the following data entries define an object in the `color_schemes` list.
+[[color_schemes]]
+name = "Classic" # Defines the name for this color scheme. It is not used in code (atm...)
 speed = [
     # Each of the lists below represents an RGB triplet plus a fourth speed value.
     # RGB values must be in the range [0.0, 1.0].
@@ -12,7 +14,7 @@ speed = [
     [0.0, 0.425, 0.55, 0.2],
     [0.5, 0.725, 0.1, 0.5],
     [0.7, 0.2, 1.0, 3.5],
-    [1.0, 0.4, 0.4, 0.0], # The speed value of the last entry is always assumed to be the max speed. Thus this value can be any valid number; it is not used.
+    [1.0, 0.4, 0.4], # The speed value of the last entry is ommitted since this color will be most prominent at the maximum speed.
 ]
 index = [
     # Each of the lists below represents an RGB triplet plus a fourth index value.
@@ -22,75 +24,80 @@ index = [
     [0.8, 0.5, 0.3, 0.25],
     [0.35, 0.4, 0.8, 0.5],
     [0.8, 0.5, 0.6, 0.75],
-    [0.7, 0.1, 0.75, 1.0],
+    [0.7, 0.1, 0.75],  # The index value of the last entry is ommitted since this color will be most prominent at the maximum speed.
 ]
 
-[Northern_Lights]
+[[color_schemes]]
+name = "Northern Lights"
 speed = [
     [0.04, 0.5, 0.35, 0.2],
     [0.55, 0.2, 0.45, 0.6],
     [0.85, 0.45, 0.02, 1.5],
-    [0.65, 0.08, 0.04, 0.0],
+    [0.65, 0.08, 0.04],
 ]
 index = [
     [0.0, 0.3, 0.55, 0.25],
     [0.1, 0.65, 0.45, 0.5],
     [0.0, 0.3, 0.42, 0.75],
-    [0.0, 0.65, 0.45, 1.0],
+    [0.0, 0.65, 0.45],
 ]
 
-[Arctic]
+[[color_schemes]]
+name = "Arctic"
 speed = [
     [0.15, 0.375, 0.425, 0.1],
     [0.55, 0.6, 0.65, 1.0],
     [0.75, 0.75, 0.8, 3.25],
-    [0.95, 0.95, 0.98, 0.0],
+    [0.95, 0.95, 0.98],
 ]
 index = [
     [0.72, 0.75, 0.8, 0.25],
     [0.3, 0.35, 0.375, 0.5],
     [0.7, 0.72, 0.75, 0.75],
-    [0.2, 0.4, 0.4, 1.0],
+    [0.2, 0.4, 0.4],
 ]
 
-[Magma_Core]
+[[color_schemes]]
+name = "Magma Core"
 speed = [
     [0.575, 0.01, 0.05, 0.18],
     [0.95, 0.72, 0.02, 1.2],
     [0.95, 0.62, 0.02, 3.5],
-    [0.8, 0.65, 0.5, 0.0],
+    [0.8, 0.65, 0.5],
 ]
 index = [
     [0.5, 0.0, 0.05, 0.25],
     [0.22, 0.22, 0.23, 0.5],
     [0.75, 0.5, 0.01, 0.75],
-    [0.6, 0.55, 0.5, 1.0],
+    [0.6, 0.55, 0.5],
 ]
 
-[Jungle]
+[[color_schemes]]
+name = "Jungle"
 speed = [
     [0.45, 0.3, 0.2, 0.15],
     [0.7, 0.7, 0.05, 0.5],
     [0.05, 0.8, 0.25, 2.0],
-    [0.2, 0.95, 0.3, 0.0],
+    [0.2, 0.95, 0.3],
 ]
 index = [
     [0.8, 0.5, 0.15, 0.25],
     [0.0, 0.5, 0.25, 0.5],
     [0.65, 0.5, 0.02, 0.75],
-    [0.02, 0.6, 0.2, 1.0],
+    [0.02, 0.6, 0.2],
 ]
 
-[Black_And_Yellow]
+[[color_schemes]]
+name = "Black & Yellow"
 speed = [
     [0.45, 0.4, 0.0, 0.16],
     [0.7, 0.6, 0.1, 0.5],
     [0.8, 0.75, 0.65, 3.0],
-    [0.9, 0.9, 0.9, 0.0],
+    [0.9, 0.9, 0.9],
 ]
 index = [
     [0.19, 0.2, 0.2, 0.25],
     [0.5, 0.45, 0.0, 0.5],
     [0.19, 0.2, 0.2, 0.75],
-    [0.5, 0.45, 0.0, 1.0],
+    [0.5, 0.45, 0.0],
 ]

@@ -4,20 +4,72 @@ use bytemuck::{Pod, Zeroable};
 use serde::Deserialize;
 
 #[repr(C)]
-#[derive(Copy, Clone, Default, Deserialize, Zeroable, Pod)]
+#[derive(Copy, Clone, Default, Zeroable, Pod)]
 pub struct Scheme {
     pub speed: [[f32; 4]; 4],
     pub index: [[f32; 4]; 4],
 }
 
-pub fn parse_custom_schemes(filepath: &str) -> Result<Vec<Scheme>, Box<dyn Error>> {
-    type SchemeMap = std::collections::HashMap<String, Scheme>;
-    let scheme_map: SchemeMap = toml::from_str(&std::fs::read_to_string(filepath)?)?;
+#[derive(Deserialize)]
+pub struct CustomScheme {
+    pub name: String,
+    pub speed: [Vec<f32>; 4],
+    pub index: [Vec<f32>; 4],
+}
 
-    let mut schemes = vec![];
-    for v in scheme_map.iter() {
-        schemes.push(*v.1)
+#[derive(Deserialize)]
+pub struct CustomSchemes {
+    pub color_schemes: Vec<CustomScheme>,
+}
+
+impl std::convert::From<&CustomScheme> for Scheme {
+    fn from(cs: &CustomScheme) -> Self {
+        let mut scheme = Self::default();
+        for i in 0..3 {
+            assert_eq!(
+                cs.speed[i].len(),
+                4,
+                "The first three speed values of a color scheme must have exactly 4 values"
+            );
+            assert_eq!(
+                cs.index[i].len(),
+                4,
+                "The first three index values of a color scheme must have exactly 4 values"
+            );
+
+            for j in 0..4 {
+                scheme.speed[i][j] = cs.speed[i][j];
+                scheme.index[i][j] = cs.index[i][j];
+            }
+        }
+
+        assert_eq!(
+            cs.speed[3].len(),
+            3,
+            "The fourth/final speed value of a color scheme must have exactly 3 values"
+        );
+        assert_eq!(
+            cs.index[3].len(),
+            3,
+            "The fourth/final index value of a color scheme must have exactly 3 values"
+        );
+        for j in 0..3 {
+            scheme.speed[3][j] = cs.speed[3][j];
+            scheme.index[3][j] = cs.index[3][j];
+        }
+
+        scheme
     }
+}
+
+pub fn parse_custom_schemes(filepath: &str) -> Result<Vec<Scheme>, Box<dyn Error>> {
+    let custom_schemes: CustomSchemes = toml::from_str(&std::fs::read_to_string(filepath)?)?;
+
+    let mut schemes: Vec<Scheme> = vec![];
+    for cs in custom_schemes.color_schemes.iter() {
+        schemes.push(Scheme::from(cs))
+    }
+
     if schemes.len() > 0 {
         Ok(schemes)
     } else {
