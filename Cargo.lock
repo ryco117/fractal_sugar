@@ -1072,7 +1072,7 @@ dependencies = [
  "kernel32-sys",
  "rustfft",
  "serde",
- "serde_json",
+ "toml",
  "user32-sys",
  "vulkano",
  "vulkano-shaders",

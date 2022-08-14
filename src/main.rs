@@ -114,7 +114,7 @@ fn bool_to_u32(b: bool) -> u32 {
 
 fn main() {
     let color_schmes = {
-        let filepath = "color_schemes.json";
+        let filepath = "color_schemes.toml";
         match color_scheme::parse_custom_schemes(filepath) {
             Ok(schemes) => schemes,
             Err(e) => {

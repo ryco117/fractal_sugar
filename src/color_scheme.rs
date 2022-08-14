@@ -12,10 +12,10 @@ pub struct Scheme {
 
 pub fn parse_custom_schemes(filepath: &str) -> Result<Vec<Scheme>, Box<dyn Error>> {
     type SchemeMap = std::collections::HashMap<String, Scheme>;
-    let scheme_json: SchemeMap = serde_json::from_str(&std::fs::read_to_string(filepath)?)?;
+    let scheme_map: SchemeMap = toml::from_str(&std::fs::read_to_string(filepath)?)?;
 
     let mut schemes = vec![];
-    for v in scheme_json.iter() {
+    for v in scheme_map.iter() {
         schemes.push(*v.1)
     }
     if schemes.len() > 0 {
@@ -39,21 +39,6 @@ pub const ORIGINAL: Scheme = Scheme {
         [0.7, 0.1, 0.75, 1.],
     ],
 };
-
-/*const NEGATIVE_SCHEME: Scheme = Scheme {
-    speed: [
-        [1., 0.575, 0.45, 0.2],
-        [0.5, 0.275, 0.9, 0.5],
-        [0.3, 0.8, 0., 3.5],
-        [0., 0.8, 0.8, 0.],
-    ],
-    index: [
-        [0.2, 0.5, 0.7, 0.25],
-        [0.65, 0.6, 0.2, 0.5],
-        [0.2, 0.5, 0.4, 0.75],
-        [0.3, 0.9, 0.25, 1.],
-    ],
-};*/
 
 pub const NORTHERN_LIGHTS: Scheme = Scheme {
     speed: [
