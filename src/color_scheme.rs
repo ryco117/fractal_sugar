@@ -1,6 +1,7 @@
 use std::error::Error;
 
 use bytemuck::{Pod, Zeroable};
+use css_color_parser::Color as CssColor;
 use serde::Deserialize;
 
 #[repr(C)]
@@ -11,10 +12,18 @@ pub struct Scheme {
 }
 
 #[derive(Deserialize)]
+#[serde(untagged)]
+pub enum CustomSchemeColor {
+    ColorString(String),
+    ColorStringVal(String, f32),
+    Vec4(Vec<f32>),
+}
+
+#[derive(Deserialize)]
 pub struct CustomScheme {
     pub name: String,
-    pub speed: [Vec<f32>; 4],
-    pub index: [Vec<f32>; 4],
+    pub speed: [CustomSchemeColor; 4],
+    pub index: [CustomSchemeColor; 4],
 }
 
 #[derive(Deserialize)]
@@ -24,38 +33,48 @@ pub struct CustomSchemes {
 
 impl std::convert::From<&CustomScheme> for Scheme {
     fn from(cs: &CustomScheme) -> Self {
-        let mut scheme = Self::default();
-        for i in 0..3 {
-            assert_eq!(
-                cs.speed[i].len(),
-                4,
-                "The first three speed values of a color scheme must have exactly 4 values"
-            );
-            assert_eq!(
-                cs.index[i].len(),
-                4,
-                "The first three index values of a color scheme must have exactly 4 values"
-            );
-
-            for j in 0..4 {
-                scheme.speed[i][j] = cs.speed[i][j];
-                scheme.index[i][j] = cs.index[i][j];
+        fn index_or_one(arr: &[f32], i: usize) -> f32 {
+            if i < arr.len() {
+                arr[i]
+            } else {
+                1.
+            }
+        }
+        fn u8_to_f32_color(uc: u8) -> f32 {
+            f32::from(uc) / 255.
+        }
+        fn css_to_rgb(css_color: &str) -> (f32, f32, f32) {
+            let c = css_color.parse::<CssColor>().unwrap();
+            (
+                u8_to_f32_color(c.r),
+                u8_to_f32_color(c.g),
+                u8_to_f32_color(c.b),
+            )
+        }
+        fn custom_to_vec4(color: &CustomSchemeColor) -> [f32; 4] {
+            use CustomSchemeColor::*;
+            match color {
+                ColorString(css_color) => {
+                    let (r, g, b) = css_to_rgb(&css_color);
+                    [r, g, b, 1.]
+                }
+                ColorStringVal(css_color, val) => {
+                    let (r, g, b) = css_to_rgb(&css_color);
+                    [r, g, b, *val]
+                }
+                Vec4(vec) => [
+                    index_or_one(&vec, 0),
+                    index_or_one(&vec, 1),
+                    index_or_one(&vec, 2),
+                    index_or_one(&vec, 3),
+                ],
             }
         }
 
-        assert_eq!(
-            cs.speed[3].len(),
-            3,
-            "The fourth/final speed value of a color scheme must have exactly 3 values"
-        );
-        assert_eq!(
-            cs.index[3].len(),
-            3,
-            "The fourth/final index value of a color scheme must have exactly 3 values"
-        );
-        for j in 0..3 {
-            scheme.speed[3][j] = cs.speed[3][j];
-            scheme.index[3][j] = cs.index[3][j];
+        let mut scheme = Self::default();
+        for i in 0..4 {
+            scheme.speed[i] = custom_to_vec4(&cs.speed[i]);
+            scheme.index[i] = custom_to_vec4(&cs.index[i]);
         }
 
         scheme
@@ -95,8 +114,8 @@ pub const ORIGINAL: Scheme = Scheme {
 pub const NORTHERN_LIGHTS: Scheme = Scheme {
     speed: [
         [0.04, 0.5, 0.35, 0.2],
-        [0.6, 0.2, 0.5, 0.7],
-        [0.85, 0.45, 0.02, 1.8],
+        [0.55, 0.2, 0.45, 0.8],
+        [0.85, 0.45, 0.02, 1.5],
         [0.65, 0.08, 0.04, 0.],
     ],
     index: [
@@ -109,16 +128,16 @@ pub const NORTHERN_LIGHTS: Scheme = Scheme {
 
 pub const ARCTIC: Scheme = Scheme {
     speed: [
-        [0.15, 0.375, 0.425, 0.1],
+        [0.15, 0.375, 0.42, 0.15],
         [0.55, 0.6, 0.65, 1.],
-        [0.75, 0.75, 0.8, 3.25],
+        [0.75, 0.75, 0.8, 3.],
         [0.95, 0.95, 0.98, 0.],
     ],
     index: [
         [0.72, 0.75, 0.8, 0.25],
         [0.3, 0.35, 0.375, 0.5],
         [0.7, 0.72, 0.75, 0.75],
-        [0.2, 0.4, 0.4, 1.],
+        [0.3, 0.375, 0.35, 1.],
     ],
 };
 
@@ -130,39 +149,9 @@ pub const MAGMA_CORE: Scheme = Scheme {
         [0.8, 0.65, 0.5, 0.],
     ],
     index: [
-        [0.55, 0.01, 0.05, 0.25],
-        [0.22, 0.22, 0.25, 0.5],
-        [0.95, 0.62, 0.02, 0.75],
-        [0.65, 0.58, 0.52, 1.],
-    ],
-};
-
-pub const JUNGLE: Scheme = Scheme {
-    speed: [
-        [0.5, 0.3, 0.2, 0.15],
-        [0.7, 0.7, 0.05, 0.5],
-        [0.05, 0.75, 0.25, 3.],
-        [0.2, 0.8, 0.3, 0.],
-    ],
-    index: [
-        [0.8, 0.5, 0.15, 0.25],
-        [0.01, 0.55, 0.24, 0.5],
-        [0.65, 0.5, 0.02, 0.75],
-        [0.02, 0.65, 0.22, 1.],
-    ],
-};
-
-pub const BLACK_AND_YELLOW: Scheme = Scheme {
-    speed: [
-        [0.5, 0.4, 0., 0.15],
-        [0.7, 0.6, 0.1, 0.5],
-        [0.8, 0.75, 0.65, 3.],
-        [0.9, 0.9, 0.9, 0.],
-    ],
-    index: [
-        [0.2, 0.2, 0.2, 0.25],
-        [0.5, 0.45, 0., 0.5],
-        [0.2, 0.2, 0.2, 0.75],
-        [0.5, 0.45, 0., 1.],
+        [0.5, 0., 0.05, 0.25],
+        [0.22, 0.22, 0.23, 0.5],
+        [0.75, 0.5, 0.01, 0.75],
+        [0.6, 0.55, 0.5, 1.],
     ],
 };

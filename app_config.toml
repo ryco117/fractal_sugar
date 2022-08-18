@@ -8,30 +8,38 @@
 name = "Classic" # Defines the name for this color scheme. It is not used in code (atm...)
 speed = [
     # Each of the lists below represents an RGB triplet plus a fourth speed value.
-    # RGB values must be in the range [0.0, 1.0].
+    # There must be **exactly 4** such lists below.
+    # Each of the R, G, and B values must be in the range [0.0, 1.0] if not specified with a CSS color.
     # The speed value indicates the speed at which the color is most prominent. Values can be in range [0.0, 7.0]
     # Speed entries must be sorted by the speed value (last column) in ascending order.
     [0.0, 0.425, 0.55, 0.2],
-    [0.5, 0.725, 0.1, 0.5],
-    [0.7, 0.2, 1.0, 3.5],
-    [1.0, 0.4, 0.4], # The speed value of the last entry is ommitted since this color will be most prominent at the maximum speed.
+
+    # All valid CSS notation is also permitted as RGB input! The speed value is still located in the last column of the list.
+    ["#80B91A", 0.5],
+
+    # Even the more exotic CSS color formats are available, as long as they are formatted correctly.
+    ["hsl(277.65, 100%, 60%)", 3.5],
+
+    # The speed value of the last entry is ommitted since this color will be most prominent at the maximum speed (7.0 units per second).
+    [1.0, 0.4, 0.4],
 ]
 index = [
     # Each of the lists below represents an RGB triplet plus a fourth index value.
+    # There must be exactly 4 four such lists below.
     # All four values must be in the range [0.0, 1.0].
     # The index value indicates where in the jello-grid this color is most prominent.
     # Index entries must be sorted by the index value (last column) in ascending order.
     [0.8, 0.5, 0.3, 0.25],
     [0.35, 0.4, 0.8, 0.5],
     [0.8, 0.5, 0.6, 0.75],
-    [0.7, 0.1, 0.75],  # The index value of the last entry is ommitted since this color will be most prominent at the maximum speed.
+    "#b31abf", # The index value of the last entry is ommitted since this color will be most prominent at the maximum speed. Thus, it is valid to provide only a CSS color.
 ]
 
 [[color_schemes]]
 name = "Northern Lights"
 speed = [
     [0.04, 0.5, 0.35, 0.2],
-    [0.55, 0.2, 0.45, 0.6],
+    [0.55, 0.2, 0.45, 0.8],
     [0.85, 0.45, 0.02, 1.5],
     [0.65, 0.08, 0.04],
 ]
@@ -45,16 +53,16 @@ index = [
 [[color_schemes]]
 name = "Arctic"
 speed = [
-    [0.15, 0.375, 0.425, 0.1],
+    [0.15, 0.375, 0.42, 0.15],
     [0.55, 0.6, 0.65, 1.0],
-    [0.75, 0.75, 0.8, 3.25],
-    [0.95, 0.95, 0.98],
+    [0.75, 0.75, 0.8, 3.0],
+    "GhostWhite", # Another example of CSS tom-foolery. https://www.w3schools.com/cssref/css_colors.asp
 ]
 index = [
     [0.72, 0.75, 0.8, 0.25],
     [0.3, 0.35, 0.375, 0.5],
     [0.7, 0.72, 0.75, 0.75],
-    [0.2, 0.4, 0.4],
+    [0.3, 0.375, 0.35],
 ]
 
 [[color_schemes]]
@@ -91,13 +99,13 @@ index = [
 name = "Black & Yellow"
 speed = [
     [0.45, 0.4, 0.0, 0.16],
-    [0.7, 0.6, 0.1, 0.5],
+    [0.65, 0.55, 0.1, 0.5],
     [0.8, 0.75, 0.65, 3.0],
-    [0.9, 0.9, 0.9],
+    "WhiteSmoke",
 ]
 index = [
-    [0.19, 0.2, 0.2, 0.25],
+    [0.15, 0.18, 0.15, 0.25],
     [0.5, 0.45, 0.0, 0.5],
-    [0.19, 0.2, 0.2, 0.75],
+    [0.18, 0.15, 0.18, 0.75],
     [0.5, 0.45, 0.0],
 ]

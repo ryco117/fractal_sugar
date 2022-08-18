@@ -58,7 +58,7 @@ void main() {
 		gl_Position = vec4(pos.xy, 0.0, 1.0);
 	}
 
-	float t = fract(float(gl_VertexIndex)/push.particle_count + 0.0485*push.time);
+	float t = fract(float(gl_VertexIndex)/push.particle_count + 0.0475*push.time);
 	vec3 indexColor;
 	{
 		vec3 indexStart;

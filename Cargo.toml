@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 bytemuck = "1.9.1"
 cpal = "0.13.5"
+css-color-parser = "0.1.2"
 kernel32-sys = "0.2.2"
 rustfft = "6.0.1"
 serde = { version = "1.0.143", features = ["derive"] }

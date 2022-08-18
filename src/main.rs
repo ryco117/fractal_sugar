@@ -38,13 +38,11 @@ const CURSOR_FIXED_STRENGTH: f32 = 1.75;
 const KALEIDOSCOPE_SPEED: f32 = 0.275;
 const SCROLL_SENSITIVITY: f32 = 0.15;
 
-const COLOR_SCHEMES: [Scheme; 6] = [
+const COLOR_SCHEMES: [Scheme; 4] = [
     color_scheme::ORIGINAL,
     color_scheme::NORTHERN_LIGHTS,
     color_scheme::ARCTIC,
     color_scheme::MAGMA_CORE,
-    color_scheme::JUNGLE,
-    color_scheme::BLACK_AND_YELLOW,
 ];
 
 #[derive(Clone, Copy)]
