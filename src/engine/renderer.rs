@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use vulkano::buffer::device_local::DeviceLocalBuffer;
 use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, SubpassContents,
+    AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, RenderPassBeginInfo,
+    SubpassContents,
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::ClearValue;
@@ -21,14 +22,16 @@ fn begin_render_pass(
 ) {
     builder
         .begin_render_pass(
-            framebuffer.clone(),
+            RenderPassBeginInfo {
+                clear_values: vec![
+                    Some([0., 0., 0., 1.].into()),
+                    None,
+                    Some(ClearValue::Depth(1.)),
+                    None,
+                ], // Clear values for attachments
+                ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
+            },
             SubpassContents::Inline, // Use secondary command buffers to specify later passses
-            vec![
-                [0., 0., 0., 1.].into(),
-                ClearValue::None,
-                ClearValue::Depth(1.),
-                ClearValue::None,
-            ], // Clear values for attachments
         )
         .unwrap();
 }

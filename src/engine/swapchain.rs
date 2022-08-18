@@ -91,7 +91,7 @@ impl EngineSwapchain {
                 image_usage: {
                     // Swapchain images are going to be used for color, as well as MSAA destination
                     let mut u = ImageUsage::color_attachment();
-                    u.transfer_destination = true;
+                    u.transfer_dst = true;
                     u
                 },
                 composite_alpha,

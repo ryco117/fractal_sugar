@@ -62,9 +62,7 @@ pub fn select_hardware<'a>(
         DeviceCreateInfo {
             // Here we pass the desired queue families that we want to use
             queue_create_infos: vec![QueueCreateInfo::family(queue_family)],
-            enabled_extensions: physical_device
-                .required_extensions()
-                .union(&device_extensions),
+            enabled_extensions: device_extensions,
             ..Default::default()
         },
     )

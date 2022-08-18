@@ -3,7 +3,7 @@ use std::sync::Arc;
 use vulkano::buffer::device_local::DeviceLocalBuffer;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
 use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferExecFuture, CommandBufferUsage,
+    AutoCommandBufferBuilder, CommandBufferExecFuture, CommandBufferUsage, CopyBufferInfoTyped,
     PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
@@ -124,16 +124,14 @@ pub type FractalPushConstants = fractal_shaders::fs::ty::PushConstants;
 impl Engine {
     pub fn new(event_loop: &EventLoop<()>, initial_color_scheme: Scheme) -> Self {
         // Create instance with extensions required for windowing (and optional debugging layer(s))
-        let required_extensions = vulkano::instance::InstanceExtensions {
-            ..vulkano_win::required_extensions()
-        };
         let instance = Instance::new(InstanceCreateInfo {
-            enabled_extensions: required_extensions,
+            enabled_extensions: vulkano_win::required_extensions(),
             enabled_layers: if DEBUG_VULKAN {
                 vec!["VK_LAYER_KHRONOS_validation".to_owned()]
             } else {
                 vec![]
             },
+            enumerate_portability: true, // Allows for non-conformant devices to be considered when searching for the best graphics device
             ..Default::default()
         })
         .expect("Failed to create Vulkan instance");
@@ -195,7 +193,7 @@ impl Engine {
             // Create simple buffer type that we can write data to
             let data_source_buffer = CpuAccessibleBuffer::from_iter(
                 device.clone(),
-                BufferUsage::transfer_source(),
+                BufferUsage::transfer_src(),
                 false,
                 data_iter,
             )
@@ -206,7 +204,7 @@ impl Engine {
                 device.clone(),
                 count as vulkano::DeviceSize,
                 BufferUsage {
-                    transfer_destination: true,
+                    transfer_dst: true,
                     ..usage
                 },
                 device.active_queue_families(),
@@ -220,8 +218,11 @@ impl Engine {
                 CommandBufferUsage::OneTimeSubmit,
             )
             .unwrap();
-            cbb.copy_buffer(data_source_buffer, local_buffer.clone())
-                .unwrap();
+            cbb.copy_buffer(CopyBufferInfoTyped::buffers(
+                data_source_buffer,
+                local_buffer.clone(),
+            ))
+            .unwrap();
             let cb = cbb.build().unwrap();
 
             // Create future representing execution of copy-command
@@ -633,7 +634,7 @@ impl Engine {
                         dimensions,
                         image_format,
                         ImageUsage {
-                            transfer_destination: true,
+                            transfer_dst: true,
                             input_attachment: true,
                             color_attachment: true,
                             ..ImageUsage::none()

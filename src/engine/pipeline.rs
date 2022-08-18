@@ -3,6 +3,7 @@ use std::sync::Arc;
 use vulkano::device::Device;
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology};
+use vulkano::pipeline::graphics::multisample::MultisampleState;
 use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::pipeline::GraphicsPipeline;
@@ -19,7 +20,7 @@ pub fn create_particle(
     subpass: Subpass,
     viewport: Viewport,
 ) -> Arc<GraphicsPipeline> {
-    GraphicsPipeline::start()
+    match GraphicsPipeline::start()
         // Describes the layout of the vertex input and how should it behave
         .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
         // A Vulkan shader may contain multiple entry points, so we specify which one
@@ -32,11 +33,19 @@ pub fn create_particle(
         .fragment_shader(frag_shader.entry_point("main").unwrap(), ())
         // Explicitly enable depth testing
         .depth_stencil_state(DepthStencilState::simple_depth_test())
+        // Explicitly make this graphics pipeline use desired multisampling
+        .multisample_state(MultisampleState {
+            rasterization_samples: subpass.num_samples().unwrap(),
+            ..Default::default()
+        })
         // Specify the subpass that this pipeline will be used in
         .render_pass(subpass)
         // Now that everything is specified, we call `build`
         .build(device)
-        .unwrap()
+    {
+        Ok(pipeline) => pipeline,
+        Err(e) => panic!("Failed to construct particle graphics pipeline: {:?}", e),
+    }
 }
 
 // Create a graphics pipeline for displaying fractals
