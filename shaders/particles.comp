@@ -19,6 +19,11 @@ layout (binding = 2) buffer readonly FixedCubePosBuffer {
 	vec3 fixed_cube_positions[];
 };
 
+layout (binding = 3) uniform AppConstants {
+	float max_speed;
+	float particle_count;
+} appConstants;
+
 layout (push_constant) uniform PushConstants {
 	vec4 big_boomer;
 	vec4 curl_attractors[2];
@@ -34,7 +39,6 @@ layout (push_constant) uniform PushConstants {
 
 const float spring_coefficient = 75.0;
 
-const float max_speed = 7.0; // Must match `max_speed` in vertex shader
 const float min_length = 0.01;
 
 const float audio_scale = 0.01;
@@ -183,8 +187,8 @@ void main(void) {
 
 	vel += push.delta_time * g;
 	
-	if(length(vel) > max_speed) {
-		vel = max_speed*normalize(vel);
+	if(length(vel) > appConstants.max_speed) {
+		vel = appConstants.max_speed*normalize(vel);
 	}
 
 	pos += vel * push.delta_time;

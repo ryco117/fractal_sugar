@@ -409,7 +409,6 @@ fn main() {
                 let vertex = engine::ParticleVertexPushConstants {
                     quaternion: camera_quaternion.into(),
                     time: game_time,
-                    particle_count: engine.vertex_count() as f32,
                     aspect_ratio,
                     rendering_fractal: bool_to_u32(distance_estimator_id != 0),
                     alternate_colors: bool_to_u32(alternate_colors),

@@ -1,11 +1,8 @@
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
 use vulkano::buffer::device_local::DeviceLocalBuffer;
 use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
-use vulkano::command_buffer::{
-    AutoCommandBufferBuilder, CommandBufferExecFuture, CommandBufferUsage, CopyBufferInfoTyped,
-    PrimaryAutoCommandBuffer, PrimaryCommandBuffer,
-};
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
@@ -16,7 +13,7 @@ use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{PresentMode, Surface};
-use vulkano::sync::{FenceSignalFuture, GpuFuture, NowFuture};
+use vulkano::sync::{FenceSignalFuture, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event_loop::EventLoop;
@@ -28,6 +25,7 @@ mod hardware;
 pub mod pipeline;
 pub mod renderer;
 pub mod swapchain;
+mod utils;
 mod vertex;
 
 use crate::color_scheme::Scheme;
@@ -38,6 +36,7 @@ use vertex::Vertex;
 type EngineFrameFuture = Arc<FenceSignalFuture<Box<dyn GpuFuture>>>;
 
 pub struct Engine {
+    app_constants: Arc<ImmutableBuffer<AppConstants>>,
     compute_descriptor_set: Arc<PersistentDescriptorSet>,
     compute_pipeline: Arc<ComputePipeline>,
     device: Arc<Device>,
@@ -67,8 +66,10 @@ const DEBUG_VULKAN: bool = false;
 const SQUARE_FILLING_CURVE_DEPTH: usize = 6;
 const CUBE_FILLING_CURVE_DEPTH: usize = 4;
 
+// TODO: Make these into configuration default values
 const PARTICLE_COUNT: usize = 1_250_000;
 const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
+const MAX_SPEED: f32 = 7.;
 
 // Create module for the particle's shader macros
 #[allow(clippy::expl_impl_clone_on_copy)]
@@ -120,6 +121,13 @@ mod fractal_shaders {
 
 // Export Push Constant types to callers
 pub type FractalPushConstants = fractal_shaders::fs::ty::PushConstants;
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct AppConstants {
+    pub max_speed: f32,
+    pub particle_count: f32,
+}
 
 impl Engine {
     pub fn new(event_loop: &EventLoop<()>, initial_color_scheme: Scheme) -> Self {
@@ -174,63 +182,18 @@ impl Engine {
         let comp_shader = particle_shaders::cs::load(device.clone())
             .expect("Failed to load particle compute shader");
 
-        // Create Storage Buffers for particle info
-        fn create_buffer<T, I>(
-            device: &Arc<Device>,
-            queue: &Arc<Queue>,
-            data_iter: I,
-            usage: BufferUsage,
-        ) -> (
-            Arc<DeviceLocalBuffer<[T]>>,
-            CommandBufferExecFuture<NowFuture, PrimaryAutoCommandBuffer>,
+        // Before creating descriptor sets and other buffers, allocate app-constants buffer
+        let (app_constants, app_constants_future) = ImmutableBuffer::from_data(
+            AppConstants {
+                max_speed: MAX_SPEED,
+                particle_count: PARTICLE_COUNT_F32,
+            },
+            BufferUsage::uniform_buffer(),
+            queue.clone(),
         )
-        where
-            [T]: vulkano::buffer::BufferContents,
-            I: ExactSizeIterator<Item = T>,
-        {
-            let count = data_iter.len();
+        .unwrap();
 
-            // Create simple buffer type that we can write data to
-            let data_source_buffer = CpuAccessibleBuffer::from_iter(
-                device.clone(),
-                BufferUsage::transfer_src(),
-                false,
-                data_iter,
-            )
-            .expect("Failed to create test compute buffer");
-
-            // Create device-local buffer for optimal GPU access
-            let local_buffer = DeviceLocalBuffer::<[T]>::array(
-                device.clone(),
-                count as vulkano::DeviceSize,
-                BufferUsage {
-                    transfer_dst: true,
-                    ..usage
-                },
-                device.active_queue_families(),
-            )
-            .expect("Failed to create immutable fixed-position buffer");
-
-            // Create buffer copy command
-            let mut cbb = AutoCommandBufferBuilder::primary(
-                device.clone(),
-                queue.family(),
-                CommandBufferUsage::OneTimeSubmit,
-            )
-            .unwrap();
-            cbb.copy_buffer(CopyBufferInfoTyped::buffers(
-                data_source_buffer,
-                local_buffer.clone(),
-            ))
-            .unwrap();
-            let cb = cbb.build().unwrap();
-
-            // Create future representing execution of copy-command
-            let future = cb.execute(queue.clone()).unwrap();
-
-            // Return device-local buffer with execution future (so caller can decide how best to synchronize execution)
-            (local_buffer, future)
-        }
+        // Create storage buffers for particle info
         let (vertex_buffer, fixed_square_buffer, fixed_cube_buffer) = {
             // Create position data by mapping particle index to screen using a space filling curve
             let square_position_iter = (0..PARTICLE_COUNT).map(|i| {
@@ -276,7 +239,7 @@ impl Engine {
             });
 
             // Create position buffer
-            let (vertex_buffer, vertex_future) = create_buffer(
+            let (vertex_buffer, vertex_future) = utils::local_buffer_from_iter(
                 &device,
                 &queue,
                 vertex_iter,
@@ -287,6 +250,7 @@ impl Engine {
             fixed_square_copy_future
                 .join(fixed_cube_copy_future)
                 .join(vertex_future)
+                .join(app_constants_future)
                 .then_signal_fence_and_flush()
                 .unwrap()
                 .wait(None)
@@ -322,6 +286,7 @@ impl Engine {
                 WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
                 WriteDescriptorSet::buffer(1, fixed_square_buffer),
                 WriteDescriptorSet::buffer(2, fixed_cube_buffer),
+                WriteDescriptorSet::buffer(3, app_constants.clone()),
             ],
         )
         .unwrap();
@@ -423,7 +388,10 @@ impl Engine {
                     .get(0)
                     .unwrap()
                     .clone(),
-                [WriteDescriptorSet::buffer(0, color_scheme_buffer)],
+                [
+                    WriteDescriptorSet::buffer(0, color_scheme_buffer),
+                    WriteDescriptorSet::buffer(1, app_constants.clone()),
+                ],
             )
             .unwrap()
         };
@@ -439,6 +407,7 @@ impl Engine {
 
         // Construct new Engine
         Self {
+            app_constants,
             compute_descriptor_set,
             compute_pipeline,
             device,
@@ -687,7 +656,10 @@ impl Engine {
                 .get(0)
                 .unwrap()
                 .clone(),
-            [WriteDescriptorSet::buffer(0, color_scheme_buffer)],
+            [
+                WriteDescriptorSet::buffer(0, color_scheme_buffer),
+                WriteDescriptorSet::buffer(1, self.app_constants.clone()),
+            ],
         )
         .unwrap();
     }

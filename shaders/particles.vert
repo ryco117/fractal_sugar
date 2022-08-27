@@ -5,23 +5,24 @@ layout (location = 1) in vec3 vel;
 
 layout (location = 0) out vec4 outColor;
 
-layout (push_constant) uniform PushConstants {
-	vec4 quaternion;
-	float time;
-	float particle_count;
-	float aspect_ratio;
-	bool rendering_fractal;
-	bool alternate_colors;
-	bool use_third_dimension;
-} push;
-
 layout (binding = 0) uniform ParticleColorScheme {
     vec4 speedConst[4];
 	vec4 indexConst[4];
 } particleColors;
 
-// Must match `max_speed` in compute shader. TODO: Pass from app to shader
-const float maxSpeed = 7.0;
+layout (binding = 1) uniform AppConstants {
+	float max_speed;
+	float particle_count;
+} appConstants;
+
+layout (push_constant) uniform PushConstants {
+	vec4 quaternion;
+	float time;
+	float aspect_ratio;
+	bool rendering_fractal;
+	bool alternate_colors;
+	bool use_third_dimension;
+} push;
 
 // Define constants for perspective rendering
 // Distances must match those used in `ray_march.frag`
@@ -58,7 +59,7 @@ void main() {
 		gl_Position = vec4(pos.xy, 0.0, 1.0);
 	}
 
-	float t = fract(float(gl_VertexIndex)/push.particle_count + 0.0475*push.time);
+	float t = fract(float(gl_VertexIndex)/appConstants.particle_count + 0.0475*push.time);
 	vec3 indexColor;
 	{
 		vec3 indexStart;
@@ -88,7 +89,7 @@ void main() {
 		indexColor = mix(indexStart, indexEnd, indexScale);
 	}
 
-	float speed = min(length(vel), maxSpeed);
+	float speed = min(length(vel), appConstants.max_speed);
 	vec3 speedColor;
 	{
 		vec3 speedStart;
@@ -125,7 +126,7 @@ void main() {
 				speedStart = abs(vec3(1.0) - speedStart);
 				speedEnd = abs(vec3(1.0) - speedEnd);
 			}
-			speedScale = (speed - particleColors.speedConst[2].w)/(maxSpeed - particleColors.speedConst[2].w);
+			speedScale = (speed - particleColors.speedConst[2].w)/(appConstants.max_speed - particleColors.speedConst[2].w);
 		}
 		speedColor = mix(speedStart, speedEnd, speedScale);
 	}

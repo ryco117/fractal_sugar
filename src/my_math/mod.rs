@@ -3,7 +3,7 @@ use std::ops::{Add, AddAssign, Mul, Neg, Sub};
 use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
-#[derive(Copy, Clone, Default, Zeroable, Pod)]
+#[derive(Clone, Copy, Default, Pod, Zeroable)]
 pub struct Vector4 {
     pub x: f32,
     pub y: f32,
@@ -66,7 +66,7 @@ impl From<Vector4> for [f32; 4] {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Zeroable, Pod)]
+#[derive(Clone, Copy, Pod, Zeroable)]
 pub struct Quaternion {
     pub v: Vector4,
 }
@@ -115,7 +115,7 @@ impl From<Quaternion> for [f32; 4] {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default, Zeroable, Pod)]
+#[derive(Clone, Copy, Default, Pod, Zeroable)]
 pub struct Vector3 {
     pub x: f32,
     pub y: f32,
@@ -208,7 +208,7 @@ impl From<Vector3> for [f32; 4] {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, Default, Zeroable, Pod)]
+#[derive(Clone, Copy, Default, Pod, Zeroable)]
 pub struct Vector2 {
     pub x: f32,
     pub y: f32,

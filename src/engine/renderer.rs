@@ -66,7 +66,7 @@ pub fn create_render_commands(
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 compute_pipeline.layout().clone(),
-                0, // Bind this descriptor set to index 0
+                0, // Start binding descriptor sets at index 0
                 descriptor_set,
             )
             .dispatch([buffer_count / 128, 1, 1])
@@ -126,7 +126,7 @@ fn inline_particles_cmds(
         .bind_descriptor_sets(
             PipelineBindPoint::Graphics,
             pipeline.layout().clone(),
-            0, // Bind this descriptor set to index 0
+            0,
             descriptor_set,
         )
         .draw(buffer_count, 1, 0, 0)

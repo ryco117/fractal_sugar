@@ -89,10 +89,10 @@ pub fn parse_custom_schemes(filepath: &str) -> Result<Vec<Scheme>, Box<dyn Error
         schemes.push(Scheme::from(cs));
     }
 
-    if !schemes.is_empty() {
-        Ok(schemes)
-    } else {
+    if schemes.is_empty() {
         Err(Box::<dyn Error>::from("No color schemes processed"))
+    } else {
+        Ok(schemes)
     }
 }
 
