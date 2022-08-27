@@ -55,18 +55,18 @@ impl std::convert::From<&CustomScheme> for Scheme {
             use CustomSchemeColor::*;
             match color {
                 ColorString(css_color) => {
-                    let (r, g, b) = css_to_rgb(&css_color);
+                    let (r, g, b) = css_to_rgb(css_color);
                     [r, g, b, 1.]
                 }
                 ColorStringVal(css_color, val) => {
-                    let (r, g, b) = css_to_rgb(&css_color);
+                    let (r, g, b) = css_to_rgb(css_color);
                     [r, g, b, *val]
                 }
                 Vec4(vec) => [
-                    index_or_one(&vec, 0),
-                    index_or_one(&vec, 1),
-                    index_or_one(&vec, 2),
-                    index_or_one(&vec, 3),
+                    index_or_one(vec, 0),
+                    index_or_one(vec, 1),
+                    index_or_one(vec, 2),
+                    index_or_one(vec, 3),
                 ],
             }
         }
@@ -85,11 +85,11 @@ pub fn parse_custom_schemes(filepath: &str) -> Result<Vec<Scheme>, Box<dyn Error
     let custom_schemes: CustomSchemes = toml::from_str(&std::fs::read_to_string(filepath)?)?;
 
     let mut schemes: Vec<Scheme> = vec![];
-    for cs in custom_schemes.color_schemes.iter() {
-        schemes.push(Scheme::from(cs))
+    for cs in &custom_schemes.color_schemes {
+        schemes.push(Scheme::from(cs));
     }
 
-    if schemes.len() > 0 {
+    if !schemes.is_empty() {
         Ok(schemes)
     } else {
         Err(Box::<dyn Error>::from("No color schemes processed"))

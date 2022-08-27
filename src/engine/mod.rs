@@ -408,23 +408,25 @@ impl Engine {
         );
 
         // Particle color schemes?!
-        let color_scheme_buffer = CpuAccessibleBuffer::from_data(
-            device.clone(),
-            BufferUsage::uniform_buffer(),
-            false,
-            initial_color_scheme,
-        )
-        .unwrap();
-        let particle_descriptor_set = PersistentDescriptorSet::new(
-            particle_pipeline
-                .layout()
-                .set_layouts()
-                .get(0)
-                .unwrap()
-                .clone(),
-            [WriteDescriptorSet::buffer(0, color_scheme_buffer.clone())],
-        )
-        .unwrap();
+        let particle_descriptor_set = {
+            let color_scheme_buffer = CpuAccessibleBuffer::from_data(
+                device.clone(),
+                BufferUsage::uniform_buffer(),
+                false,
+                initial_color_scheme,
+            )
+            .unwrap();
+            PersistentDescriptorSet::new(
+                particle_pipeline
+                    .layout()
+                    .set_layouts()
+                    .get(0)
+                    .unwrap()
+                    .clone(),
+                [WriteDescriptorSet::buffer(0, color_scheme_buffer)],
+            )
+            .unwrap()
+        };
 
         // Create a framebuffer to store results of render pass
         let framebuffers = Self::create_framebuffers(
@@ -669,7 +671,7 @@ impl Engine {
             .collect()
     }
 
-    pub fn update_color_scheme(&mut self, scheme: Scheme) -> () {
+    pub fn update_color_scheme(&mut self, scheme: Scheme) {
         let color_scheme_buffer = CpuAccessibleBuffer::from_data(
             self.device.clone(),
             BufferUsage::uniform_buffer(),
@@ -685,7 +687,7 @@ impl Engine {
                 .get(0)
                 .unwrap()
                 .clone(),
-            [WriteDescriptorSet::buffer(0, color_scheme_buffer.clone())],
+            [WriteDescriptorSet::buffer(0, color_scheme_buffer)],
         )
         .unwrap();
     }
