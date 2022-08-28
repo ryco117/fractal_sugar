@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use vulkano::buffer::device_local::DeviceLocalBuffer;
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, ImmutableBuffer};
+use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
@@ -46,6 +46,7 @@ struct Fractal {
     pub vert_shader: Arc<ShaderModule>,
 }
 struct Particles {
+    pub scheme_buffer_pool: CpuBufferPool<Scheme>,
     pub compute_descriptor_set: Arc<PersistentDescriptorSet>,
     pub compute_pipeline: Arc<ComputePipeline>,
     pub frag_shader: Arc<ShaderModule>,
@@ -505,14 +506,7 @@ impl Engine {
     }
 
     pub fn update_color_scheme(&mut self, scheme: Scheme) {
-        let color_scheme_buffer = CpuAccessibleBuffer::from_data(
-            self.device.clone(),
-            BufferUsage::uniform_buffer(),
-            false,
-            scheme,
-        )
-        .unwrap();
-
+        let color_scheme_buffer = self.particles.scheme_buffer_pool.next(scheme).unwrap();
         self.particles.graphics_descriptor_set = PersistentDescriptorSet::new(
             self.particles
                 .graphics_pipeline
@@ -597,15 +591,12 @@ impl Particles {
             viewport,
         );
 
+        // Use a buffer pool for quick switching of scheme data
+        let scheme_buffer_pool: CpuBufferPool<Scheme> = CpuBufferPool::uniform_buffer(device.clone());
+
         // Particle color schemes?!
         let graphics_descriptor_set = {
-            let color_scheme_buffer = CpuAccessibleBuffer::from_data(
-                device.clone(),
-                BufferUsage::uniform_buffer(),
-                false,
-                initial_color_scheme,
-            )
-            .unwrap();
+            let color_scheme_buffer = scheme_buffer_pool.next(initial_color_scheme).unwrap();
             PersistentDescriptorSet::new(
                 graphics_pipeline
                     .layout()
@@ -710,6 +701,7 @@ impl Particles {
         .unwrap();
 
         Self {
+            scheme_buffer_pool,
             compute_descriptor_set,
             compute_pipeline,
             frag_shader,
