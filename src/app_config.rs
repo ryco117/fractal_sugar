@@ -13,22 +13,52 @@ pub struct Scheme {
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-pub enum CustomSchemeColor {
+enum CustomSchemeColor {
     ColorString(String),
     ColorStringVal(String, f32),
     Vec4(Vec<f32>),
 }
 
 #[derive(Deserialize)]
-pub struct CustomScheme {
+struct CustomScheme {
     pub name: String,
     pub speed: [CustomSchemeColor; 4],
     pub index: [CustomSchemeColor; 4],
 }
 
 #[derive(Deserialize)]
-pub struct CustomSchemes {
+#[serde(deny_unknown_fields)]
+struct TomlData {
+    pub max_speed: Option<f32>,
+    pub particle_count: Option<usize>,
+
+    #[serde(default)]
     pub color_schemes: Vec<CustomScheme>,
+}
+
+// Hardcoded default values
+const MAX_SPEED: f32 = 7.;
+const PARTICLE_COUNT: usize = 1_250_000;
+
+#[derive(Clone)]
+pub struct AppConfig {
+    pub max_speed: f32,
+    pub particle_count: usize,
+    pub color_schemes: Vec<Scheme>,
+    pub color_scheme_names: Vec<String>,
+}
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            max_speed: MAX_SPEED,
+            particle_count: PARTICLE_COUNT,
+            color_schemes: COLOR_SCHEMES.to_vec(),
+            color_scheme_names: COLOR_SCHEME_NAMES
+                .iter()
+                .map(|&s| String::from(s))
+                .collect(),
+        }
+    }
 }
 
 impl std::convert::From<&CustomScheme> for Scheme {
@@ -81,19 +111,51 @@ impl std::convert::From<&CustomScheme> for Scheme {
     }
 }
 
-pub fn parse_custom_schemes(filepath: &str) -> Result<Vec<Scheme>, Box<dyn Error>> {
-    let custom_schemes: CustomSchemes = toml::from_str(&std::fs::read_to_string(filepath)?)?;
+pub fn parse_file(filepath: &str) -> Result<AppConfig, Box<dyn Error>> {
+    let config: TomlData = toml::from_str(&std::fs::read_to_string(filepath)?)?;
 
     let mut schemes: Vec<Scheme> = vec![];
-    for cs in &custom_schemes.color_schemes {
+    let mut scheme_names: Vec<String> = vec![];
+    for cs in &config.color_schemes {
         schemes.push(Scheme::from(cs));
+        scheme_names.push(cs.name.clone());
     }
 
-    if schemes.is_empty() {
-        Err(Box::<dyn Error>::from("No color schemes processed"))
+    let (color_schemes, color_scheme_names) = if schemes.is_empty() {
+        assert_eq!(
+            COLOR_SCHEMES.len(),
+            COLOR_SCHEME_NAMES.len(),
+            "Ensure the compile-time default schemes have equal length."
+        );
+
+        // Sane default color scheme
+        (
+            COLOR_SCHEMES.to_vec(),
+            COLOR_SCHEME_NAMES
+                .iter()
+                .map(|&s| String::from(s))
+                .collect(),
+        )
     } else {
-        Ok(schemes)
-    }
+        (schemes, scheme_names)
+    };
+
+    let particle_count = {
+        let n = config.particle_count.unwrap_or(PARTICLE_COUNT);
+        if n == 0 {
+            return Err(Box::<dyn Error>::from(
+                "The `particle_count` must be a positive integer.",
+            ));
+        }
+        n
+    };
+
+    Ok(AppConfig {
+        max_speed: config.max_speed.unwrap_or(MAX_SPEED),
+        particle_count,
+        color_schemes,
+        color_scheme_names,
+    })
 }
 
 pub const ORIGINAL: Scheme = Scheme {
@@ -155,3 +217,6 @@ pub const MAGMA_CORE: Scheme = Scheme {
         [0.6, 0.55, 0.5, 1.],
     ],
 };
+
+const COLOR_SCHEMES: [Scheme; 4] = [ORIGINAL, NORTHERN_LIGHTS, ARCTIC, MAGMA_CORE];
+const COLOR_SCHEME_NAMES: [&str; 4] = ["Classic", "Northern Lights", "Arctic", "Magma Core"];

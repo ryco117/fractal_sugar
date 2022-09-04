@@ -1,9 +1,15 @@
-# This file defines a series of color schemes that may be applied to each particle.
+# This is the configuration file for fractal_sugar.
+# Every field in this file is optional. A reasonable default value is used if a field is not present.
+
+# Can specify the maximum particle speed. Default value is 7.0.
+max_speed = 6.0
+
+# Can specify the number of particles to simulate. Default value is 1_250_000.
+particle_count = 2_000_000
+
+# This file can define a series of color schemes that may be applied to each particle.
 # Each color scheme requires a title, 4 speed-dependent color values, and 4 index-dependent color values.
-
-# NOTE: This file may latter contain more configuration options, but it currently does not.
-
-# The field [[color_schemes]] specifies that the following data entries define an object in the `color_schemes` list.
+# The field [[color_schemes]] specifies that the following values define an object in the `color_schemes` list.
 [[color_schemes]]
 name = "Classic" # Defines the name for this color scheme. It is not used in code (atm...)
 speed = [

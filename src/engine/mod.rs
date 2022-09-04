@@ -28,7 +28,7 @@ pub mod swapchain;
 mod utils;
 mod vertex;
 
-use crate::color_scheme::Scheme;
+use crate::app_config::{AppConfig, Scheme};
 use crate::my_math::{Vector2, Vector3};
 use crate::space_filling_curves;
 use vertex::Vertex;
@@ -79,13 +79,12 @@ const DEBUG_VULKAN: bool = false;
 const SQUARE_FILLING_CURVE_DEPTH: usize = 6;
 const CUBE_FILLING_CURVE_DEPTH: usize = 4;
 
-// TODO: Make these into configuration default values
-const PARTICLE_COUNT: usize = 1_250_000;
-const PARTICLE_COUNT_F32: f32 = PARTICLE_COUNT as f32;
-const MAX_SPEED: f32 = 7.;
-
 // Create module for the particle's shader macros
-#[allow(clippy::expl_impl_clone_on_copy)]
+#[allow(
+    clippy::expl_impl_clone_on_copy,
+    clippy::needless_question_mark,
+    clippy::used_underscore_binding
+)]
 mod particle_shaders {
     pub mod fs {
         vulkano_shaders::shader! {
@@ -116,7 +115,7 @@ pub type ParticleComputePushConstants = particle_shaders::cs::ty::PushConstants;
 pub type ParticleVertexPushConstants = particle_shaders::vs::ty::PushConstants;
 
 // Create module for the fractal shader macros
-#[allow(clippy::expl_impl_clone_on_copy)]
+#[allow(clippy::expl_impl_clone_on_copy, clippy::needless_question_mark)]
 mod fractal_shaders {
     pub mod fs {
         vulkano_shaders::shader! {
@@ -143,7 +142,7 @@ struct AppConstants {
 }
 
 impl Engine {
-    pub fn new(event_loop: &EventLoop<()>, initial_color_scheme: Scheme) -> Self {
+    pub fn new(event_loop: &EventLoop<()>, app_config: &AppConfig) -> Self {
         // Create instance with extensions required for windowing (and optional debugging layer(s))
         let instance = Instance::new(InstanceCreateInfo {
             enabled_extensions: vulkano_win::required_extensions(),
@@ -182,10 +181,12 @@ impl Engine {
         let fences: Vec<Option<EngineFrameFuture>> = vec![None; frames_in_flight];
 
         // Before creating descriptor sets and other buffers, allocate app-constants buffer
+        let particle_count: usize = app_config.particle_count;
+        let particle_count_f32: f32 = particle_count as f32;
         let (app_constants, app_constants_future) = ImmutableBuffer::from_data(
             AppConstants {
-                max_speed: MAX_SPEED,
-                particle_count: PARTICLE_COUNT_F32,
+                max_speed: app_config.max_speed,
+                particle_count: particle_count_f32,
             },
             BufferUsage::uniform_buffer(),
             queue.clone(),
@@ -264,7 +265,7 @@ impl Engine {
             &queue,
             &render_pass,
             viewport.clone(),
-            initial_color_scheme,
+            app_config,
             &app_constants,
             app_constants_future,
         );
@@ -560,7 +561,7 @@ impl Particles {
         queue: &Arc<Queue>,
         render_pass: &Arc<RenderPass>,
         viewport: Viewport,
-        initial_color_scheme: Scheme,
+        app_config: &AppConfig,
         app_constants: &Arc<ImmutableBuffer<AppConstants>>,
         app_constants_future: ImmutableBufferFromBufferFuture,
     ) -> Self {
@@ -592,11 +593,13 @@ impl Particles {
         );
 
         // Use a buffer pool for quick switching of scheme data
-        let scheme_buffer_pool: CpuBufferPool<Scheme> = CpuBufferPool::uniform_buffer(device.clone());
+        let scheme_buffer_pool = CpuBufferPool::uniform_buffer(device.clone());
 
         // Particle color schemes?!
         let graphics_descriptor_set = {
-            let color_scheme_buffer = scheme_buffer_pool.next(initial_color_scheme).unwrap();
+            let color_scheme_buffer = scheme_buffer_pool
+                .next(app_config.color_schemes[0])
+                .unwrap();
             PersistentDescriptorSet::new(
                 graphics_pipeline
                     .layout()
@@ -614,16 +617,18 @@ impl Particles {
 
         // Create storage buffers for particle info
         let (vertex_buffer, fixed_square_buffer, fixed_cube_buffer) = {
+            let particle_count_f32 = app_config.particle_count as f32;
+
             // Create position data by mapping particle index to screen using a space filling curve
-            let square_position_iter = (0..PARTICLE_COUNT).map(|i| {
+            let square_position_iter = (0..app_config.particle_count).map(|i| {
                 space_filling_curves::square::curve_to_square_n(
-                    i as f32 / PARTICLE_COUNT_F32,
+                    i as f32 / particle_count_f32,
                     SQUARE_FILLING_CURVE_DEPTH,
                 )
             });
-            let cube_position_iter = (0..PARTICLE_COUNT).map(|i| {
+            let cube_position_iter = (0..app_config.particle_count).map(|i| {
                 space_filling_curves::cube::curve_to_cube_n(
-                    i as f32 / PARTICLE_COUNT_F32,
+                    i as f32 / particle_count_f32,
                     CUBE_FILLING_CURVE_DEPTH,
                 )
             });
@@ -646,10 +651,10 @@ impl Particles {
             .expect("Failed to create immutable fixed-position buffer");
 
             // Create vertex data by re-calculating position
-            let vertex_iter = (0..PARTICLE_COUNT).map(|i| Vertex {
+            let vertex_iter = (0..app_config.particle_count).map(|i| Vertex {
                 pos: {
                     let Vector2 { x, y } = space_filling_curves::square::curve_to_square_n(
-                        i as f32 / PARTICLE_COUNT_F32,
+                        i as f32 / particle_count_f32,
                         SQUARE_FILLING_CURVE_DEPTH,
                     );
                     Vector3::new(x, y, 0.)

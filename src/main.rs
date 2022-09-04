@@ -20,14 +20,14 @@ use winapi::um::winuser::{SW_HIDE, SW_SHOW};
 
 use engine::swapchain::RecreateSwapchainResult;
 
+mod app_config;
 mod audio;
-mod color_scheme;
 mod engine;
 mod my_math;
 mod space_filling_curves;
 
+use app_config::AppConfig;
 use audio::AudioState;
-use color_scheme::Scheme;
 use my_math::helpers::{interpolate_floats, interpolate_vec3};
 use my_math::{Quaternion, Vector3, Vector4};
 
@@ -37,13 +37,6 @@ const CURSOR_LOOSE_STRENGTH: f32 = 0.75;
 const CURSOR_FIXED_STRENGTH: f32 = 1.75;
 const KALEIDOSCOPE_SPEED: f32 = 0.275;
 const SCROLL_SENSITIVITY: f32 = 0.15;
-
-const COLOR_SCHEMES: [Scheme; 4] = [
-    color_scheme::ORIGINAL,
-    color_scheme::NORTHERN_LIGHTS,
-    color_scheme::ARCTIC,
-    color_scheme::MAGMA_CORE,
-];
 
 #[derive(Clone, Copy)]
 enum KaleidoscopeDirection {
@@ -111,16 +104,16 @@ fn bool_to_u32(b: bool) -> u32 {
 }
 
 fn main() {
-    let color_schmes = {
+    let app_config = {
         let filepath = "app_config.toml";
-        match color_scheme::parse_custom_schemes(filepath) {
-            Ok(schemes) => schemes,
+        match app_config::parse_file(filepath) {
+            Ok(config) => config,
             Err(e) => {
                 println!(
                     "Failed to process custom color schemes file `{}`: {:?}",
                     filepath, e
                 );
-                COLOR_SCHEMES.to_vec()
+                AppConfig::default()
             }
         }
     };
@@ -129,7 +122,7 @@ fn main() {
     let event_loop = EventLoop::new();
 
     // Use Engine helper to initialize Vulkan instance
-    let mut engine = engine::Engine::new(&event_loop, color_schmes[0]);
+    let mut engine = engine::Engine::new(&event_loop, &app_config);
 
     // Capture reference to audio stream and use message passing to receive data
     let (tx, rx) = mpsc::channel();
@@ -514,8 +507,8 @@ fn main() {
 
                 // Tab through different color schemes / palattes ?
                 VirtualKeyCode::Tab => {
-                    color_scheme_index = (color_scheme_index + 1) % color_schmes.len();
-                    engine.update_color_scheme(color_schmes[color_scheme_index]);
+                    color_scheme_index = (color_scheme_index + 1) % app_config.color_schemes.len();
+                    engine.update_color_scheme(app_config.color_schemes[color_scheme_index]);
                 }
 
                 // Set different fractal types

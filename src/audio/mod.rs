@@ -190,11 +190,11 @@ fn processing_thread_from_sample_rate(
                     let start_index = frequency_to_index(frequency_range.start);
                     let end_index = frequency_to_index(frequency_range.end);
                     let len = end_index - start_index;
-                    let flen = len as f32;
+                    let len_f32 = len as f32;
 
                     (0..len)
                         .map(|i| {
-                            let frac = i as f32 / flen;
+                            let frac = i as f32 / len_f32;
                             let v = scale * complex[start_index + i].norm();
                             f32::powf(vol_freq_scale, frac) * v
                         })
@@ -344,7 +344,7 @@ fn create_audio_loopback(
 ) -> cpal::Stream {
     // Store channel constants for use in callback
     let channel_count = audio_config.channels() as usize;
-    let fchannel_count = channel_count as f32;
+    let channel_count_f32 = channel_count as f32;
 
     // Create loopback stream for passing for processing
     match default_audio_out.build_input_stream(
@@ -366,7 +366,7 @@ fn create_audio_loopback(
                     .map(|i: usize| {
                         let k = channel_count * i;
                         let avg: f32 = data[k..k + channel_count].iter().fold(0., |acc, x| acc + x)
-                            / fchannel_count;
+                            / channel_count_f32;
                         Complex::<f32>::new(avg, 0.) // Return new complex value with real part equal to the average amplitude across channels
                     })
                     .collect()
