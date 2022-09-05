@@ -10,3 +10,7 @@ This project is a merger and re-implementation of several of my previous OpenGL/
 * [ColouredSugar](https://github.com/ryco117/ColouredSugar)
 * [FractalDimension](https://github.com/ryco117/FractalDimension)
 * [FractalDimension-Vulkan](https://github.com/ryco117/FractalDimension-Vulkan)
+
+### Demo
+##### deadmau5 Demo
+[![deadmau5 Demo](https://img.youtube.com/vi/UiJ_785hC60/0.jpg)](https://www.youtube.com/watch?v=UiJ_785hC60 "deadmau5 Demo")
