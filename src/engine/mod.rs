@@ -174,10 +174,35 @@ impl Engine {
         })
         .expect("Failed to create Vulkan instance");
 
+        // Load icon from file resources
+        let icon_bytes = std::include_bytes!("../../fractal_sugar_icon.png");
+        let (image_data, width, height) = {
+            // Decode PNG to RGBA U8s
+            let mut decoder = png::Decoder::<&[u8]>::new(icon_bytes);
+            decoder.set_transformations(png::Transformations::normalize_to_color8());
+
+            // Read bytes from memory
+            let mut reader = decoder.read_info().unwrap();
+            let mut buff = vec![0; reader.output_buffer_size()];
+            let info = reader.next_frame(&mut buff).unwrap();
+            let data = match info.color_type {
+                png::ColorType::Rgba => buff,
+                f => panic!(
+                    "Failed to decode application resources: Invalid PNG format {:?}",
+                    f
+                ),
+            };
+
+            (data, info.width, info.height)
+        };
+
         // Create a window! Set some basic window properties and get a vulkan surface
         let surface = WindowBuilder::new()
             .with_inner_size(LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))
-            .with_title("FractalSugar")
+            .with_title("fractal_sugar")
+            .with_window_icon(Some(
+                winit::window::Icon::from_rgba(image_data, width, height).unwrap(),
+            ))
             .build_vk_surface(event_loop, instance.clone())
             .unwrap();
 

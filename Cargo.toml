@@ -12,6 +12,7 @@ bytemuck = "1.9.1"
 cpal = "0.14.0"
 css-color-parser = "0.1.2"
 kernel32-sys = "0.2.2"
+png = "0.17.6"
 rustfft = "6.0.1"
 serde = { version = "1.0.143", features = ["derive"] }
 toml = "0.5.9"

@@ -1,3 +1,4 @@
+![fractal_sugar](fractal_sugar_icon.png)
 # fractal_sugar
 
 ### About the project

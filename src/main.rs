@@ -45,7 +45,6 @@ mod my_math;
 mod space_filling_curves;
 
 use app_config::AppConfig;
-use audio::AudioState;
 use my_math::helpers::{interpolate_floats, interpolate_vec3};
 use my_math::{Quaternion, Vector3, Vector4};
 
@@ -65,6 +64,7 @@ enum KaleidoscopeDirection {
 }
 
 struct LocalAudioState {
+    pub play_time: f32,
     pub latest_volume: f32,
 
     // Particle forces to apply
@@ -90,6 +90,7 @@ struct LocalAudioState {
 impl Default for LocalAudioState {
     fn default() -> Self {
         Self {
+            play_time: 0.,
             latest_volume: 0.,
 
             big_boomer: Vector4::default(),
@@ -122,6 +123,7 @@ fn bool_to_u32(b: bool) -> u32 {
 }
 
 fn main() {
+    // Determine the runtime app configuration
     let app_config = {
         let filepath = "app_config.toml";
         match app_config::parse_file(filepath) {
@@ -136,7 +138,7 @@ fn main() {
         }
     };
 
-    // First, create global event loop to manage window events
+    // Create global event loop to manage window events
     let event_loop = EventLoop::new();
 
     // Use Engine helper to initialize Vulkan instance
@@ -160,8 +162,7 @@ fn main() {
         (hwnd, false)
     };
 
-    // Audio state vars?
-    let mut game_time: f32 = 0.;
+    // Audio state vars
     let mut audio_state = LocalAudioState::default();
 
     // Game state vars?
@@ -204,74 +205,14 @@ fn main() {
             let delta_time = now.duration_since(last_frame_time).unwrap().as_secs_f32();
             last_frame_time = now;
 
-            // Handle any changes to audio state
-            match rx.try_recv() {
-                // Update audio state vars
-                Ok(AudioState {
-                    volume,
-
-                    bass_note,
-                    mids_notes,
-                    high_notes,
-
-                    reactive_bass,
-                    reactive_mids,
-                    reactive_high,
-
-                    kick_angular_velocity,
-                }) => {
-                    // Update volume
-                    audio_state.latest_volume = volume;
-
-                    let (big_boomer, curl_attractors, attractors) = if particles_are_3d {
-                        (
-                            audio::map_note_to_cube(bass_note, audio::BASS_POW),
-                            mids_notes.map(|n| audio::map_note_to_cube(n, audio::MIDS_POW)),
-                            high_notes.map(|n| audio::map_note_to_cube(n, audio::HIGH_POW)),
-                        )
-                    } else {
-                        (
-                            audio::map_note_to_square(bass_note, audio::BASS_POW),
-                            mids_notes.map(|n| audio::map_note_to_square(n, audio::MIDS_POW)),
-                            high_notes.map(|n| audio::map_note_to_square(n, audio::HIGH_POW)),
-                        )
-                    };
-
-                    // Update 2D big boomers
-                    if fix_particles {
-                        let smooth = 1. - (-7.25 * big_boomer.w * delta_time).exp();
-                        audio_state.big_boomer.x +=
-                            smooth * (big_boomer.x - audio_state.big_boomer.x);
-                        audio_state.big_boomer.y +=
-                            smooth * (big_boomer.y - audio_state.big_boomer.y);
-                        audio_state.big_boomer.z +=
-                            smooth * (big_boomer.z - audio_state.big_boomer.z);
-                        audio_state.big_boomer.w = big_boomer.w;
-                    } else {
-                        audio_state.big_boomer = big_boomer;
-                    }
-
-                    // Update 2D (curl)attractors
-                    let c_len = curl_attractors.len();
-                    let a_len = attractors.len();
-                    audio_state.curl_attractors[..c_len].copy_from_slice(&curl_attractors[..c_len]);
-                    audio_state.attractors[..a_len].copy_from_slice(&attractors[..a_len]);
-
-                    // Update fractal state
-                    if let Some(omega) = kick_angular_velocity {
-                        audio_state.local_angular_velocity = omega;
-                    }
-                    audio_state.reactive_bass = reactive_bass;
-                    audio_state.reactive_mids = reactive_mids;
-                    audio_state.reactive_high = reactive_high;
-                }
-
-                // No new data, continue on
-                Err(mpsc::TryRecvError::Empty) => {}
-
-                // Unexpected error, bail
-                Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
-            }
+            // Handle any changes to audio state from the input stream
+            update_audio_state_from_stream(
+                &rx,
+                &mut audio_state,
+                delta_time,
+                particles_are_3d,
+                fix_particles,
+            );
 
             // Update per-frame state
             interpolate_floats(
@@ -280,7 +221,7 @@ fn main() {
                 delta_time * -1.8,
             );
             let audio_scaled_delta_time = delta_time * audio_state.local_volume.sqrt();
-            game_time += audio_scaled_delta_time;
+            audio_state.play_time += audio_scaled_delta_time;
             camera_quaternion.rotate_by(Quaternion::build(
                 audio_state.local_angular_velocity.xyz(),
                 delta_time * audio_state.local_angular_velocity.w,
@@ -320,6 +261,7 @@ fn main() {
                 &audio_state.local_reactive_high,
                 delta_time * -0.15,
             );
+
             (kaleidoscope, kaleidoscope_dir) = match kaleidoscope_dir {
                 KaleidoscopeDirection::Forward => {
                     kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
@@ -409,7 +351,7 @@ fn main() {
                         cursor_attractor,
                     ],
 
-                    time: game_time,
+                    time: audio_state.play_time,
                     delta_time,
                     width,
                     height,
@@ -419,7 +361,7 @@ fn main() {
 
                 let vertex = engine::ParticleVertexPushConstants {
                     quaternion: camera_quaternion.into(),
-                    time: game_time,
+                    time: audio_state.play_time,
                     aspect_ratio,
                     rendering_fractal: bool_to_u32(distance_estimator_id != 0),
                     alternate_colors: bool_to_u32(alternate_colors),
@@ -443,7 +385,7 @@ fn main() {
                 smooth_mids: audio_state.local_smooth_mids.into(),
                 smooth_high: audio_state.local_smooth_high.into(),
 
-                time: game_time,
+                time: audio_state.play_time,
                 aspect_ratio,
                 kaleidoscope: kaleidoscope.powf(0.65),
                 distance_estimator_id,
@@ -511,7 +453,7 @@ fn main() {
                     }
                 }
 
-                // Handle toggling of Jello mode (fixing particles)
+                // Handle toggling of Jello mode (i.e., fixing particles to positions)
                 VirtualKeyCode::J => fix_particles = !fix_particles,
 
                 // Handle toggling of particle rendering
@@ -609,4 +551,79 @@ fn main() {
         // Catch-all
         _ => {}
     })
+}
+
+// Helper for receiving the latest audio state from the input stream
+fn update_audio_state_from_stream(
+    rx: &std::sync::mpsc::Receiver<audio::State>,
+    audio_state: &mut LocalAudioState,
+    delta_time: f32,
+    particles_are_3d: bool,
+    fix_particles: bool,
+) {
+    // Handle any changes to audio state
+    match rx.try_recv() {
+        // Update audio state vars
+        Ok(audio::State {
+            volume,
+
+            bass_note,
+            mids_notes,
+            high_notes,
+
+            reactive_bass,
+            reactive_mids,
+            reactive_high,
+
+            kick_angular_velocity,
+        }) => {
+            // Update volume
+            audio_state.latest_volume = volume;
+
+            let (big_boomer, curl_attractors, attractors) = if particles_are_3d {
+                (
+                    audio::map_note_to_cube(bass_note, audio::BASS_POW),
+                    mids_notes.map(|n| audio::map_note_to_cube(n, audio::MIDS_POW)),
+                    high_notes.map(|n| audio::map_note_to_cube(n, audio::HIGH_POW)),
+                )
+            } else {
+                (
+                    audio::map_note_to_square(bass_note, audio::BASS_POW),
+                    mids_notes.map(|n| audio::map_note_to_square(n, audio::MIDS_POW)),
+                    high_notes.map(|n| audio::map_note_to_square(n, audio::HIGH_POW)),
+                )
+            };
+
+            // Update 2D big boomers
+            if fix_particles {
+                let smooth = 1. - (-7.25 * big_boomer.w * delta_time).exp();
+                audio_state.big_boomer.x += smooth * (big_boomer.x - audio_state.big_boomer.x);
+                audio_state.big_boomer.y += smooth * (big_boomer.y - audio_state.big_boomer.y);
+                audio_state.big_boomer.z += smooth * (big_boomer.z - audio_state.big_boomer.z);
+                audio_state.big_boomer.w = big_boomer.w;
+            } else {
+                audio_state.big_boomer = big_boomer;
+            }
+
+            // Update 2D (curl)attractors
+            let c_len = curl_attractors.len();
+            let a_len = attractors.len();
+            audio_state.curl_attractors[..c_len].copy_from_slice(&curl_attractors[..c_len]);
+            audio_state.attractors[..a_len].copy_from_slice(&attractors[..a_len]);
+
+            // Update fractal state
+            if let Some(omega) = kick_angular_velocity {
+                audio_state.local_angular_velocity = omega;
+            }
+            audio_state.reactive_bass = reactive_bass;
+            audio_state.reactive_mids = reactive_mids;
+            audio_state.reactive_high = reactive_high;
+        }
+
+        // No new data, continue on
+        Err(mpsc::TryRecvError::Empty) => {}
+
+        // Unexpected error, bail
+        Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
+    }
 }

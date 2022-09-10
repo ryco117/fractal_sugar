@@ -52,7 +52,7 @@ impl Note {
 
 // Audio state to pass to UI thread
 #[derive(Default)]
-pub struct AudioState {
+pub struct State {
     pub volume: f32,
 
     // Notes for each instrument range (bass/mids/high).
@@ -89,9 +89,10 @@ pub fn map_note_to_cube(note: Note, pow: f32) -> Vector4 {
     Vector4::new(x, y, z, note.mag)
 }
 
+#[allow(clippy::cast_sign_loss)]
 fn processing_thread_from_sample_rate(
     sample_rate: f32,
-    tx: Sender<AudioState>,
+    tx: Sender<State>,
     rx_acc: Receiver<Vec<Complex<f32>>>,
 ) {
     std::thread::spawn(move || {
@@ -283,7 +284,7 @@ fn processing_thread_from_sample_rate(
             previous_bass_index = (previous_bass_index + 1) % previous_bass.len();
 
             // Send updated state to UI thread
-            match tx.send(AudioState {
+            match tx.send(State {
                 volume,
 
                 bass_note: bass_analysis.loudest[0],
@@ -411,7 +412,7 @@ fn create_audio_loopback(
 }
 
 // Create new audio stream from the default audio-out device
-pub fn create_default_loopback(tx: Sender<AudioState>) -> cpal::Stream {
+pub fn create_default_loopback(tx: Sender<State>) -> cpal::Stream {
     // Create CPAL default instance
     let audio_host = cpal::default_host();
 
