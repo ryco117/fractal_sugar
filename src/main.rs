@@ -311,6 +311,11 @@ fn main() {
 
             // Create a unique attractor based on mouse position
             let cursor_attractor = {
+                #[allow(clippy::cast_lossless)]
+                fn normalize_cursor(p: f64, max: u32) -> f32 {
+                    (2. * (p / max as f64) - 1.) as f32
+                }
+
                 let strength = if fix_particles {
                     CURSOR_FIXED_STRENGTH
                 } else {
@@ -318,8 +323,8 @@ fn main() {
                 } * cursor_force_mult
                     * cursor_force;
 
-                let x_norm = (2. * (cursor_position.x / dimensions.width as f64) - 1.) as f32;
-                let y_norm = (2. * (cursor_position.y / dimensions.height as f64) - 1.) as f32;
+                let x_norm = normalize_cursor(cursor_position.x, dimensions.width);
+                let y_norm = normalize_cursor(cursor_position.y, dimensions.height);
                 if render_particles && particles_are_3d && cursor_force != 0. {
                     const VERTICAL_FOV: f32 = std::f32::consts::FRAC_PI_2 / 2.5; // Roughly 70 degree vertical VERTICAL_FOV
                     const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`

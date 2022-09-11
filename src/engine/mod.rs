@@ -19,8 +19,7 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use vulkano::buffer::device_local::DeviceLocalBuffer;
-use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
+use vulkano::buffer::{BufferUsage, ImmutableBuffer};
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
@@ -29,7 +28,6 @@ use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
-use vulkano::shader::ShaderModule;
 use vulkano::swapchain::{PresentMode, Surface};
 use vulkano::sync::{FenceSignalFuture, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
@@ -37,42 +35,20 @@ use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
+use crate::app_config::{AppConfig, Scheme};
+use object::{Fractal, Particles};
+pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
 use swapchain::{EngineSwapchain, RecreateSwapchainResult};
 
 mod hardware;
+mod object;
 pub mod pipeline;
 pub mod renderer;
 pub mod swapchain;
 mod utils;
 mod vertex;
 
-use crate::app_config::{AppConfig, Scheme};
-use crate::my_math::{Vector2, Vector3};
-use crate::space_filling_curves;
-use vertex::Vertex;
-
 type EngineFrameFuture = Arc<FenceSignalFuture<Box<dyn GpuFuture>>>;
-type ImmutableBufferFromBufferFuture = vulkano::command_buffer::CommandBufferExecFuture<
-    vulkano::sync::NowFuture,
-    vulkano::command_buffer::PrimaryAutoCommandBuffer,
->;
-
-// TODO: Move helper objects to a new file?
-struct Fractal {
-    pub frag_shader: Arc<ShaderModule>,
-    pub pipeline: Arc<GraphicsPipeline>,
-    pub vert_shader: Arc<ShaderModule>,
-}
-struct Particles {
-    pub scheme_buffer_pool: CpuBufferPool<Scheme>,
-    pub compute_descriptor_set: Arc<PersistentDescriptorSet>,
-    pub compute_pipeline: Arc<ComputePipeline>,
-    pub frag_shader: Arc<ShaderModule>,
-    pub graphics_descriptor_set: Arc<PersistentDescriptorSet>,
-    pub graphics_pipeline: Arc<GraphicsPipeline>,
-    pub vert_shader: Arc<ShaderModule>,
-    pub vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
-}
 
 pub struct Engine {
     app_constants: Arc<ImmutableBuffer<AppConstants>>,
@@ -91,70 +67,11 @@ pub struct Engine {
 
 const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 450;
-
 const DEBUG_VULKAN: bool = false;
-
-const SQUARE_FILLING_CURVE_DEPTH: usize = 6;
-const CUBE_FILLING_CURVE_DEPTH: usize = 4;
-
-// Create module for the particle's shader macros
-#[allow(
-    clippy::expl_impl_clone_on_copy,
-    clippy::needless_question_mark,
-    clippy::used_underscore_binding
-)]
-mod particle_shaders {
-    pub mod fs {
-        vulkano_shaders::shader! {
-            ty: "fragment",
-            path: "shaders/particles.frag"
-        }
-    }
-    pub mod vs {
-        vulkano_shaders::shader! {
-            ty: "vertex",
-            path: "shaders/particles.vert",
-            types_meta: {
-                use bytemuck::{Pod, Zeroable};
-                #[derive(Clone, Copy, Zeroable, Pod)]
-            },
-        }
-    }
-    pub mod cs {
-        vulkano_shaders::shader! {
-            ty: "compute",
-            path: "shaders/particles.comp"
-        }
-    }
-}
-
-// Export push constant types to callers
-pub type ParticleComputePushConstants = particle_shaders::cs::ty::PushConstants;
-pub type ParticleVertexPushConstants = particle_shaders::vs::ty::PushConstants;
-
-// Create module for the fractal shader macros
-#[allow(clippy::expl_impl_clone_on_copy, clippy::needless_question_mark)]
-mod fractal_shaders {
-    pub mod fs {
-        vulkano_shaders::shader! {
-            ty: "fragment",
-            path: "shaders/ray_march.frag"
-        }
-    }
-    pub mod vs {
-        vulkano_shaders::shader! {
-            ty: "vertex",
-            path: "shaders/entire_view.vert"
-        }
-    }
-}
-
-// Export Push Constant types to callers
-pub type FractalPushConstants = fractal_shaders::fs::ty::PushConstants;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct AppConstants {
+pub struct AppConstants {
     pub max_speed: f32,
     pub particle_count: f32,
 }
@@ -400,8 +317,11 @@ impl Engine {
     // Returns whether a swapchain recreation was deemed necessary
     pub fn draw_frame(
         &mut self,
-        particle_data: Option<(ParticleComputePushConstants, ParticleVertexPushConstants)>,
-        fractal_data: FractalPushConstants,
+        particle_data: Option<(
+            object::ParticleComputePushConstants,
+            object::ParticleVertexPushConstants,
+        )>,
+        fractal_data: object::FractalPushConstants,
     ) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
         let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
@@ -595,192 +515,5 @@ impl Engine {
     pub fn particle_count(&self) -> u64 {
         use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
         self.particles.vertex_buffer.len()
-    }
-}
-
-impl Particles {
-    fn new(
-        device: &Arc<Device>,
-        queue: &Arc<Queue>,
-        render_pass: &Arc<RenderPass>,
-        viewport: Viewport,
-        app_config: &AppConfig,
-        app_constants: &Arc<ImmutableBuffer<AppConstants>>,
-        app_constants_future: ImmutableBufferFromBufferFuture,
-    ) -> Self {
-        // Load particle shaders
-        let frag_shader = particle_shaders::fs::load(device.clone())
-            .expect("Failed to load particle fragment shader");
-        let vert_shader = particle_shaders::vs::load(device.clone())
-            .expect("Failed to load particle vertex shader");
-        let comp_shader = particle_shaders::cs::load(device.clone())
-            .expect("Failed to load particle compute shader");
-
-        // Create compute pipeline for particles
-        let compute_pipeline = ComputePipeline::new(
-            device.clone(),
-            comp_shader.entry_point("main").unwrap(),
-            &(),
-            None,
-            |_| {},
-        )
-        .expect("Failed to create compute shader");
-
-        // Create the almighty graphics pipelines
-        let graphics_pipeline = pipeline::create_particle(
-            device.clone(),
-            &vert_shader,
-            &frag_shader,
-            Subpass::from(render_pass.clone(), 0).unwrap(),
-            viewport,
-        );
-
-        // Use a buffer pool for quick switching of scheme data
-        let scheme_buffer_pool = CpuBufferPool::uniform_buffer(device.clone());
-
-        // Particle color schemes?!
-        let graphics_descriptor_set = {
-            let color_scheme_buffer = scheme_buffer_pool
-                .next(app_config.color_schemes[0])
-                .unwrap();
-            PersistentDescriptorSet::new(
-                graphics_pipeline
-                    .layout()
-                    .set_layouts()
-                    .get(0)
-                    .unwrap()
-                    .clone(),
-                [
-                    WriteDescriptorSet::buffer(0, color_scheme_buffer),
-                    WriteDescriptorSet::buffer(1, app_constants.clone()),
-                ],
-            )
-            .unwrap()
-        };
-
-        // Create storage buffers for particle info
-        let (vertex_buffer, fixed_square_buffer, fixed_cube_buffer) = {
-            let particle_count_f32 = app_config.particle_count as f32;
-
-            // Create position data by mapping particle index to screen using a space filling curve
-            let square_position_iter = (0..app_config.particle_count).map(|i| {
-                space_filling_curves::square::curve_to_square_n(
-                    i as f32 / particle_count_f32,
-                    SQUARE_FILLING_CURVE_DEPTH,
-                )
-            });
-            let cube_position_iter = (0..app_config.particle_count).map(|i| {
-                space_filling_curves::cube::curve_to_cube_n(
-                    i as f32 / particle_count_f32,
-                    CUBE_FILLING_CURVE_DEPTH,
-                )
-            });
-
-            // Create immutable fixed-position buffer for 2D perspective
-            let (fixed_square_position_buff, fixed_square_copy_future) =
-                ImmutableBuffer::from_iter(
-                    square_position_iter,
-                    BufferUsage::storage_buffer(),
-                    queue.clone(),
-                )
-                .expect("Failed to create immutable fixed-position buffer");
-
-            // Create immutable fixed-position buffer for 3D perspective
-            let (fixed_cube_position_buff, fixed_cube_copy_future) = ImmutableBuffer::from_iter(
-                cube_position_iter,
-                BufferUsage::storage_buffer(),
-                queue.clone(),
-            )
-            .expect("Failed to create immutable fixed-position buffer");
-
-            // Create vertex data by re-calculating position
-            let vertex_iter = (0..app_config.particle_count).map(|i| Vertex {
-                pos: {
-                    let Vector2 { x, y } = space_filling_curves::square::curve_to_square_n(
-                        i as f32 / particle_count_f32,
-                        SQUARE_FILLING_CURVE_DEPTH,
-                    );
-                    Vector3::new(x, y, 0.)
-                },
-                vel: Vector3::default(),
-            });
-
-            // Create position buffer
-            let (vertex_buffer, vertex_future) = utils::local_buffer_from_iter(
-                device,
-                queue,
-                vertex_iter,
-                BufferUsage::storage_buffer() | BufferUsage::vertex_buffer(),
-            );
-
-            // Wait for all futures to finish before continuing
-            fixed_square_copy_future
-                .join(fixed_cube_copy_future)
-                .join(vertex_future)
-                .join(app_constants_future)
-                .then_signal_fence_and_flush()
-                .unwrap()
-                .wait(None)
-                .unwrap();
-
-            (
-                vertex_buffer,
-                fixed_square_position_buff,
-                fixed_cube_position_buff,
-            )
-        };
-
-        // Create a new descriptor set for binding particle storage buffers
-        // Required to access layout() method
-        let compute_descriptor_set = PersistentDescriptorSet::new(
-            compute_pipeline
-                .layout()
-                .set_layouts()
-                .get(0) // 0 is the index of the descriptor set layout we want
-                .unwrap()
-                .clone(),
-            [
-                WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
-                WriteDescriptorSet::buffer(1, fixed_square_buffer),
-                WriteDescriptorSet::buffer(2, fixed_cube_buffer),
-                WriteDescriptorSet::buffer(3, app_constants.clone()),
-            ],
-        )
-        .unwrap();
-
-        Self {
-            scheme_buffer_pool,
-            compute_descriptor_set,
-            compute_pipeline,
-            frag_shader,
-            graphics_descriptor_set,
-            graphics_pipeline,
-            vert_shader,
-            vertex_buffer,
-        }
-    }
-}
-
-impl Fractal {
-    fn new(device: &Arc<Device>, render_pass: &Arc<RenderPass>, viewport: Viewport) -> Self {
-        // Load fractal shaders
-        let frag_shader = fractal_shaders::fs::load(device.clone())
-            .expect("Failed to load fractal fragment shader");
-        let vert_shader = fractal_shaders::vs::load(device.clone())
-            .expect("Failed to load fractal vertex shader");
-
-        let pipeline = pipeline::create_fractal(
-            device.clone(),
-            &vert_shader,
-            &frag_shader,
-            Subpass::from(render_pass.clone(), 1).unwrap(),
-            viewport,
-        );
-
-        Self {
-            frag_shader,
-            pipeline,
-            vert_shader,
-        }
     }
 }

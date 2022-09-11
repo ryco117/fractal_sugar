@@ -100,6 +100,7 @@ impl std::convert::From<&CustomScheme> for Scheme {
             )
         }
         fn custom_to_vec4(color: &CustomSchemeColor) -> [f32; 4] {
+            #[allow(clippy::enum_glob_use)]
             use CustomSchemeColor::*;
             match color {
                 ColorString(css_color) => {

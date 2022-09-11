@@ -29,9 +29,11 @@ use vulkano::image::ImageViewAbstract;
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::Framebuffer;
 
+use super::object::{
+    FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants,
+};
 use super::vertex::Vertex;
 use super::Engine;
-use super::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
 
 // Helper for initializing the rendering of a frame. Must specify clear value of each subpass
 fn begin_render_pass(
