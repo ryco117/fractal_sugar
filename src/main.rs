@@ -24,7 +24,6 @@ extern crate kernel32;
 extern crate user32;
 extern crate winapi;
 
-use std::sync::mpsc;
 use std::time::SystemTime;
 
 use winit::dpi::PhysicalPosition;
@@ -139,8 +138,8 @@ fn main() {
     let mut engine = engine::Engine::new(&event_loop, &app_config);
 
     // Capture reference to audio stream and use message passing to receive data
-    let (tx, rx) = mpsc::channel();
-    let _capture_stream_option = audio::create_default_loopback(tx);
+    let (tx, rx) = crossbeam_channel::bounded(4);
+    let _capture_stream_option = audio::process_loopback_audio_and_send(tx);
 
     // Window state vars
     let mut window_resized = false;
@@ -532,7 +531,7 @@ impl Default for GameState {
 
 // Helper for receiving the latest audio state from the input stream
 fn update_audio_state_from_stream(
-    rx: &std::sync::mpsc::Receiver<audio::State>,
+    rx: &crossbeam_channel::Receiver<audio::State>,
     audio_state: &mut LocalAudioState,
     delta_time: f32,
     game_state: &GameState,
@@ -597,7 +596,7 @@ fn update_audio_state_from_stream(
         }
 
         // No new data, continue on
-        Err(mpsc::TryRecvError::Empty) => {}
+        Err(crossbeam_channel::TryRecvError::Empty) => {}
 
         // Unexpected error, bail
         Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),

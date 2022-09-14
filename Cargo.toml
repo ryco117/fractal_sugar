@@ -10,6 +10,7 @@ edition = "2021" # Rust Edition used in this package
 [dependencies]
 bytemuck = "1.9.1"
 cpal = "0.14.0"
+crossbeam-channel = "0.5"
 css-color-parser = "0.1.2"
 kernel32-sys = "0.2.2"
 png = "0.17.6"

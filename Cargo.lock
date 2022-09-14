@@ -360,6 +360,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "crossbeam-channel"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2dd04ddaf88237dc3b8d8f9a3c1004b506b54b3313403944054d23c0870c521"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crossbeam-utils",
+]
+
+[[package]]
 name = "crossbeam-queue"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -487,6 +497,7 @@ version = "0.1.2"
 dependencies = [
  "bytemuck",
  "cpal",
+ "crossbeam-channel",
  "css-color-parser",
  "kernel32-sys",
  "png",

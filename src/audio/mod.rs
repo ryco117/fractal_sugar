@@ -16,12 +16,11 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::sync::mpsc;
-use std::sync::mpsc::{Receiver, Sender};
 use std::time::SystemTime;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SampleFormat, SupportedStreamConfig};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use rustfft::{num_complex::Complex, FftPlanner};
 
 use crate::my_math::{Vector2, Vector3, Vector4};
@@ -89,8 +88,9 @@ pub fn map_note_to_cube(note: Note, pow: f32) -> Vector4 {
     Vector4::new(x, y, z, note.mag)
 }
 
+// Create a new thread for retrieving and processing audio chunks. Results are send over channel
 #[allow(clippy::cast_sign_loss)]
-fn processing_thread_from_sample_rate(
+fn spawn_audio_processing_thread(
     sample_rate: f32,
     tx: Sender<State>,
     rx_acc: Receiver<Vec<Complex<f32>>>,
@@ -352,11 +352,13 @@ fn processing_thread_from_sample_rate(
             // Copy elements with index >= `size` to the start of array since they haven't been used yet
             audio_storage_buffer.copy_within(size.., 0);
             audio_storage_buffer.truncate(audio_storage_buffer.len() - size);
-        } // end unconditional loop
+        } // end unconditional `loop`
     });
 }
 
-fn create_audio_loopback(
+// Create a new audio stream from the default audio-out device.
+// The retrieved data is then sent across the given channel to be processed
+fn transfer_loopback_chunks_for_processing(
     default_audio_out: &Device,
     audio_config: &SupportedStreamConfig,
     tx_acc: Sender<Vec<Complex<f32>>>,
@@ -411,8 +413,9 @@ fn create_audio_loopback(
     }
 }
 
-// Create new audio stream from the default audio-out device
-pub fn create_default_loopback(tx: Sender<State>) -> cpal::Stream {
+// Determine audio-out device and send the processed audio stream back to caller
+// through the given asynchronous channel.
+pub fn process_loopback_audio_and_send(tx: Sender<State>) -> cpal::Stream {
     // Create CPAL default instance
     let audio_host = cpal::default_host();
 
@@ -445,9 +448,9 @@ pub fn create_default_loopback(tx: Sender<State>) -> cpal::Stream {
     let sample_rate = audio_config.sample_rate().0 as f32;
 
     // Create an accumulator channel to compose enough bytes for a reasonable FFT
-    let (tx_acc, rx_acc) = mpsc::channel();
-    processing_thread_from_sample_rate(sample_rate, tx, rx_acc);
+    let (tx_acc, rx_acc) = bounded(4);
+    spawn_audio_processing_thread(sample_rate, tx, rx_acc);
 
     // Create and return loopback capture stream
-    create_audio_loopback(&default_audio_out, &audio_config, tx_acc)
+    transfer_loopback_chunks_for_processing(&default_audio_out, &audio_config, tx_acc)
 }
