@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use vulkano::buffer::device_local::DeviceLocalBuffer;
 use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
+use vulkano::descriptor_set::single_layout_pool::SingleLayoutDescSetPool;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
 use vulkano::pipeline::graphics::viewport::Viewport;
@@ -100,6 +101,7 @@ const SQUARE_FILLING_CURVE_DEPTH: usize = 6;
 const CUBE_FILLING_CURVE_DEPTH: usize = 4;
 
 pub struct Fractal {
+    pub descriptor_set_pool: SingleLayoutDescSetPool,
     pub frag_shader: Arc<ShaderModule>,
     pub pipeline: Arc<GraphicsPipeline>,
     pub vert_shader: Arc<ShaderModule>,
@@ -311,7 +313,10 @@ impl Fractal {
             viewport,
         );
 
+        let layout = pipeline.layout().set_layouts().get(0).unwrap();
+        let descriptor_set_pool = SingleLayoutDescSetPool::new(layout.clone());
         Self {
+            descriptor_set_pool,
             frag_shader,
             pipeline,
             vert_shader,

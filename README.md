@@ -8,7 +8,7 @@ Particle physics are simulated using compute shaders.
 The open source library [CPAL](https://github.com/rustaudio/cpal) is used to retrieve the audio stream and a fast Fourier transform is applied on the signal using [RustFFT](https://github.com/ejmahler/RustFFT).
 
 ### Lineage of previous projects
-This project is a merger and re-implementation of several of my previous OpenGL/Vulkan audio visualizers written in **F#**:
+**fractal_sugar** is a merger and re-implementation of several of my previous OpenGL/Vulkan audio visualizers written in **F#**:
 * [ColouredSugar](https://github.com/ryco117/ColouredSugar)
 * [FractalDimension](https://github.com/ryco117/FractalDimension)
 * [FractalDimension-Vulkan](https://github.com/ryco117/FractalDimension-Vulkan)

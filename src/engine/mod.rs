@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use vulkano::buffer::{BufferUsage, ImmutableBuffer};
+use vulkano::descriptor_set::single_layout_pool::SingleLayoutDescSetPool;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
@@ -356,12 +357,8 @@ impl Engine {
         };
 
         // Create a one-time-submit command buffer for this frame
-        let colored_sugar_commands = renderer::create_render_commands(
-            self,
-            &self.framebuffers[image_index],
-            particle_data,
-            fractal_data,
-        );
+        let colored_sugar_commands =
+            renderer::create_render_commands(self, image_index, particle_data, fractal_data);
 
         // Create synchronization future for rendering the current frame
         let future = previous_future
@@ -496,6 +493,9 @@ impl Engine {
     }
     pub fn compute_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
         self.particles.compute_descriptor_set.clone()
+    }
+    pub fn fractal_descriptor_pool(&mut self) -> &mut SingleLayoutDescSetPool {
+        &mut self.fractal.descriptor_set_pool
     }
     pub fn fractal_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.fractal.pipeline.clone()

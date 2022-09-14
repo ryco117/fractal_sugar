@@ -55,7 +55,10 @@ const CURSOR_FIXED_STRENGTH: f32 = 1.75;
 const KALEIDOSCOPE_SPEED: f32 = 0.275;
 const SCROLL_SENSITIVITY: f32 = 0.15;
 
-#[derive(Clone, Copy)]
+enum AlternateColors {
+    Normal,
+    Inverse,
+}
 enum KaleidoscopeDirection {
     Forward,
     ForwardComplete,
@@ -87,31 +90,22 @@ struct LocalAudioState {
     pub local_smooth_mids: Vector3,
     pub local_smooth_high: Vector3,
 }
-impl Default for LocalAudioState {
-    fn default() -> Self {
-        Self {
-            play_time: 0.,
-            latest_volume: 0.,
 
-            big_boomer: Vector4::default(),
-            curl_attractors: [Vector4::default(); 2],
-            attractors: [Vector4::default(); 2],
-
-            // 3D (Fractals)
-            reactive_bass: Vector3::default(),
-            reactive_mids: Vector3::default(),
-            reactive_high: Vector3::default(),
-
-            local_volume: 0.,
-            local_angular_velocity: Vector4::new(0., 1., 0., 0.),
-            local_reactive_bass: Vector3::default(),
-            local_reactive_mids: Vector3::default(),
-            local_reactive_high: Vector3::default(),
-            local_smooth_bass: Vector3::default(),
-            local_smooth_mids: Vector3::default(),
-            local_smooth_high: Vector3::default(),
-        }
-    }
+#[allow(clippy::struct_excessive_bools)]
+struct GameState {
+    pub fix_particles: bool,
+    pub render_particles: bool,
+    pub distance_estimator_id: u32,
+    pub camera_quaternion: Quaternion,
+    pub is_cursor_visible: bool,
+    pub cursor_position: PhysicalPosition<f64>,
+    pub cursor_force: f32,
+    pub cursor_force_mult: f32,
+    pub kaleidoscope: f32,
+    pub kaleidoscope_dir: KaleidoscopeDirection,
+    pub alternate_colors: AlternateColors,
+    pub particles_are_3d: bool,
+    pub color_scheme_index: usize,
 }
 
 fn bool_to_u32(b: bool) -> u32 {
@@ -166,19 +160,7 @@ fn main() {
     let mut audio_state = LocalAudioState::default();
 
     // Game state vars?
-    let mut fix_particles = true;
-    let mut render_particles = true;
-    let mut distance_estimator_id = 4;
-    let mut camera_quaternion = Quaternion::default();
-    let mut is_cursor_visible = true;
-    let mut cursor_position = PhysicalPosition::<f64>::default();
-    let mut cursor_force = 0.;
-    let mut cursor_force_mult = 1.5;
-    let mut kaleidoscope = 0.;
-    let mut kaleidoscope_dir = KaleidoscopeDirection::BackwardComplete;
-    let mut alternate_colors = false;
-    let mut particles_are_3d = false;
-    let mut color_scheme_index = 0;
+    let mut game_state = GameState::default();
 
     // Run window loop
     println!("Begin window loop...");
@@ -206,91 +188,20 @@ fn main() {
             last_frame_time = now;
 
             // Handle any changes to audio state from the input stream
-            update_audio_state_from_stream(
-                &rx,
-                &mut audio_state,
-                delta_time,
-                particles_are_3d,
-                fix_particles,
-            );
+            update_audio_state_from_stream(&rx, &mut audio_state, delta_time, &game_state);
 
             // Update per-frame state
-            interpolate_floats(
-                &mut audio_state.local_volume,
-                audio_state.latest_volume,
-                delta_time * -1.8,
-            );
-            let audio_scaled_delta_time = delta_time * audio_state.local_volume.sqrt();
-            audio_state.play_time += audio_scaled_delta_time;
-            camera_quaternion.rotate_by(Quaternion::build(
-                audio_state.local_angular_velocity.xyz(),
-                delta_time * audio_state.local_angular_velocity.w,
-            ));
-            interpolate_floats(
-                &mut audio_state.local_angular_velocity.w,
-                BASE_ANGULAR_VELOCITY,
-                delta_time * -0.375,
-            );
-            interpolate_vec3(
-                &mut audio_state.local_reactive_bass,
-                &audio_state.reactive_bass,
-                delta_time * (0.8 * audio_state.big_boomer.w.sqrt()).min(1.) * -0.36,
-            );
-            interpolate_vec3(
-                &mut audio_state.local_reactive_mids,
-                &audio_state.reactive_mids,
-                delta_time * (0.8 * audio_state.curl_attractors[0].w.sqrt()).min(1.) * -0.36,
-            );
-            interpolate_vec3(
-                &mut audio_state.local_reactive_high,
-                &audio_state.reactive_high,
-                delta_time * (0.8 * audio_state.attractors[0].w.sqrt()).min(1.) * -0.36,
-            );
-            interpolate_vec3(
-                &mut audio_state.local_smooth_bass,
-                &audio_state.local_reactive_bass,
-                delta_time * -0.15,
-            );
-            interpolate_vec3(
-                &mut audio_state.local_smooth_mids,
-                &audio_state.local_reactive_mids,
-                delta_time * -0.15,
-            );
-            interpolate_vec3(
-                &mut audio_state.local_smooth_high,
-                &audio_state.local_reactive_high,
-                delta_time * -0.15,
-            );
-
-            (kaleidoscope, kaleidoscope_dir) = match kaleidoscope_dir {
-                KaleidoscopeDirection::Forward => {
-                    kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
-                    if kaleidoscope >= 1. {
-                        (1., KaleidoscopeDirection::ForwardComplete)
-                    } else {
-                        (kaleidoscope, KaleidoscopeDirection::Forward)
-                    }
-                }
-                KaleidoscopeDirection::Backward => {
-                    kaleidoscope -= KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
-                    if kaleidoscope <= 0. {
-                        (0., KaleidoscopeDirection::BackwardComplete)
-                    } else {
-                        (kaleidoscope, KaleidoscopeDirection::Backward)
-                    }
-                }
-                _ => (kaleidoscope, kaleidoscope_dir),
-            };
+            interpolate_frames(&mut audio_state, delta_time, &mut game_state);
 
             let surface = engine.surface();
 
             // If cursor is visible and has been stationary then hide it
-            if is_cursor_visible
+            if game_state.is_cursor_visible
                 && window_is_focused
                 && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 2.
             {
                 surface.window().set_cursor_visible(false);
-                is_cursor_visible = false;
+                game_state.is_cursor_visible = false;
             }
 
             // Handle any necessary recreations (usually from window resizing)
@@ -309,42 +220,45 @@ fn main() {
             let height = dimensions.height as f32;
             let aspect_ratio = width / height;
 
-            // Create a unique attractor based on mouse position
-            let cursor_attractor = {
-                #[allow(clippy::cast_lossless)]
-                fn normalize_cursor(p: f64, max: u32) -> f32 {
-                    (2. * (p / max as f64) - 1.) as f32
-                }
-
-                let strength = if fix_particles {
-                    CURSOR_FIXED_STRENGTH
-                } else {
-                    CURSOR_LOOSE_STRENGTH
-                } * cursor_force_mult
-                    * cursor_force;
-
-                let x_norm = normalize_cursor(cursor_position.x, dimensions.width);
-                let y_norm = normalize_cursor(cursor_position.y, dimensions.height);
-                if render_particles && particles_are_3d && cursor_force != 0. {
-                    const VERTICAL_FOV: f32 = std::f32::consts::FRAC_PI_2 / 2.5; // Roughly 70 degree vertical VERTICAL_FOV
-                    const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
-                    const PERSPECTIVE_DISTANCE: f32 = 1.35;
-                    let fov_y = VERTICAL_FOV.tan();
-                    let fov_x = fov_y * aspect_ratio;
-
-                    // Map cursor to 3D world using camera orientation
-                    let mut v = camera_quaternion.rotate_point(
-                        PERSPECTIVE_DISTANCE * Vector3::new(x_norm * fov_x, y_norm * fov_y, -1.),
-                    );
-                    v += camera_quaternion.rotate_point(PARTICLE_CAMERA_ORBIT);
-                    [v.x, v.y, v.z, strength]
-                } else {
-                    [x_norm, y_norm, 0., strength]
-                }
-            };
-
             // Create per-frame data for particle compute-shader
-            let particle_data = if render_particles {
+            let particle_data = if game_state.render_particles {
+                // Create a unique attractor based on mouse position
+                let cursor_attractor = {
+                    #[allow(clippy::cast_lossless)]
+                    fn normalize_cursor(p: f64, max: u32) -> f32 {
+                        (2. * (p / max as f64) - 1.) as f32
+                    }
+
+                    let strength = if game_state.fix_particles {
+                        CURSOR_FIXED_STRENGTH
+                    } else {
+                        CURSOR_LOOSE_STRENGTH
+                    } * game_state.cursor_force_mult
+                        * game_state.cursor_force;
+
+                    let x_norm = normalize_cursor(game_state.cursor_position.x, dimensions.width);
+                    let y_norm = normalize_cursor(game_state.cursor_position.y, dimensions.height);
+                    if game_state.particles_are_3d && game_state.cursor_force != 0. {
+                        const VERTICAL_FOV: f32 = std::f32::consts::FRAC_PI_2 / 2.5; // Roughly 70 degree vertical VERTICAL_FOV
+                        const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
+                        const PERSPECTIVE_DISTANCE: f32 = 1.35;
+                        let fov_y = VERTICAL_FOV.tan();
+                        let fov_x = fov_y * aspect_ratio;
+
+                        // Map cursor to 3D world using camera orientation
+                        let mut v = game_state.camera_quaternion.rotate_point(
+                            PERSPECTIVE_DISTANCE
+                                * Vector3::new(x_norm * fov_x, y_norm * fov_y, -1.),
+                        );
+                        v += game_state
+                            .camera_quaternion
+                            .rotate_point(PARTICLE_CAMERA_ORBIT);
+                        [v.x, v.y, v.z, strength]
+                    } else {
+                        [x_norm, y_norm, 0., strength]
+                    }
+                };
+
                 let compute = engine::ParticleComputePushConstants {
                     big_boomer: audio_state.big_boomer.into(),
 
@@ -360,17 +274,20 @@ fn main() {
                     delta_time,
                     width,
                     height,
-                    fix_particles: bool_to_u32(fix_particles),
-                    use_third_dimension: bool_to_u32(particles_are_3d),
+                    fix_particles: bool_to_u32(game_state.fix_particles),
+                    use_third_dimension: bool_to_u32(game_state.particles_are_3d),
                 };
 
                 let vertex = engine::ParticleVertexPushConstants {
-                    quaternion: camera_quaternion.into(),
+                    quaternion: game_state.camera_quaternion.into(),
                     time: audio_state.play_time,
                     aspect_ratio,
-                    rendering_fractal: bool_to_u32(distance_estimator_id != 0),
-                    alternate_colors: bool_to_u32(alternate_colors),
-                    use_third_dimension: bool_to_u32(particles_are_3d),
+                    rendering_fractal: bool_to_u32(game_state.distance_estimator_id != 0),
+                    alternate_colors: match game_state.alternate_colors {
+                        AlternateColors::Inverse => 1,
+                        AlternateColors::Normal => 0,
+                    },
+                    use_third_dimension: bool_to_u32(game_state.particles_are_3d),
                 };
 
                 Some((compute, vertex))
@@ -380,7 +297,7 @@ fn main() {
 
             // Create fractal data
             let fractal_data = engine::FractalPushConstants {
-                quaternion: camera_quaternion.into(),
+                quaternion: game_state.camera_quaternion.into(),
 
                 reactive_bass: audio_state.local_reactive_bass.into(),
                 reactive_mids: audio_state.local_reactive_mids.into(),
@@ -392,14 +309,14 @@ fn main() {
 
                 time: audio_state.play_time,
                 aspect_ratio,
-                kaleidoscope: kaleidoscope.powf(0.65),
-                distance_estimator_id,
-                orbit_distance: if render_particles && particles_are_3d {
+                kaleidoscope: game_state.kaleidoscope.powf(0.65),
+                distance_estimator_id: game_state.distance_estimator_id,
+                orbit_distance: if game_state.render_particles && game_state.particles_are_3d {
                     1.42
                 } else {
                     1.
                 },
-                render_background: bool_to_u32(!render_particles),
+                render_background: bool_to_u32(!game_state.render_particles),
             };
 
             // Draw frame and return whether a swapchain recreation was deemed necessary
@@ -452,37 +369,45 @@ fn main() {
                 VirtualKeyCode::Space => {
                     #[allow(clippy::enum_glob_use)]
                     use KaleidoscopeDirection::*;
-                    kaleidoscope_dir = match kaleidoscope_dir {
+                    game_state.kaleidoscope_dir = match game_state.kaleidoscope_dir {
                         Forward | ForwardComplete => Backward,
                         Backward | BackwardComplete => Forward,
                     }
                 }
 
                 // Handle toggling of Jello mode (i.e., fixing particles to positions)
-                VirtualKeyCode::J => fix_particles = !fix_particles,
+                VirtualKeyCode::J => game_state.fix_particles = !game_state.fix_particles,
 
                 // Handle toggling of particle rendering
-                VirtualKeyCode::P => render_particles = !render_particles,
+                VirtualKeyCode::P => game_state.render_particles = !game_state.render_particles,
 
                 // Handle toggling of alternate colors
-                VirtualKeyCode::Capital => alternate_colors = !alternate_colors,
+                VirtualKeyCode::Capital => {
+                    game_state.alternate_colors = match game_state.alternate_colors {
+                        AlternateColors::Inverse => AlternateColors::Normal,
+                        AlternateColors::Normal => AlternateColors::Inverse,
+                    }
+                }
 
                 // Handle toggling of 3D particles
-                VirtualKeyCode::D => particles_are_3d = !particles_are_3d,
+                VirtualKeyCode::D => game_state.particles_are_3d = !game_state.particles_are_3d,
 
                 // Tab through different color schemes / palattes ?
                 VirtualKeyCode::Tab => {
-                    color_scheme_index = (color_scheme_index + 1) % app_config.color_schemes.len();
-                    engine.update_color_scheme(app_config.color_schemes[color_scheme_index]);
+                    game_state.color_scheme_index =
+                        (game_state.color_scheme_index + 1) % app_config.color_schemes.len();
+                    engine.update_color_scheme(
+                        app_config.color_schemes[game_state.color_scheme_index],
+                    );
                 }
 
                 // Set different fractal types
-                VirtualKeyCode::Key0 => distance_estimator_id = 0,
-                VirtualKeyCode::Key1 => distance_estimator_id = 1,
-                VirtualKeyCode::Key2 => distance_estimator_id = 2,
-                VirtualKeyCode::Key3 => distance_estimator_id = 3,
-                VirtualKeyCode::Key4 => distance_estimator_id = 4,
-                VirtualKeyCode::Key5 => distance_estimator_id = 5,
+                VirtualKeyCode::Key0 => game_state.distance_estimator_id = 0,
+                VirtualKeyCode::Key1 => game_state.distance_estimator_id = 1,
+                VirtualKeyCode::Key2 => game_state.distance_estimator_id = 2,
+                VirtualKeyCode::Key3 => game_state.distance_estimator_id = 3,
+                VirtualKeyCode::Key4 => game_state.distance_estimator_id = 4,
+                VirtualKeyCode::Key5 => game_state.distance_estimator_id = 5,
 
                 // Handle toggling the debug-console.
                 // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
@@ -507,7 +432,7 @@ fn main() {
             if !focused {
                 // Force cursor visibility when focus is lost
                 engine.surface().window().set_cursor_visible(true);
-                is_cursor_visible = true;
+                game_state.is_cursor_visible = true;
             }
             window_is_focused = focused;
         }
@@ -519,9 +444,9 @@ fn main() {
         } => {
             last_mouse_movement = SystemTime::now();
             engine.surface().window().set_cursor_visible(true);
-            is_cursor_visible = true;
+            game_state.is_cursor_visible = true;
 
-            cursor_position = position;
+            game_state.cursor_position = position;
         }
 
         // Handle mouse buttons to allow cursor-applied forces
@@ -533,7 +458,7 @@ fn main() {
                 ElementState::Pressed => 1.,
                 ElementState::Released => -1.,
             };
-            cursor_force += pressed
+            game_state.cursor_force += pressed
                 * match button {
                     MouseButton::Left => -1.,
                     MouseButton::Right => 1.,
@@ -550,7 +475,7 @@ fn main() {
                 MouseScrollDelta::LineDelta(_, y) => y,
                 MouseScrollDelta::PixelDelta(p) => p.y as f32,
             };
-            cursor_force_mult *= (SCROLL_SENSITIVITY * delta).exp();
+            game_state.cursor_force_mult *= (SCROLL_SENSITIVITY * delta).exp();
         }
 
         // Catch-all
@@ -558,13 +483,59 @@ fn main() {
     })
 }
 
+impl Default for LocalAudioState {
+    fn default() -> Self {
+        Self {
+            play_time: 0.,
+            latest_volume: 0.,
+
+            big_boomer: Vector4::default(),
+            curl_attractors: [Vector4::default(); 2],
+            attractors: [Vector4::default(); 2],
+
+            // 3D (Fractals)
+            reactive_bass: Vector3::default(),
+            reactive_mids: Vector3::default(),
+            reactive_high: Vector3::default(),
+
+            local_volume: 0.,
+            local_angular_velocity: Vector4::new(0., 1., 0., 0.),
+            local_reactive_bass: Vector3::default(),
+            local_reactive_mids: Vector3::default(),
+            local_reactive_high: Vector3::default(),
+            local_smooth_bass: Vector3::default(),
+            local_smooth_mids: Vector3::default(),
+            local_smooth_high: Vector3::default(),
+        }
+    }
+}
+
+impl Default for GameState {
+    fn default() -> Self {
+        Self {
+            fix_particles: true,
+            render_particles: true,
+            distance_estimator_id: 4,
+            camera_quaternion: Quaternion::default(),
+            is_cursor_visible: true,
+            cursor_position: PhysicalPosition::<f64>::default(),
+            cursor_force: 0.,
+            cursor_force_mult: 1.5,
+            kaleidoscope: 0.,
+            kaleidoscope_dir: KaleidoscopeDirection::BackwardComplete,
+            alternate_colors: AlternateColors::Normal,
+            particles_are_3d: false,
+            color_scheme_index: 0,
+        }
+    }
+}
+
 // Helper for receiving the latest audio state from the input stream
 fn update_audio_state_from_stream(
     rx: &std::sync::mpsc::Receiver<audio::State>,
     audio_state: &mut LocalAudioState,
     delta_time: f32,
-    particles_are_3d: bool,
-    fix_particles: bool,
+    game_state: &GameState,
 ) {
     // Handle any changes to audio state
     match rx.try_recv() {
@@ -585,7 +556,7 @@ fn update_audio_state_from_stream(
             // Update volume
             audio_state.latest_volume = volume;
 
-            let (big_boomer, curl_attractors, attractors) = if particles_are_3d {
+            let (big_boomer, curl_attractors, attractors) = if game_state.particles_are_3d {
                 (
                     audio::map_note_to_cube(bass_note, audio::BASS_POW),
                     mids_notes.map(|n| audio::map_note_to_cube(n, audio::MIDS_POW)),
@@ -600,7 +571,7 @@ fn update_audio_state_from_stream(
             };
 
             // Update 2D big boomers
-            if fix_particles {
+            if game_state.fix_particles {
                 let smooth = 1. - (-7.25 * big_boomer.w * delta_time).exp();
                 audio_state.big_boomer.x += smooth * (big_boomer.x - audio_state.big_boomer.x);
                 audio_state.big_boomer.y += smooth * (big_boomer.y - audio_state.big_boomer.y);
@@ -631,4 +602,77 @@ fn update_audio_state_from_stream(
         // Unexpected error, bail
         Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
     }
+}
+
+// Helper for interpolating data on a per-frame basis
+fn interpolate_frames(
+    audio_state: &mut LocalAudioState,
+    delta_time: f32,
+    game_state: &mut GameState,
+) {
+    interpolate_floats(
+        &mut audio_state.local_volume,
+        audio_state.latest_volume,
+        delta_time * -1.8,
+    );
+    let audio_scaled_delta_time = delta_time * audio_state.local_volume.sqrt();
+    audio_state.play_time += audio_scaled_delta_time;
+    game_state.camera_quaternion.rotate_by(Quaternion::build(
+        audio_state.local_angular_velocity.xyz(),
+        delta_time * audio_state.local_angular_velocity.w,
+    ));
+    interpolate_floats(
+        &mut audio_state.local_angular_velocity.w,
+        BASE_ANGULAR_VELOCITY,
+        delta_time * -0.375,
+    );
+    interpolate_vec3(
+        &mut audio_state.local_reactive_bass,
+        &audio_state.reactive_bass,
+        delta_time * (0.8 * audio_state.big_boomer.w.sqrt()).min(1.) * -0.36,
+    );
+    interpolate_vec3(
+        &mut audio_state.local_reactive_mids,
+        &audio_state.reactive_mids,
+        delta_time * (0.8 * audio_state.curl_attractors[0].w.sqrt()).min(1.) * -0.36,
+    );
+    interpolate_vec3(
+        &mut audio_state.local_reactive_high,
+        &audio_state.reactive_high,
+        delta_time * (0.8 * audio_state.attractors[0].w.sqrt()).min(1.) * -0.36,
+    );
+    interpolate_vec3(
+        &mut audio_state.local_smooth_bass,
+        &audio_state.local_reactive_bass,
+        delta_time * -0.15,
+    );
+    interpolate_vec3(
+        &mut audio_state.local_smooth_mids,
+        &audio_state.local_reactive_mids,
+        delta_time * -0.15,
+    );
+    interpolate_vec3(
+        &mut audio_state.local_smooth_high,
+        &audio_state.local_reactive_high,
+        delta_time * -0.15,
+    );
+
+    // Check and possibly update kaleidoscope animation state
+    match game_state.kaleidoscope_dir {
+        KaleidoscopeDirection::Forward => {
+            game_state.kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
+            if game_state.kaleidoscope >= 1. {
+                game_state.kaleidoscope = 1.;
+                game_state.kaleidoscope_dir = KaleidoscopeDirection::ForwardComplete;
+            }
+        }
+        KaleidoscopeDirection::Backward => {
+            game_state.kaleidoscope -= KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
+            if game_state.kaleidoscope <= 0. {
+                game_state.kaleidoscope = 0.;
+                game_state.kaleidoscope_dir = KaleidoscopeDirection::BackwardComplete;
+            }
+        }
+        _ => {}
+    };
 }
