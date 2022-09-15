@@ -67,15 +67,26 @@ pub struct State {
     pub reactive_high: Vector3,
 }
 
-// Simple type to help understand results from `analyze_frequency_range` closure
+// Simple type to retrieve results from `analyze_frequency_range` helper
 struct FrequencyAnalysis {
     pub loudest: Vec<Note>,
     pub total_volume: f32,
 }
 
-// Convert normalized frequency to position in cube
-fn map_freq_to_cube(freq: f32, pow: f32) -> Vector3 {
-    curve_to_cube_n(freq.powf(pow), 6)
+// Simple type to retrieve results from `analyze_audio_frequencies` helper
+struct SpectrumAnalysis {
+    pub bass_analysis: FrequencyAnalysis,
+    pub current_bass: Vec<f32>,
+    pub mids_analysis: FrequencyAnalysis,
+    pub high_analysis: FrequencyAnalysis,
+}
+
+// Simple type to help with passing re-used information in `analyze_audio_frequencies` helper
+struct AudioChunkHelper<'a> {
+    complex: &'a [Complex<f32>],
+    size: usize,
+    scale: f32,
+    frequency_resolution: f32,
 }
 
 // Convert note analysis to 4D vector containing position and note strength
@@ -101,10 +112,6 @@ fn spawn_audio_processing_thread(
         let size_float = size as f32; // Size of the sample buffer as floating point
         let scale = 1. / size_float.sqrt(); // Rescale elements by 1/sqrt(n)
         let frequency_resolution = sample_rate / size_float; // Hertz per frequency bin after applying FFT
-
-        // Helper function for converting frequency in Hertz to buffer index
-        let frequency_to_index =
-            |f: f32| -> usize { size.min((f / frequency_resolution).round() as usize) };
 
         // Store audio in a resizable array before processing, with some extra space to try to avoid heap allocations
         let mut audio_storage_buffer: Vec<Complex<f32>> = Vec::with_capacity(size + 1024);
@@ -136,106 +143,18 @@ fn spawn_audio_processing_thread(
             // Perform FFT on data in-place
             fft.process(complex);
 
-            // Create helper closure for determining the loudest frequency bin(s) within a frequency range
-            let analyze_frequency_range = |frequency_range: std::ops::Range<f32>,
-                                           count: usize,
-                                           mut delta: f32,
-                                           min_volume: f32,
-                                           vol_freq_scale: f32|
-             -> FrequencyAnalysis {
-                let start_index = frequency_to_index(frequency_range.start);
-                let end_index = frequency_to_index(frequency_range.end);
-                let len = end_index - start_index;
-                let len_float = len as f32;
-                delta /= 2.; // Allow caller to specify total width, even though we use distance from center
-
-                // Create sorted array of notes in this frequency range
-                let mut total_volume = 0.;
-                let mut sorted: Vec<Note> = (0..len)
-                    .map(|i| {
-                        let frac = i as f32 / len_float;
-                        let v = scale * complex[start_index + i].norm();
-                        total_volume += v;
-                        Note::new(frac, f32::powf(vol_freq_scale, frac) * v)
-                    })
-                    .collect();
-
-                let mut loudest: Vec<Note> = Vec::with_capacity(count);
-                while !sorted.is_empty() && loudest.len() < count {
-                    sorted.sort_unstable_by(|x, y| {
-                        y.mag
-                            .partial_cmp(&x.mag)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-
-                    let Note { freq, mag } = sorted[0];
-                    let remaining: Vec<Note> = sorted
-                        .into_iter()
-                        .filter(|x| (freq - x.freq).abs() > delta)
-                        .collect();
-
-                    // Update the strongest and the remaining lists. Reject values too quiet
-                    loudest.push(Note::new(freq, if mag >= min_volume { mag } else { 0. }));
-                    sorted = remaining;
-                }
-                assert_eq!(
-                    count,
-                    loudest.len(),
-                    "Calling code assumes requested number of notes will be returned"
-                );
-
-                FrequencyAnalysis {
-                    loudest,
-                    total_volume,
-                }
-            };
-
             // Analyze each frequency ranges
-            let (bass_analysis, current_bass) = {
-                let frequency_range: std::ops::Range<f32> = 30.0..275.;
-                let delta: f32 = 1.;
-                let min_volume: f32 = 0.25;
-                let vol_freq_scale = 1.825;
-                let analysis = analyze_frequency_range(
-                    frequency_range.clone(),
-                    1,
-                    delta,
-                    min_volume,
-                    vol_freq_scale,
-                );
-
-                // Do extra analysis for
-                let current_bass: Vec<f32> = {
-                    let start_index = frequency_to_index(frequency_range.start);
-                    let end_index = frequency_to_index(frequency_range.end);
-                    let len = end_index - start_index;
-                    let len_f32 = len as f32;
-
-                    (0..len)
-                        .map(|i| {
-                            let frac = i as f32 / len_f32;
-                            let v = scale * complex[start_index + i].norm();
-                            f32::powf(vol_freq_scale, frac) * v
-                        })
-                        .collect()
-                };
-
-                (analysis, current_bass)
-            };
-            let mids_analysis = {
-                let frequency_range: std::ops::Range<f32> = 275.0..1_600.;
-                let delta: f32 = 0.1;
-                let min_volume: f32 = 0.05;
-                let scale = 3.;
-                analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
-            };
-            let high_analysis = {
-                let frequency_range: std::ops::Range<f32> = 1_600.0..16_000.;
-                let delta: f32 = 0.1;
-                let min_volume: f32 = 0.0075;
-                let scale = 8.;
-                analyze_frequency_range(frequency_range, 2, delta, min_volume, scale)
-            };
+            let SpectrumAnalysis {
+                bass_analysis,
+                current_bass,
+                mids_analysis,
+                high_analysis,
+            } = analyze_audio_frequencies(&AudioChunkHelper {
+                complex,
+                size,
+                scale,
+                frequency_resolution,
+            });
 
             // Get total volume from all (relevant) frequencies
             let volume = bass_analysis.total_volume
@@ -304,8 +223,8 @@ fn spawn_audio_processing_thread(
             if PRINT_SPECTRUM {
                 const DISPLAY_FFT_SIZE: usize = 64;
                 let mut display_bins: [f32; DISPLAY_FFT_SIZE] = [0.; DISPLAY_FFT_SIZE];
-                let display_start_index = frequency_to_index(30.);
-                let display_end_index = frequency_to_index(12_000.);
+                let display_start_index = frequency_to_index(30., size, frequency_resolution);
+                let display_end_index = frequency_to_index(12_000., size, frequency_resolution);
                 let r = (display_end_index - display_start_index) / DISPLAY_FFT_SIZE;
                 let mut volume: f32 = 0.;
                 let mut max_volume: (usize, f32) = (display_start_index, 0.);
@@ -453,4 +372,158 @@ pub fn process_loopback_audio_and_send(tx: Sender<State>) -> cpal::Stream {
 
     // Create and return loopback capture stream
     transfer_loopback_chunks_for_processing(&default_audio_out, &audio_config, tx_acc)
+}
+
+// Convert normalized frequency to position in cube
+fn map_freq_to_cube(freq: f32, pow: f32) -> Vector3 {
+    curve_to_cube_n(freq.powf(pow), 6)
+}
+
+// Helper function for converting frequency in Hertz to buffer index
+#[allow(clippy::cast_sign_loss)]
+fn frequency_to_index(f: f32, size: usize, frequency_resolution: f32) -> usize {
+    (size - 1).min((f / frequency_resolution).round() as usize)
+}
+
+// Create helper closure for determining the loudest frequency bin(s) within a frequency range
+fn analyze_frequency_range(
+    frequency_range: std::ops::Range<f32>,
+    count: usize,
+    mut delta: f32,
+    min_volume: f32,
+    vol_freq_scale: f32,
+    audio_chunk: &AudioChunkHelper,
+) -> FrequencyAnalysis {
+    let start_index = frequency_to_index(
+        frequency_range.start,
+        audio_chunk.size,
+        audio_chunk.frequency_resolution,
+    );
+    let end_index = frequency_to_index(
+        frequency_range.end,
+        audio_chunk.size,
+        audio_chunk.frequency_resolution,
+    );
+    let len = end_index - start_index;
+    let len_float = len as f32;
+    delta /= 2.; // Allow caller to specify total width, even though we use distance from center
+
+    // Create sorted array of notes in this frequency range
+    let mut total_volume = 0.;
+    let mut sorted: Vec<Note> = (0..len)
+        .map(|i| {
+            let frac = i as f32 / len_float;
+            let v = audio_chunk.scale * audio_chunk.complex[start_index + i].norm();
+            total_volume += v;
+            Note::new(frac, f32::powf(vol_freq_scale, frac) * v)
+        })
+        .collect();
+
+    let mut loudest: Vec<Note> = Vec::with_capacity(count);
+    while !sorted.is_empty() && loudest.len() < count {
+        sorted.sort_unstable_by(|x, y| {
+            y.mag
+                .partial_cmp(&x.mag)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let Note { freq, mag } = sorted[0];
+        let remaining: Vec<Note> = sorted
+            .into_iter()
+            .filter(|x| (freq - x.freq).abs() > delta)
+            .collect();
+
+        // Update the strongest and the remaining lists. Reject values too quiet
+        loudest.push(Note::new(freq, if mag >= min_volume { mag } else { 0. }));
+        sorted = remaining;
+    }
+    assert_eq!(
+        count,
+        loudest.len(),
+        "Calling code assumes requested number of notes will be returned"
+    );
+
+    FrequencyAnalysis {
+        loudest,
+        total_volume,
+    }
+}
+
+// Given an audio chunk, determine information about bass, mids, and highs
+fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis {
+    let (bass_analysis, current_bass) = {
+        let frequency_range: std::ops::Range<f32> = 30.0..275.;
+        let delta: f32 = 1.;
+        let min_volume: f32 = 0.25;
+        let vol_freq_scale = 1.825;
+        let analysis = analyze_frequency_range(
+            frequency_range.clone(),
+            1,
+            delta,
+            min_volume,
+            vol_freq_scale,
+            audio_chunk,
+        );
+
+        // Do extra analysis for bass notes
+        let current_bass: Vec<f32> = {
+            let start_index = frequency_to_index(
+                frequency_range.start,
+                audio_chunk.size,
+                audio_chunk.frequency_resolution,
+            );
+            let end_index = frequency_to_index(
+                frequency_range.end,
+                audio_chunk.size,
+                audio_chunk.frequency_resolution,
+            );
+            let len = end_index - start_index;
+            let len_f32 = len as f32;
+
+            (0..len)
+                .map(|i| {
+                    let frac = i as f32 / len_f32;
+                    let v = audio_chunk.scale * audio_chunk.complex[start_index + i].norm();
+                    f32::powf(vol_freq_scale, frac) * v
+                })
+                .collect()
+        };
+
+        (analysis, current_bass)
+    };
+    let mids_analysis = {
+        let frequency_range: std::ops::Range<f32> = 275.0..1_600.;
+        let delta: f32 = 0.1;
+        let min_volume: f32 = 0.05;
+        let vol_freq_scale = 3.;
+        analyze_frequency_range(
+            frequency_range,
+            2,
+            delta,
+            min_volume,
+            vol_freq_scale,
+            audio_chunk,
+        )
+    };
+    let high_analysis = {
+        let frequency_range: std::ops::Range<f32> = 1_600.0..16_000.;
+        let delta: f32 = 0.1;
+        let min_volume: f32 = 0.0075;
+        let vol_freq_scale = 8.;
+        analyze_frequency_range(
+            frequency_range,
+            2,
+            delta,
+            min_volume,
+            vol_freq_scale,
+            audio_chunk,
+        )
+    };
+
+    SpectrumAnalysis {
+        bass_analysis,
+        current_bass,
+        mids_analysis,
+        high_analysis,
+    }
 }
