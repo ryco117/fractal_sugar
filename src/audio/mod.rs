@@ -67,13 +67,13 @@ pub struct State {
     pub reactive_high: Vector3,
 }
 
-// Simple type to retrieve results from `analyze_frequency_range` helper
+// Type to retrieve results from `analyze_frequency_range` helper
 struct FrequencyAnalysis {
     pub loudest: Vec<Note>,
     pub total_volume: f32,
 }
 
-// Simple type to retrieve results from `analyze_audio_frequencies` helper
+// Type to retrieve results from `analyze_audio_frequencies` helper
 struct SpectrumAnalysis {
     pub bass_analysis: FrequencyAnalysis,
     pub current_bass: Vec<f32>,
@@ -81,7 +81,15 @@ struct SpectrumAnalysis {
     pub high_analysis: FrequencyAnalysis,
 }
 
-// Simple type to help with passing re-used information in `analyze_audio_frequencies` helper
+// Type for storing state and history of bass notes
+struct BassHistoryAndState {
+    pub kick_angular_velocity: Option<Vector4>,
+    pub last_kick: SystemTime,
+    pub previous_bass_index: usize,
+    pub previous_bass: [Option<Vec<f32>>; PREVIOUS_BASS_COUNT],
+}
+
+// Type to help with passing re-used information in `analyze_audio_frequencies` helper
 struct AudioChunkHelper<'a> {
     complex: &'a [Complex<f32>],
     size: usize,
@@ -100,7 +108,6 @@ pub fn map_note_to_cube(note: Note, pow: f32) -> Vector4 {
 }
 
 // Create a new thread for retrieving and processing audio chunks. Results are send over channel
-#[allow(clippy::cast_sign_loss)]
 fn spawn_audio_processing_thread(
     sample_rate: f32,
     tx: Sender<State>,
@@ -121,10 +128,7 @@ fn spawn_audio_processing_thread(
         let fft = planner.plan_fft_forward(size);
 
         // Keep track of state that we don't want UI to need to calculate
-        let mut kick_angular_velocity = None;
-        let mut last_kick = SystemTime::now();
-        let mut previous_bass_index = 0;
-        let mut previous_bass: [Option<Vec<f32>>; PREVIOUS_BASS_COUNT] = Default::default();
+        let mut bass_state = BassHistoryAndState::default();
 
         loop {
             // Append incoming audio data until we have sufficient samples
@@ -161,46 +165,8 @@ fn spawn_audio_processing_thread(
                 + mids_analysis.total_volume
                 + high_analysis.total_volume;
 
-            // Use analysis of bass notes to determine if a kick should occur
-            let kick_elapsed = match last_kick.elapsed() {
-                Ok(d) => d.as_secs_f32(),
-                _ => 0.,
-            };
-            let avg_prev_bass: f32 = previous_bass.iter().fold(0., |acc, x| {
-                acc + match x {
-                    Some(v) => {
-                        let l = v.len();
-                        if l > 0 {
-                            v[(((l as f32) * bass_analysis.loudest[0].freq).round() as usize)
-                                .min(l - 1)]
-                        } else {
-                            0.
-                        }
-                    }
-                    None => 0.,
-                }
-            }) / (previous_bass.len() as f32);
-            if (bass_analysis.loudest[0].mag > 4.
-                || bass_analysis.loudest[0].mag * kick_elapsed > 8.)
-                && kick_elapsed > 0.8
-                && bass_analysis.loudest[0].mag > 1.25
-                && bass_analysis.loudest[0].mag > 3. * avg_prev_bass
-            {
-                let v = space_filling_curves::cube::curve_to_cube_n(
-                    bass_analysis.loudest[0].freq.powf(BASS_POW),
-                    6,
-                );
-                kick_angular_velocity = Some(Vector4::new(
-                    v.x,
-                    v.y,
-                    v.z,
-                    BASS_KICK * bass_analysis.total_volume.sqrt(),
-                ));
-                last_kick = SystemTime::now();
-            }
-            // Regardless, update bass history
-            previous_bass[previous_bass_index] = Some(current_bass);
-            previous_bass_index = (previous_bass_index + 1) % previous_bass.len();
+            // Update bass state and history
+            update_bass_history(&mut bass_state, &bass_analysis, current_bass);
 
             // Send updated state to UI thread
             match tx.send(State {
@@ -210,7 +176,7 @@ fn spawn_audio_processing_thread(
                 mids_notes: [mids_analysis.loudest[0], mids_analysis.loudest[1]],
                 high_notes: [high_analysis.loudest[0], high_analysis.loudest[1]],
 
-                kick_angular_velocity: kick_angular_velocity.take(),
+                kick_angular_velocity: bass_state.kick_angular_velocity.take(),
                 reactive_bass: map_freq_to_cube(bass_analysis.loudest[0].freq, BASS_POW),
                 reactive_mids: map_freq_to_cube(mids_analysis.loudest[0].freq, MIDS_POW),
                 reactive_high: map_freq_to_cube(high_analysis.loudest[0].freq, HIGH_POW),
@@ -452,7 +418,7 @@ fn analyze_frequency_range(
 // Given an audio chunk, determine information about bass, mids, and highs
 fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis {
     let (bass_analysis, current_bass) = {
-        let frequency_range: std::ops::Range<f32> = 30.0..275.;
+        let frequency_range: std::ops::Range<f32> = 30.0..250.;
         let delta: f32 = 1.;
         let min_volume: f32 = 0.25;
         let vol_freq_scale = 1.825;
@@ -492,7 +458,7 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
         (analysis, current_bass)
     };
     let mids_analysis = {
-        let frequency_range: std::ops::Range<f32> = 275.0..1_600.;
+        let frequency_range: std::ops::Range<f32> = 250.0..1_600.;
         let delta: f32 = 0.1;
         let min_volume: f32 = 0.05;
         let vol_freq_scale = 3.;
@@ -525,5 +491,65 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
         current_bass,
         mids_analysis,
         high_analysis,
+    }
+}
+
+// Update the state and history of bass notes given the latest bass analysis
+#[allow(clippy::cast_sign_loss)]
+fn update_bass_history(
+    bass_state: &mut BassHistoryAndState,
+    bass_analysis: &FrequencyAnalysis,
+    current_bass: Vec<f32>,
+) {
+    // Use analysis of bass notes to determine if a kick should occur
+    let kick_elapsed = match bass_state.last_kick.elapsed() {
+        Ok(d) => d.as_secs_f32(),
+        _ => 0.,
+    };
+    let avg_prev_bass: f32 = bass_state.previous_bass.iter().fold(0., |acc, x| {
+        acc + match x {
+            Some(v) => {
+                let l = v.len();
+                if l > 0 {
+                    v[(((l as f32) * bass_analysis.loudest[0].freq).round() as usize).min(l - 1)]
+                } else {
+                    0.
+                }
+            }
+            None => 0.,
+        }
+    }) / (bass_state.previous_bass.len() as f32);
+    if (bass_analysis.loudest[0].mag > 4. || bass_analysis.loudest[0].mag * kick_elapsed > 8.)
+        && kick_elapsed > 0.8
+        && bass_analysis.loudest[0].mag > 1.25
+        && bass_analysis.loudest[0].mag > 3. * avg_prev_bass
+    {
+        let v = space_filling_curves::cube::curve_to_cube_n(
+            bass_analysis.loudest[0].freq.powf(BASS_POW),
+            6,
+        );
+        bass_state.kick_angular_velocity = Some(Vector4::new(
+            v.x,
+            v.y,
+            v.z,
+            BASS_KICK * bass_analysis.total_volume.sqrt(),
+        ));
+        bass_state.last_kick = SystemTime::now();
+    }
+
+    // Update bass history
+    bass_state.previous_bass[bass_state.previous_bass_index] = Some(current_bass);
+    bass_state.previous_bass_index =
+        (bass_state.previous_bass_index + 1) % bass_state.previous_bass.len();
+}
+
+impl Default for BassHistoryAndState {
+    fn default() -> Self {
+        Self {
+            kick_angular_velocity: None,
+            last_kick: SystemTime::now(),
+            previous_bass_index: 0,
+            previous_bass: Default::default(),
+        }
     }
 }

@@ -16,24 +16,19 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+// TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 
-// Windows API for CMD management
-extern crate kernel32;
-extern crate user32;
-extern crate winapi;
-
 use std::time::SystemTime;
 
-use winit::dpi::PhysicalPosition;
+use engine::Engine;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{
     ElementState, Event, KeyboardInput, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
 };
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
-
-use winapi::um::winuser::{SW_HIDE, SW_SHOW};
 
 use engine::swapchain::RecreateSwapchainResult;
 
@@ -107,12 +102,14 @@ struct GameState {
     pub color_scheme_index: usize,
 }
 
-fn bool_to_u32(b: bool) -> u32 {
-    if b {
-        1
-    } else {
-        0
-    }
+#[allow(clippy::struct_excessive_bools)]
+struct WindowState {
+    pub resized: bool,
+    pub recreate_swapchain: bool,
+    pub is_fullscreen: bool,
+    pub is_focused: bool,
+    pub last_frame_time: SystemTime,
+    pub last_mouse_movement: SystemTime,
 }
 
 fn main() {
@@ -141,24 +138,10 @@ fn main() {
     let (tx, rx) = crossbeam_channel::bounded(4);
     let _capture_stream_option = audio::process_loopback_audio_and_send(tx);
 
-    // Window state vars
-    let mut window_resized = false;
-    let mut recreate_swapchain = false;
-    let mut window_is_fullscreen = false;
-    let mut window_is_focused = true;
+    // State vars
     engine.surface().window().focus_window();
-    let mut last_frame_time = SystemTime::now();
-    let mut last_mouse_movement = SystemTime::now();
-    let (console_handle, mut console_visible) = unsafe {
-        let hwnd = kernel32::GetConsoleWindow();
-        user32::ShowWindow(hwnd, 0);
-        (hwnd, false)
-    };
-
-    // Audio state vars
+    let mut window_state = WindowState::default();
     let mut audio_state = LocalAudioState::default();
-
-    // Game state vars?
     let mut game_state = GameState::default();
 
     // Run window loop
@@ -177,150 +160,16 @@ fn main() {
         Event::WindowEvent {
             event: WindowEvent::Resized(_),
             ..
-        } => window_resized = true,
+        } => window_state.resized = true,
 
         // All UI events have been handled (ie., executes once per frame)
-        Event::MainEventsCleared => {
-            // Handle per-frame timing
-            let now = SystemTime::now();
-            let delta_time = now.duration_since(last_frame_time).unwrap().as_secs_f32();
-            last_frame_time = now;
-
-            // Handle any changes to audio state from the input stream
-            update_audio_state_from_stream(&rx, &mut audio_state, delta_time, &game_state);
-
-            // Update per-frame state
-            interpolate_frames(&mut audio_state, delta_time, &mut game_state);
-
-            let surface = engine.surface();
-
-            // If cursor is visible and has been stationary then hide it
-            if game_state.is_cursor_visible
-                && window_is_focused
-                && last_mouse_movement.elapsed().unwrap().as_secs_f32() > 2.
-            {
-                surface.window().set_cursor_visible(false);
-                game_state.is_cursor_visible = false;
-            }
-
-            // Handle any necessary recreations (usually from window resizing)
-            let dimensions = surface.window().inner_size();
-            if window_resized || recreate_swapchain {
-                match engine.recreate_swapchain(dimensions, window_resized) {
-                    RecreateSwapchainResult::Success => {
-                        recreate_swapchain = false;
-                        window_resized = false;
-                    }
-                    RecreateSwapchainResult::ExtentNotSupported => return,
-                }
-            }
-
-            let width = dimensions.width as f32;
-            let height = dimensions.height as f32;
-            let aspect_ratio = width / height;
-
-            // Create per-frame data for particle compute-shader
-            let particle_data = if game_state.render_particles {
-                // Create a unique attractor based on mouse position
-                let cursor_attractor = {
-                    #[allow(clippy::cast_lossless)]
-                    fn normalize_cursor(p: f64, max: u32) -> f32 {
-                        (2. * (p / max as f64) - 1.) as f32
-                    }
-
-                    let strength = if game_state.fix_particles {
-                        CURSOR_FIXED_STRENGTH
-                    } else {
-                        CURSOR_LOOSE_STRENGTH
-                    } * game_state.cursor_force_mult
-                        * game_state.cursor_force;
-
-                    let x_norm = normalize_cursor(game_state.cursor_position.x, dimensions.width);
-                    let y_norm = normalize_cursor(game_state.cursor_position.y, dimensions.height);
-                    if game_state.particles_are_3d && game_state.cursor_force != 0. {
-                        const VERTICAL_FOV: f32 = std::f32::consts::FRAC_PI_2 / 2.5; // Roughly 70 degree vertical VERTICAL_FOV
-                        const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
-                        const PERSPECTIVE_DISTANCE: f32 = 1.35;
-                        let fov_y = VERTICAL_FOV.tan();
-                        let fov_x = fov_y * aspect_ratio;
-
-                        // Map cursor to 3D world using camera orientation
-                        let mut v = game_state.camera_quaternion.rotate_point(
-                            PERSPECTIVE_DISTANCE
-                                * Vector3::new(x_norm * fov_x, y_norm * fov_y, -1.),
-                        );
-                        v += game_state
-                            .camera_quaternion
-                            .rotate_point(PARTICLE_CAMERA_ORBIT);
-                        [v.x, v.y, v.z, strength]
-                    } else {
-                        [x_norm, y_norm, 0., strength]
-                    }
-                };
-
-                let compute = engine::ParticleComputePushConstants {
-                    big_boomer: audio_state.big_boomer.into(),
-
-                    curl_attractors: audio_state.curl_attractors.map(std::convert::Into::into),
-
-                    attractors: [
-                        audio_state.attractors[0].into(),
-                        audio_state.attractors[1].into(),
-                        cursor_attractor,
-                    ],
-
-                    time: audio_state.play_time,
-                    delta_time,
-                    width,
-                    height,
-                    fix_particles: bool_to_u32(game_state.fix_particles),
-                    use_third_dimension: bool_to_u32(game_state.particles_are_3d),
-                };
-
-                let vertex = engine::ParticleVertexPushConstants {
-                    quaternion: game_state.camera_quaternion.into(),
-                    time: audio_state.play_time,
-                    aspect_ratio,
-                    rendering_fractal: bool_to_u32(game_state.distance_estimator_id != 0),
-                    alternate_colors: match game_state.alternate_colors {
-                        AlternateColors::Inverse => 1,
-                        AlternateColors::Normal => 0,
-                    },
-                    use_third_dimension: bool_to_u32(game_state.particles_are_3d),
-                };
-
-                Some((compute, vertex))
-            } else {
-                None
-            };
-
-            // Create fractal data
-            let fractal_data = engine::FractalPushConstants {
-                quaternion: game_state.camera_quaternion.into(),
-
-                reactive_bass: audio_state.local_reactive_bass.into(),
-                reactive_mids: audio_state.local_reactive_mids.into(),
-                reactive_high: audio_state.local_reactive_high.into(),
-
-                smooth_bass: audio_state.local_smooth_bass.into(),
-                smooth_mids: audio_state.local_smooth_mids.into(),
-                smooth_high: audio_state.local_smooth_high.into(),
-
-                time: audio_state.play_time,
-                aspect_ratio,
-                kaleidoscope: game_state.kaleidoscope.powf(0.65),
-                distance_estimator_id: game_state.distance_estimator_id,
-                orbit_distance: if game_state.render_particles && game_state.particles_are_3d {
-                    1.42
-                } else {
-                    1.
-                },
-                render_background: bool_to_u32(!game_state.render_particles),
-            };
-
-            // Draw frame and return whether a swapchain recreation was deemed necessary
-            recreate_swapchain |= engine.draw_frame(particle_data, fractal_data);
-        }
+        Event::MainEventsCleared => tock_frame(
+            &mut engine,
+            &mut audio_state,
+            &mut game_state,
+            &mut window_state,
+            &rx,
+        ),
 
         // Handle some keyboard input
         Event::WindowEvent {
@@ -339,24 +188,24 @@ fn main() {
             match keycode {
                 // Handle fullscreen toggle (F11)
                 VirtualKeyCode::F11 => {
-                    if window_is_fullscreen {
+                    if window_state.is_fullscreen {
                         engine.surface().window().set_fullscreen(None);
-                        window_is_fullscreen = false;
+                        window_state.is_fullscreen = false;
                     } else {
                         engine
                             .surface()
                             .window()
                             .set_fullscreen(Some(Fullscreen::Borderless(None)));
-                        window_is_fullscreen = true;
+                        window_state.is_fullscreen = true;
                     }
                 }
 
                 // Handle Escape key
                 VirtualKeyCode::Escape => {
-                    if window_is_fullscreen {
+                    if window_state.is_fullscreen {
                         // Leave fullscreen
                         engine.surface().window().set_fullscreen(None);
-                        window_is_fullscreen = false;
+                        window_state.is_fullscreen = false;
                     } else {
                         // Exit window loop
                         println!("The Escape key was pressed, exiting");
@@ -408,16 +257,6 @@ fn main() {
                 VirtualKeyCode::Key4 => game_state.distance_estimator_id = 4,
                 VirtualKeyCode::Key5 => game_state.distance_estimator_id = 5,
 
-                // Handle toggling the debug-console.
-                // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
-                VirtualKeyCode::Return => unsafe {
-                    user32::ShowWindow(
-                        console_handle,
-                        if console_visible { SW_HIDE } else { SW_SHOW },
-                    );
-                    console_visible = !console_visible;
-                },
-
                 // No-op
                 _ => {}
             }
@@ -433,7 +272,7 @@ fn main() {
                 engine.surface().window().set_cursor_visible(true);
                 game_state.is_cursor_visible = true;
             }
-            window_is_focused = focused;
+            window_state.is_focused = focused;
         }
 
         // Handle mouse movement
@@ -441,7 +280,7 @@ fn main() {
             event: WindowEvent::CursorMoved { position, .. },
             ..
         } => {
-            last_mouse_movement = SystemTime::now();
+            window_state.last_mouse_movement = SystemTime::now();
             engine.surface().window().set_cursor_visible(true);
             game_state.is_cursor_visible = true;
 
@@ -482,51 +321,138 @@ fn main() {
     })
 }
 
-impl Default for LocalAudioState {
-    fn default() -> Self {
-        Self {
-            play_time: 0.,
-            latest_volume: 0.,
+// Update per-frame state and draw to window
+fn tock_frame(
+    engine: &mut Engine,
+    audio_state: &mut LocalAudioState,
+    game_state: &mut GameState,
+    window_state: &mut WindowState,
+    rx: &crossbeam_channel::Receiver<audio::State>,
+) {
+    // Handle per-frame timing
+    let now = SystemTime::now();
+    let delta_time = now
+        .duration_since(window_state.last_frame_time)
+        .unwrap_or_default()
+        .as_secs_f32();
+    window_state.last_frame_time = now;
 
-            big_boomer: Vector4::default(),
-            curl_attractors: [Vector4::default(); 2],
-            attractors: [Vector4::default(); 2],
+    // Handle any changes to audio state from the input stream
+    update_audio_state_from_stream(rx, audio_state, delta_time, game_state);
 
-            // 3D (Fractals)
-            reactive_bass: Vector3::default(),
-            reactive_mids: Vector3::default(),
-            reactive_high: Vector3::default(),
+    // Update per-frame state
+    interpolate_frames(audio_state, delta_time, game_state);
 
-            local_volume: 0.,
-            local_angular_velocity: Vector4::new(0., 1., 0., 0.),
-            local_reactive_bass: Vector3::default(),
-            local_reactive_mids: Vector3::default(),
-            local_reactive_high: Vector3::default(),
-            local_smooth_bass: Vector3::default(),
-            local_smooth_mids: Vector3::default(),
-            local_smooth_high: Vector3::default(),
+    let surface = engine.surface();
+
+    // If cursor is visible and has been stationary then hide it
+    if game_state.is_cursor_visible
+        && window_state.is_focused
+        && window_state
+            .last_mouse_movement
+            .elapsed()
+            .unwrap_or_default()
+            .as_secs_f32()
+            > 2.
+    {
+        surface.window().set_cursor_visible(false);
+        game_state.is_cursor_visible = false;
+    }
+
+    // Handle any necessary recreations (usually from window resizing)
+    let dimensions = surface.window().inner_size();
+    if window_state.resized || window_state.recreate_swapchain {
+        match engine.recreate_swapchain(dimensions, window_state.resized) {
+            RecreateSwapchainResult::Success => {
+                window_state.recreate_swapchain = false;
+                window_state.resized = false;
+            }
+            RecreateSwapchainResult::ExtentNotSupported => return,
         }
     }
-}
 
-impl Default for GameState {
-    fn default() -> Self {
-        Self {
-            fix_particles: true,
-            render_particles: true,
-            distance_estimator_id: 4,
-            camera_quaternion: Quaternion::default(),
-            is_cursor_visible: true,
-            cursor_position: PhysicalPosition::<f64>::default(),
-            cursor_force: 0.,
-            cursor_force_mult: 1.5,
-            kaleidoscope: 0.,
-            kaleidoscope_dir: KaleidoscopeDirection::BackwardComplete,
-            alternate_colors: AlternateColors::Normal,
-            particles_are_3d: false,
-            color_scheme_index: 0,
-        }
-    }
+    let width = dimensions.width as f32;
+    let height = dimensions.height as f32;
+    let aspect_ratio = width / height;
+
+    // Create per-frame data for particle compute-shader
+    let particle_data = if game_state.render_particles {
+        // Create a unique attractor based on mouse position
+        let cursor_attractor = {
+            let strength = if game_state.fix_particles {
+                CURSOR_FIXED_STRENGTH
+            } else {
+                CURSOR_LOOSE_STRENGTH
+            } * game_state.cursor_force_mult
+                * game_state.cursor_force;
+
+            let Vector3 { x, y, z, .. } =
+                screen_position_to_world(game_state, dimensions, aspect_ratio);
+            [x, y, z, strength]
+        };
+
+        let compute = engine::ParticleComputePushConstants {
+            big_boomer: audio_state.big_boomer.into(),
+
+            curl_attractors: audio_state.curl_attractors.map(std::convert::Into::into),
+
+            attractors: [
+                audio_state.attractors[0].into(),
+                audio_state.attractors[1].into(),
+                cursor_attractor,
+            ],
+
+            time: audio_state.play_time,
+            delta_time,
+            width,
+            height,
+            fix_particles: bool_to_u32(game_state.fix_particles),
+            use_third_dimension: bool_to_u32(game_state.particles_are_3d),
+        };
+
+        let vertex = engine::ParticleVertexPushConstants {
+            quaternion: game_state.camera_quaternion.into(),
+            time: audio_state.play_time,
+            aspect_ratio,
+            rendering_fractal: bool_to_u32(game_state.distance_estimator_id != 0),
+            alternate_colors: match game_state.alternate_colors {
+                AlternateColors::Inverse => 1,
+                AlternateColors::Normal => 0,
+            },
+            use_third_dimension: bool_to_u32(game_state.particles_are_3d),
+        };
+
+        Some((compute, vertex))
+    } else {
+        None
+    };
+
+    // Create fractal data
+    let fractal_data = engine::FractalPushConstants {
+        quaternion: game_state.camera_quaternion.into(),
+
+        reactive_bass: audio_state.local_reactive_bass.into(),
+        reactive_mids: audio_state.local_reactive_mids.into(),
+        reactive_high: audio_state.local_reactive_high.into(),
+
+        smooth_bass: audio_state.local_smooth_bass.into(),
+        smooth_mids: audio_state.local_smooth_mids.into(),
+        smooth_high: audio_state.local_smooth_high.into(),
+
+        time: audio_state.play_time,
+        aspect_ratio,
+        kaleidoscope: game_state.kaleidoscope.powf(0.65),
+        distance_estimator_id: game_state.distance_estimator_id,
+        orbit_distance: if game_state.render_particles && game_state.particles_are_3d {
+            1.42
+        } else {
+            1.
+        },
+        render_background: bool_to_u32(!game_state.render_particles),
+    };
+
+    // Draw frame and return whether a swapchain recreation was deemed necessary
+    window_state.recreate_swapchain |= engine.draw_frame(particle_data, fractal_data);
 }
 
 // Helper for receiving the latest audio state from the input stream
@@ -674,4 +600,107 @@ fn interpolate_frames(
         }
         _ => {}
     };
+}
+
+// Use game state to correctly map positions from screen space to world
+fn screen_position_to_world(
+    game_state: &GameState,
+    dimensions: PhysicalSize<u32>,
+    aspect_ratio: f32,
+) -> Vector3 {
+    #[allow(clippy::cast_lossless)]
+    fn normalize_cursor(p: f64, max: u32) -> f32 {
+        (2. * (p / max as f64) - 1.) as f32
+    }
+    let x_norm = normalize_cursor(game_state.cursor_position.x, dimensions.width);
+    let y_norm = normalize_cursor(game_state.cursor_position.y, dimensions.height);
+
+    if game_state.particles_are_3d && game_state.cursor_force != 0. {
+        const VERTICAL_FOV: f32 = std::f32::consts::FRAC_PI_2 / 2.5; // Roughly 70 degree vertical VERTICAL_FOV
+        const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
+        const PERSPECTIVE_DISTANCE: f32 = 1.35;
+        let fov_y = VERTICAL_FOV.tan();
+        let fov_x = fov_y * aspect_ratio;
+
+        // Map cursor to 3D world using camera orientation
+        let mut v = game_state
+            .camera_quaternion
+            .rotate_point(PERSPECTIVE_DISTANCE * Vector3::new(x_norm * fov_x, y_norm * fov_y, -1.));
+        v += game_state
+            .camera_quaternion
+            .rotate_point(PARTICLE_CAMERA_ORBIT);
+        Vector3::new(v.x, v.y, v.z)
+    } else {
+        Vector3::new(x_norm, y_norm, 0.)
+    }
+}
+
+// Helper for converting booleans to unsigned 32-bit integers.
+// This is necessary for GPU memory alignment
+fn bool_to_u32(b: bool) -> u32 {
+    if b {
+        1
+    } else {
+        0
+    }
+}
+
+impl Default for LocalAudioState {
+    fn default() -> Self {
+        Self {
+            play_time: 0.,
+            latest_volume: 0.,
+
+            big_boomer: Vector4::default(),
+            curl_attractors: [Vector4::default(); 2],
+            attractors: [Vector4::default(); 2],
+
+            // 3D (Fractals)
+            reactive_bass: Vector3::default(),
+            reactive_mids: Vector3::default(),
+            reactive_high: Vector3::default(),
+
+            local_volume: 0.,
+            local_angular_velocity: Vector4::new(0., 1., 0., 0.),
+            local_reactive_bass: Vector3::default(),
+            local_reactive_mids: Vector3::default(),
+            local_reactive_high: Vector3::default(),
+            local_smooth_bass: Vector3::default(),
+            local_smooth_mids: Vector3::default(),
+            local_smooth_high: Vector3::default(),
+        }
+    }
+}
+
+impl Default for GameState {
+    fn default() -> Self {
+        Self {
+            fix_particles: true,
+            render_particles: true,
+            distance_estimator_id: 4,
+            camera_quaternion: Quaternion::default(),
+            is_cursor_visible: true,
+            cursor_position: PhysicalPosition::<f64>::default(),
+            cursor_force: 0.,
+            cursor_force_mult: 1.5,
+            kaleidoscope: 0.,
+            kaleidoscope_dir: KaleidoscopeDirection::BackwardComplete,
+            alternate_colors: AlternateColors::Normal,
+            particles_are_3d: false,
+            color_scheme_index: 0,
+        }
+    }
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            resized: false,
+            recreate_swapchain: false,
+            is_fullscreen: false,
+            is_focused: true,
+            last_frame_time: SystemTime::now(),
+            last_mouse_movement: SystemTime::now(),
+        }
+    }
 }
