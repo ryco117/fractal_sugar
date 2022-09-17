@@ -30,7 +30,7 @@ use winit::event::{
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
 
-use engine::swapchain::RecreateSwapchainResult;
+use engine::core::RecreateSwapchainResult;
 
 mod app_config;
 mod audio;

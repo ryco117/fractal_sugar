@@ -36,18 +36,17 @@ use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event_loop::EventLoop;
 use winit::window::{Window, WindowBuilder};
 
-use crate::app_config::{AppConfig, Scheme};
-use object::{Fractal, Particles};
-pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
-use swapchain::{EngineSwapchain, RecreateSwapchainResult};
-
-mod hardware;
+pub mod core;
 mod object;
 pub mod pipeline;
 pub mod renderer;
-pub mod swapchain;
 mod utils;
 mod vertex;
+
+use self::core::{EngineSwapchain, RecreateSwapchainResult};
+use crate::app_config::{AppConfig, Scheme};
+use object::{Fractal, Particles};
+pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
 
 type EngineFrameFuture = Arc<FenceSignalFuture<Box<dyn GpuFuture>>>;
 
@@ -125,7 +124,7 @@ impl Engine {
             .unwrap();
 
         // Fetch device resources based on what is available to the system
-        let (physical_device, device, queue) = hardware::select_hardware(&instance, &surface);
+        let (physical_device, device, queue) = core::select_hardware(&instance, &surface);
 
         // Create swapchain and associated image buffers from the relevant parameters
         let engine_swapchain = EngineSwapchain::new(
