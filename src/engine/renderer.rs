@@ -29,11 +29,8 @@ use vulkano::image::ImageViewAbstract;
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::Framebuffer;
 
-use super::object::{
-    FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants,
-};
 use super::vertex::Vertex;
-use super::Engine;
+use super::{DrawData, Engine, FractalPushConstants, ParticleVertexPushConstants};
 
 // Helper for initializing the rendering of a frame. Must specify clear value of each subpass
 fn begin_render_pass(
@@ -59,8 +56,7 @@ fn begin_render_pass(
 pub fn create_render_commands(
     engine: &mut Engine,
     image_index: usize,
-    particle_data: Option<(ParticleComputePushConstants, ParticleVertexPushConstants)>,
-    fractal_data: FractalPushConstants,
+    draw_data: &DrawData,
 ) -> PrimaryAutoCommandBuffer {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
@@ -73,7 +69,7 @@ pub fn create_render_commands(
     let framebuffer = &engine.framebuffers[image_index];
 
     // Allow toggling of particle effects and avoid unnecesary computation
-    if let Some((compute_push_constants, vertex_push_constants)) = particle_data {
+    if let Some((compute_push_constants, vertex_push_constants)) = draw_data.particle_data {
         let compute_pipeline = engine.compute_pipeline();
         let descriptor_set = engine.compute_descriptor_set();
         let vertex_buffer = engine.particles.vertex_buffer.clone();
@@ -117,7 +113,7 @@ pub fn create_render_commands(
     inline_fractal_cmds(
         &mut builder,
         engine,
-        fractal_data,
+        draw_data.fractal_data,
         (*framebuffer.attachments())[1].clone(),
         (*framebuffer.attachments())[2].clone(),
     );

@@ -30,7 +30,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::Fullscreen;
 
 use engine::core::RecreateSwapchainResult;
-use engine::Engine;
+use engine::{DrawData, Engine};
 
 mod app_config;
 mod audio;
@@ -119,6 +119,10 @@ struct FractalSugar {
     event_loop: Option<EventLoop<()>>,
     audio_receiver: crossbeam_channel::Receiver<audio::State>,
 
+    // This field keeps the audio stream alive for the duration of the app
+    #[allow(dead_code)]
+    capture_stream: cpal::Stream,
+
     audio_state: LocalAudioState,
     game_state: GameState,
     window_state: WindowState,
@@ -156,7 +160,7 @@ impl FractalSugar {
 
         // Capture reference to audio stream and use message passing to receive data
         let (tx, rx) = crossbeam_channel::bounded(4);
-        let _capture_stream = audio::process_loopback_audio_and_send(tx);
+        let capture_stream = audio::process_loopback_audio_and_send(tx);
 
         // State vars
         engine.surface().window().focus_window();
@@ -169,6 +173,7 @@ impl FractalSugar {
             engine,
             event_loop: Some(event_loop),
             audio_receiver: rx,
+            capture_stream,
 
             audio_state,
             game_state,
@@ -323,92 +328,11 @@ impl FractalSugar {
             }
         }
 
-        let width = dimensions.width as f32;
-        let height = dimensions.height as f32;
-        let aspect_ratio = width / height;
-
         // Create per-frame data for particle compute-shader
-        let particle_data = if self.game_state.render_particles {
-            // Create a unique attractor based on mouse position
-            let cursor_attractor = {
-                let strength = if self.game_state.fix_particles {
-                    CURSOR_FIXED_STRENGTH
-                } else {
-                    CURSOR_LOOSE_STRENGTH
-                } * self.game_state.cursor_force_mult
-                    * self.game_state.cursor_force;
-
-                let Vector3 { x, y, z, .. } =
-                    self.screen_position_to_world(dimensions, aspect_ratio);
-                [x, y, z, strength]
-            };
-
-            let compute = engine::ParticleComputePushConstants {
-                big_boomer: self.audio_state.big_boomer.into(),
-
-                curl_attractors: self
-                    .audio_state
-                    .curl_attractors
-                    .map(std::convert::Into::into),
-
-                attractors: [
-                    self.audio_state.attractors[0].into(),
-                    self.audio_state.attractors[1].into(),
-                    cursor_attractor,
-                ],
-
-                time: self.audio_state.play_time,
-                delta_time,
-                width,
-                height,
-                fix_particles: bool_to_u32(self.game_state.fix_particles),
-                use_third_dimension: bool_to_u32(self.game_state.particles_are_3d),
-            };
-
-            let vertex = engine::ParticleVertexPushConstants {
-                quaternion: self.game_state.camera_quaternion.into(),
-                time: self.audio_state.play_time,
-                aspect_ratio,
-                rendering_fractal: bool_to_u32(self.game_state.distance_estimator_id != 0),
-                alternate_colors: match self.game_state.alternate_colors {
-                    AlternateColors::Inverse => 1,
-                    AlternateColors::Normal => 0,
-                },
-                use_third_dimension: bool_to_u32(self.game_state.particles_are_3d),
-            };
-
-            Some((compute, vertex))
-        } else {
-            None
-        };
-
-        // Create fractal data
-        let fractal_data = engine::FractalPushConstants {
-            quaternion: self.game_state.camera_quaternion.into(),
-
-            reactive_bass: self.audio_state.local_reactive_bass.into(),
-            reactive_mids: self.audio_state.local_reactive_mids.into(),
-            reactive_high: self.audio_state.local_reactive_high.into(),
-
-            smooth_bass: self.audio_state.local_smooth_bass.into(),
-            smooth_mids: self.audio_state.local_smooth_mids.into(),
-            smooth_high: self.audio_state.local_smooth_high.into(),
-
-            time: self.audio_state.play_time,
-            aspect_ratio,
-            kaleidoscope: self.game_state.kaleidoscope.powf(0.65),
-            distance_estimator_id: self.game_state.distance_estimator_id,
-            orbit_distance: if self.game_state.render_particles && self.game_state.particles_are_3d
-            {
-                1.42
-            } else {
-                1.
-            },
-            render_background: bool_to_u32(!self.game_state.render_particles),
-        };
+        let draw_data = self.next_shader_data(delta_time, dimensions);
 
         // Draw frame and return whether a swapchain recreation was deemed necessary
-        self.window_state.recreate_swapchain |= self.engine.draw_frame(particle_data, fractal_data);
+        self.window_state.recreate_swapchain |= self.engine.draw_frame(&draw_data);
     }
 
     // Helper for receiving the latest audio state from the input stream
@@ -637,6 +561,98 @@ impl FractalSugar {
             }
             _ => {}
         };
+    }
+
+    // Create
+    fn next_shader_data(&self, delta_time: f32, dimensions: PhysicalSize<u32>) -> DrawData {
+        let width = dimensions.width as f32;
+        let height = dimensions.height as f32;
+        let aspect_ratio = width / height;
+
+        // Create per-frame data for particle compute-shader
+        let particle_data = if self.game_state.render_particles {
+            // Create a unique attractor based on mouse position
+            let cursor_attractor = {
+                let strength = if self.game_state.fix_particles {
+                    CURSOR_FIXED_STRENGTH
+                } else {
+                    CURSOR_LOOSE_STRENGTH
+                } * self.game_state.cursor_force_mult
+                    * self.game_state.cursor_force;
+
+                let Vector3 { x, y, z, .. } =
+                    self.screen_position_to_world(dimensions, aspect_ratio);
+                [x, y, z, strength]
+            };
+
+            let compute = engine::ParticleComputePushConstants {
+                big_boomer: self.audio_state.big_boomer.into(),
+
+                curl_attractors: self
+                    .audio_state
+                    .curl_attractors
+                    .map(std::convert::Into::into),
+
+                attractors: [
+                    self.audio_state.attractors[0].into(),
+                    self.audio_state.attractors[1].into(),
+                    cursor_attractor,
+                ],
+
+                time: self.audio_state.play_time,
+                delta_time,
+                width,
+                height,
+                fix_particles: bool_to_u32(self.game_state.fix_particles),
+                use_third_dimension: bool_to_u32(self.game_state.particles_are_3d),
+            };
+
+            let vertex = engine::ParticleVertexPushConstants {
+                quaternion: self.game_state.camera_quaternion.into(),
+                time: self.audio_state.play_time,
+                aspect_ratio,
+                rendering_fractal: bool_to_u32(self.game_state.distance_estimator_id != 0),
+                alternate_colors: match self.game_state.alternate_colors {
+                    AlternateColors::Inverse => 1,
+                    AlternateColors::Normal => 0,
+                },
+                use_third_dimension: bool_to_u32(self.game_state.particles_are_3d),
+            };
+
+            Some((compute, vertex))
+        } else {
+            None
+        };
+
+        // Create fractal data
+        let fractal_data = engine::FractalPushConstants {
+            quaternion: self.game_state.camera_quaternion.into(),
+
+            reactive_bass: self.audio_state.local_reactive_bass.into(),
+            reactive_mids: self.audio_state.local_reactive_mids.into(),
+            reactive_high: self.audio_state.local_reactive_high.into(),
+
+            smooth_bass: self.audio_state.local_smooth_bass.into(),
+            smooth_mids: self.audio_state.local_smooth_mids.into(),
+            smooth_high: self.audio_state.local_smooth_high.into(),
+
+            time: self.audio_state.play_time,
+            aspect_ratio,
+            kaleidoscope: self.game_state.kaleidoscope.powf(0.65),
+            distance_estimator_id: self.game_state.distance_estimator_id,
+            orbit_distance: if self.game_state.render_particles && self.game_state.particles_are_3d
+            {
+                1.42
+            } else {
+                1.
+            },
+            render_background: bool_to_u32(!self.game_state.render_particles),
+        };
+
+        DrawData {
+            particle_data,
+            fractal_data,
+        }
     }
 
     // Use game state to correctly map positions from screen space to world

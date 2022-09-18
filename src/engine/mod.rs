@@ -76,6 +76,14 @@ pub struct AppConstants {
     pub particle_count: f32,
 }
 
+pub struct DrawData {
+    pub particle_data: Option<(
+        object::ParticleComputePushConstants,
+        object::ParticleVertexPushConstants,
+    )>,
+    pub fractal_data: object::FractalPushConstants,
+}
+
 impl Engine {
     pub fn new(event_loop: &EventLoop<()>, app_config: &AppConfig) -> Self {
         // Create instance with extensions required for windowing (and optional debugging layer(s))
@@ -153,62 +161,7 @@ impl Engine {
         )
         .unwrap();
 
-        let render_pass = vulkano::ordered_passes_renderpass!(
-            device.clone(),
-            attachments: {
-                // The first framebuffer attachment is the intermediary image
-                intermediary: {
-                    load: Clear,
-                    store: DontCare,
-                    format: image_format,
-                    samples: 8, // MSAA for smooth particles. Must be resolved to non-sampled image for presentation
-                },
-
-                particle_color: {
-                    load: DontCare, // Resolve does not need destination image to be cleared
-                    store: DontCare,
-                    format: image_format, // Use swapchain's format since we are writing to its buffers
-                    samples: 1,
-                },
-
-                particle_depth: {
-                    load: Clear,
-                    store: DontCare,
-                    format: vulkano::format::Format::D16_UNORM,
-                    samples: 8, // Must match sample count of color
-                },
-
-                fractal_color: {
-                    load: DontCare,
-                    store: Store,
-                    format: image_format, // Use swapchain's format since we are writing to its buffers
-                    samples: 1, // No MSAA necessary when rendering a single quad with shaders ;)
-                }
-            },
-            passes: [
-                // Particles pass
-                {
-                    color: [intermediary],
-                    depth_stencil: {particle_depth},
-                    input: [],
-
-                    // The `resolve` array here must contain either zero entries (if you don't use
-                    // multisampling), or one entry per color attachment. At the end of the pass, each
-                    // color attachment will be *resolved* into the given image. In other words, here, at
-                    // the end of the pass, the `intermediary` attachment will be copied to the attachment
-                    // named `particle_color`.
-                    resolve: [particle_color],
-                },
-
-                // Fractal pass
-                {
-                    color: [fractal_color],
-                    depth_stencil: {},
-                    input: [particle_color, particle_depth]
-                }
-            ]
-        )
-        .unwrap();
+        let render_pass = create_app_render_pass(&device, image_format);
 
         // Define our 2D viewspace (with normalized depth)
         let dimensions = surface.window().inner_size();
@@ -231,7 +184,7 @@ impl Engine {
         );
 
         // Create a framebuffer to store results of render pass
-        let framebuffers = Self::create_framebuffers(
+        let framebuffers = create_framebuffers(
             &device,
             &render_pass,
             dimensions.into(),
@@ -280,7 +233,7 @@ impl Engine {
         }
 
         // Framebuffer is tied to the swapchain images, must recreate as well
-        self.framebuffers = Self::create_framebuffers(
+        self.framebuffers = create_framebuffers(
             &self.device,
             &self.render_pass,
             dimensions.into(),
@@ -315,14 +268,7 @@ impl Engine {
 
     // Use given push constants and synchronization-primitives to render next frame in swapchain.
     // Returns whether a swapchain recreation was deemed necessary
-    pub fn draw_frame(
-        &mut self,
-        particle_data: Option<(
-            object::ParticleComputePushConstants,
-            object::ParticleVertexPushConstants,
-        )>,
-        fractal_data: object::FractalPushConstants,
-    ) -> bool {
+    pub fn draw_frame(&mut self, draw_data: &DrawData) -> bool {
         // Acquire the index of the next image we should render to in this swapchain
         let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
             self.swapchain.swapchain(),
@@ -356,8 +302,7 @@ impl Engine {
         };
 
         // Create a one-time-submit command buffer for this frame
-        let colored_sugar_commands =
-            renderer::create_render_commands(self, image_index, particle_data, fractal_data);
+        let colored_sugar_commands = renderer::create_render_commands(self, image_index, draw_data);
 
         // Create synchronization future for rendering the current frame
         let future = previous_future
@@ -393,76 +338,6 @@ impl Engine {
 
         // Return whether a swapchain recreation was deemed necessary
         requires_recreate_swapchain
-    }
-
-    // Helper for (re)creating framebuffers
-    fn create_framebuffers(
-        device: &Arc<Device>,
-        render_pass: &Arc<RenderPass>,
-        dimensions: [u32; 2],
-        images: &Vec<Arc<SwapchainImage<Window>>>,
-        image_format: vulkano::format::Format,
-    ) -> Vec<Arc<Framebuffer>> {
-        (0..images.len())
-            .map(|i| {
-                // To interact with image buffers or framebuffers from shaders we create a view defining how the image will be used.
-                // This view, which belongs to the swapchain, will be the destination (i.e. fractal) view
-                let view = ImageView::new_default(images[i].clone()).unwrap();
-
-                // Create image attachment for MSAA particles.
-                // It is transient but cannot be used as an input
-                let msaa_view = ImageView::new_default(
-                    AttachmentImage::transient_multisampled(
-                        device.clone(),
-                        dimensions,
-                        vulkano::image::SampleCount::Sample8,
-                        image_format,
-                    )
-                    .unwrap(),
-                )
-                .unwrap();
-
-                // Create image attachment for resolved particles.
-                // It is transient and will be used as an input to a later pass
-                let particle_view = ImageView::new_default(
-                    AttachmentImage::with_usage(
-                        device.clone(),
-                        dimensions,
-                        image_format,
-                        ImageUsage {
-                            transfer_dst: true,
-                            input_attachment: true,
-                            color_attachment: true,
-                            ..ImageUsage::none()
-                        },
-                    )
-                    .unwrap(),
-                )
-                .unwrap();
-
-                // Create an attachement for the particle's depth buffer
-                let particle_depth = ImageView::new_default(
-                    AttachmentImage::transient_multisampled_input_attachment(
-                        device.clone(),
-                        dimensions,
-                        vulkano::image::SampleCount::Sample8,
-                        vulkano::format::Format::D16_UNORM,
-                    )
-                    .unwrap(),
-                )
-                .unwrap();
-
-                // Create framebuffer specifying underlying renderpass and image attachments
-                Framebuffer::new(
-                    render_pass.clone(),
-                    FramebufferCreateInfo {
-                        attachments: vec![msaa_view, particle_view, particle_depth, view], // Must add specified attachments in order
-                        ..Default::default()
-                    },
-                )
-                .unwrap()
-            })
-            .collect()
     }
 
     pub fn update_color_scheme(&mut self, scheme: Scheme) {
@@ -515,4 +390,137 @@ impl Engine {
         use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
         self.particles.vertex_buffer.len()
     }
+}
+
+// Helper for (re)creating framebuffers
+fn create_framebuffers(
+    device: &Arc<Device>,
+    render_pass: &Arc<RenderPass>,
+    dimensions: [u32; 2],
+    images: &Vec<Arc<SwapchainImage<Window>>>,
+    image_format: vulkano::format::Format,
+) -> Vec<Arc<Framebuffer>> {
+    (0..images.len())
+        .map(|i| {
+            // To interact with image buffers or framebuffers from shaders we create a view defining how the image will be used.
+            // This view, which belongs to the swapchain, will be the destination (i.e. fractal) view
+            let view = ImageView::new_default(images[i].clone()).unwrap();
+
+            // Create image attachment for MSAA particles.
+            // It is transient but cannot be used as an input
+            let msaa_view = ImageView::new_default(
+                AttachmentImage::transient_multisampled(
+                    device.clone(),
+                    dimensions,
+                    vulkano::image::SampleCount::Sample8,
+                    image_format,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+            // Create image attachment for resolved particles.
+            // It is transient and will be used as an input to a later pass
+            let particle_view = ImageView::new_default(
+                AttachmentImage::with_usage(
+                    device.clone(),
+                    dimensions,
+                    image_format,
+                    ImageUsage {
+                        transfer_dst: true,
+                        input_attachment: true,
+                        color_attachment: true,
+                        ..ImageUsage::none()
+                    },
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+            // Create an attachement for the particle's depth buffer
+            let particle_depth = ImageView::new_default(
+                AttachmentImage::transient_multisampled_input_attachment(
+                    device.clone(),
+                    dimensions,
+                    vulkano::image::SampleCount::Sample8,
+                    vulkano::format::Format::D16_UNORM,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+            // Create framebuffer specifying underlying renderpass and image attachments
+            Framebuffer::new(
+                render_pass.clone(),
+                FramebufferCreateInfo {
+                    attachments: vec![msaa_view, particle_view, particle_depth, view], // Must add specified attachments in order
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+        })
+        .collect()
+}
+
+// Helper for initializing the app render pass
+fn create_app_render_pass(
+    device: &Arc<Device>,
+    image_format: vulkano::format::Format,
+) -> Arc<RenderPass> {
+    vulkano::ordered_passes_renderpass!(
+        device.clone(),
+        attachments: {
+            // The first framebuffer attachment is the intermediary image
+            intermediary: {
+                load: Clear,
+                store: DontCare,
+                format: image_format,
+                samples: 8, // MSAA for smooth particles. Must be resolved to non-sampled image for presentation
+            },
+
+            particle_color: {
+                load: DontCare, // Resolve does not need destination image to be cleared
+                store: DontCare,
+                format: image_format, // Use swapchain's format since we are writing to its buffers
+                samples: 1,
+            },
+
+            particle_depth: {
+                load: Clear,
+                store: DontCare,
+                format: vulkano::format::Format::D16_UNORM,
+                samples: 8, // Must match sample count of color
+            },
+
+            fractal_color: {
+                load: DontCare,
+                store: Store,
+                format: image_format, // Use swapchain's format since we are writing to its buffers
+                samples: 1, // No MSAA necessary when rendering a single quad with shaders ;)
+            }
+        },
+        passes: [
+            // Particles pass
+            {
+                color: [intermediary],
+                depth_stencil: {particle_depth},
+                input: [],
+
+                // The `resolve` array here must contain either zero entries (if you don't use
+                // multisampling), or one entry per color attachment. At the end of the pass, each
+                // color attachment will be *resolved* into the given image. In other words, here, at
+                // the end of the pass, the `intermediary` attachment will be copied to the attachment
+                // named `particle_color`.
+                resolve: [particle_color],
+            },
+
+            // Fractal pass
+            {
+                color: [fractal_color],
+                depth_stencil: {},
+                input: [particle_color, particle_depth]
+            }
+        ]
+    )
+    .unwrap()
 }
