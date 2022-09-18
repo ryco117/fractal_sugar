@@ -189,8 +189,8 @@ fn spawn_audio_processing_thread(
             if PRINT_SPECTRUM {
                 const DISPLAY_FFT_SIZE: usize = 64;
                 let mut display_bins: [f32; DISPLAY_FFT_SIZE] = [0.; DISPLAY_FFT_SIZE];
-                let display_start_index = frequency_to_index(30., size, frequency_resolution);
-                let display_end_index = frequency_to_index(12_000., size, frequency_resolution);
+                let display_start_index = hertz_to_index(30., size, frequency_resolution);
+                let display_end_index = hertz_to_index(12_000., size, frequency_resolution);
                 let r = (display_end_index - display_start_index) / DISPLAY_FFT_SIZE;
                 let mut volume: f32 = 0.;
                 let mut max_volume: (usize, f32) = (display_start_index, 0.);
@@ -345,9 +345,16 @@ fn map_freq_to_cube(freq: f32, pow: f32) -> Vector3 {
     curve_to_cube_n(freq.powf(pow), 6)
 }
 
+// Helper function for converting frequency in range [0, 1] to
+#[allow(clippy::cast_sign_loss)]
+fn normalized_frequency_to_index(f: f32, size: usize) -> usize {
+    let max = size - 1;
+    max.min(((max as f32) * f).round() as usize)
+}
+
 // Helper function for converting frequency in Hertz to buffer index
 #[allow(clippy::cast_sign_loss)]
-fn frequency_to_index(f: f32, size: usize, frequency_resolution: f32) -> usize {
+fn hertz_to_index(f: f32, size: usize, frequency_resolution: f32) -> usize {
     (size - 1).min((f / frequency_resolution).round() as usize)
 }
 
@@ -360,12 +367,12 @@ fn analyze_frequency_range(
     vol_freq_scale: f32,
     audio_chunk: &AudioChunkHelper,
 ) -> FrequencyAnalysis {
-    let start_index = frequency_to_index(
+    let start_index = hertz_to_index(
         frequency_range.start,
         audio_chunk.size,
         audio_chunk.frequency_resolution,
     );
-    let end_index = frequency_to_index(
+    let end_index = hertz_to_index(
         frequency_range.end,
         audio_chunk.size,
         audio_chunk.frequency_resolution,
@@ -433,12 +440,12 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
 
         // Do extra analysis for bass notes
         let current_bass: Vec<f32> = {
-            let start_index = frequency_to_index(
+            let start_index = hertz_to_index(
                 frequency_range.start,
                 audio_chunk.size,
                 audio_chunk.frequency_resolution,
             );
-            let end_index = frequency_to_index(
+            let end_index = hertz_to_index(
                 frequency_range.end,
                 audio_chunk.size,
                 audio_chunk.frequency_resolution,
@@ -495,7 +502,6 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
 }
 
 // Update the state and history of bass notes given the latest bass analysis
-#[allow(clippy::cast_sign_loss)]
 fn update_bass_history(
     bass_state: &mut BassHistoryAndState,
     bass_analysis: &FrequencyAnalysis,
@@ -511,7 +517,7 @@ fn update_bass_history(
             Some(v) => {
                 let l = v.len();
                 if l > 0 {
-                    v[(((l as f32) * bass_analysis.loudest[0].freq).round() as usize).min(l - 1)]
+                    v[normalized_frequency_to_index(bass_analysis.loudest[0].freq, l)]
                 } else {
                     0.
                 }
@@ -519,6 +525,7 @@ fn update_bass_history(
             None => 0.,
         }
     }) / (bass_state.previous_bass.len() as f32);
+
     if (bass_analysis.loudest[0].mag > 4. || bass_analysis.loudest[0].mag * kick_elapsed > 8.)
         && kick_elapsed > 0.8
         && bass_analysis.loudest[0].mag > 1.25
