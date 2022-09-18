@@ -196,11 +196,35 @@ impl FractalSugar {
             }
         };
 
+        // Load icon from file resources
+        let icon = {
+            let icon_bytes = std::include_bytes!("../fractal_sugar.ico");
+            let ico_reader = std::io::Cursor::<&[u8]>::new(icon_bytes);
+            let ico_list = ico::IconDir::read(ico_reader).unwrap();
+            let ico = ico_list
+                .entries()
+                .get(0)
+                .expect("Icon doesn't have any layers");
+            let image = ico.decode().unwrap();
+
+            match winit::window::Icon::from_rgba(
+                image.rgba_data().to_vec(),
+                image.width(),
+                image.height(),
+            ) {
+                Ok(icon) => Some(icon),
+                Err(e) => {
+                    println!("Failed to parse icon: {:?}", e);
+                    None
+                }
+            }
+        };
+
         // Create global event loop to manage window events
         let event_loop = EventLoop::new();
 
         // Use Engine helper to initialize Vulkan instance
-        let engine = engine::Engine::new(&event_loop, &app_config);
+        let engine = engine::Engine::new(&event_loop, &app_config, icon);
 
         // Capture reference to audio stream and use message passing to receive data
         let (tx, rx) = crossbeam_channel::bounded(4);

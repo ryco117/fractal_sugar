@@ -34,7 +34,7 @@ use vulkano::sync::{FenceSignalFuture, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event_loop::EventLoop;
-use winit::window::{Fullscreen, Window, WindowBuilder};
+use winit::window::{Fullscreen, Icon, Window, WindowBuilder};
 
 pub mod core;
 mod object;
@@ -85,7 +85,7 @@ pub struct DrawData {
 }
 
 impl Engine {
-    pub fn new(event_loop: &EventLoop<()>, app_config: &AppConfig) -> Self {
+    pub fn new(event_loop: &EventLoop<()>, app_config: &AppConfig, icon: Option<Icon>) -> Self {
         // Create instance with extensions required for windowing (and optional debugging layer(s))
         let instance = Instance::new(InstanceCreateInfo {
             enabled_extensions: vulkano_win::required_extensions(),
@@ -99,35 +99,11 @@ impl Engine {
         })
         .expect("Failed to create Vulkan instance");
 
-        // Load icon from file resources
-        let icon_bytes = std::include_bytes!("../../fractal_sugar_icon.png");
-        let (image_data, width, height) = {
-            // Decode PNG to RGBA U8s
-            let mut decoder = png::Decoder::<&[u8]>::new(icon_bytes);
-            decoder.set_transformations(png::Transformations::normalize_to_color8());
-
-            // Read bytes from memory
-            let mut reader = decoder.read_info().unwrap();
-            let mut buff = vec![0; reader.output_buffer_size()];
-            let info = reader.next_frame(&mut buff).unwrap();
-            let data = match info.color_type {
-                png::ColorType::Rgba => buff,
-                f => panic!(
-                    "Failed to decode application resources: Invalid PNG format {:?}",
-                    f
-                ),
-            };
-
-            (data, info.width, info.height)
-        };
-
         // Create a window! Set some basic window properties and get a vulkan surface
         let surface = WindowBuilder::new()
             .with_inner_size(LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))
             .with_title("fractal_sugar")
-            .with_window_icon(Some(
-                winit::window::Icon::from_rgba(image_data, width, height).unwrap(),
-            ))
+            .with_window_icon(icon)
             .with_fullscreen(if app_config.launch_fullscreen {
                 Some(Fullscreen::Borderless(None))
             } else {
