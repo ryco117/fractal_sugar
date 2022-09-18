@@ -49,6 +49,7 @@ struct CustomScheme {
 struct TomlData {
     pub max_speed: Option<f32>,
     pub particle_count: Option<usize>,
+    pub launch_fullscreen: Option<bool>,
 
     #[serde(default)]
     pub color_schemes: Vec<CustomScheme>,
@@ -62,6 +63,7 @@ const PARTICLE_COUNT: usize = 1_250_000;
 pub struct AppConfig {
     pub max_speed: f32,
     pub particle_count: usize,
+    pub launch_fullscreen: bool,
     pub color_schemes: Vec<Scheme>,
     pub color_scheme_names: Vec<String>,
 }
@@ -70,6 +72,7 @@ impl Default for AppConfig {
         Self {
             max_speed: MAX_SPEED,
             particle_count: PARTICLE_COUNT,
+            launch_fullscreen: Default::default(),
             color_schemes: COLOR_SCHEMES.to_vec(),
             color_scheme_names: COLOR_SCHEME_NAMES
                 .iter()
@@ -172,6 +175,7 @@ pub fn parse_file(filepath: &str) -> Result<AppConfig, Box<dyn Error>> {
     Ok(AppConfig {
         max_speed: config.max_speed.unwrap_or(MAX_SPEED),
         particle_count,
+        launch_fullscreen: config.launch_fullscreen.unwrap_or_default(),
         color_schemes,
         color_scheme_names,
     })

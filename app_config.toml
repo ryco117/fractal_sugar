@@ -7,6 +7,9 @@ max_speed = 6.0
 # Can specify the number of particles to simulate. Default value is 1_250_000.
 particle_count = 2_000_000
 
+# Can choose to launch the application into fullscreen. Default is `false`
+launch_fullscreen = true
+
 # This file can define a series of color schemes that may be applied to each particle.
 # Each color scheme requires a title, 4 speed-dependent color values, and 4 index-dependent color values.
 # The field [[color_schemes]] specifies that the following values define an object in the `color_schemes` list.

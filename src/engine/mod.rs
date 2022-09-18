@@ -34,7 +34,7 @@ use vulkano::sync::{FenceSignalFuture, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event_loop::EventLoop;
-use winit::window::{Window, WindowBuilder};
+use winit::window::{Fullscreen, Window, WindowBuilder};
 
 pub mod core;
 mod object;
@@ -128,6 +128,11 @@ impl Engine {
             .with_window_icon(Some(
                 winit::window::Icon::from_rgba(image_data, width, height).unwrap(),
             ))
+            .with_fullscreen(if app_config.launch_fullscreen {
+                Some(Fullscreen::Borderless(None))
+            } else {
+                None
+            })
             .build_vk_surface(event_loop, instance.clone())
             .unwrap();
 

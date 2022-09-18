@@ -140,6 +140,7 @@ struct FractalSugar {
 }
 
 fn main() {
+    // Initialize app instance
     let fractal_sugar = FractalSugar::new();
 
     // Endless app-loop
@@ -148,32 +149,7 @@ fn main() {
 
 impl FractalSugar {
     pub fn new() -> Self {
-        // Determine the runtime app configuration
-        let app_config = {
-            let filepath = "app_config.toml";
-            match app_config::parse_file(filepath) {
-                Ok(config) => config,
-                Err(e) => {
-                    println!(
-                        "Failed to process custom color schemes file `{}`: {:?}",
-                        filepath, e
-                    );
-                    AppConfig::default()
-                }
-            }
-        };
-
-        // Create global event loop to manage window events
-        let event_loop = EventLoop::new();
-
-        // Use Engine helper to initialize Vulkan instance
-        let engine = engine::Engine::new(&event_loop, &app_config);
-
-        // Capture reference to audio stream and use message passing to receive data
-        let (tx, rx) = crossbeam_channel::bounded(4);
-        let capture_stream = audio::process_loopback_audio_and_send(tx);
-
-        // Windows-specific console clean-ulp
+        // Windows-specific console clean-up. Important that this occurs before print statements for debugging
         #[cfg(target_os = "windows")]
         let console_state = unsafe {
             use windows::Win32::{
@@ -198,9 +174,44 @@ impl FractalSugar {
             }
         };
 
+        // Fetch command-line arguments
+        let args: Vec<String> = std::env::args().collect();
+        assert!(args.len() <= 2, "fractal_sugar accepts at most one argument, the TOML app configuration file. The default path is 'app_config.toml'");
+
+        // Determine the runtime app configuration
+        let app_config = {
+            let filepath = match args.get(1) {
+                Some(path) => path.as_str(),
+                None => "app_config.toml",
+            };
+            match app_config::parse_file(filepath) {
+                Ok(config) => config,
+                Err(e) => {
+                    println!(
+                        "Failed to process custom color schemes file `{}`: {:?}",
+                        filepath, e
+                    );
+                    AppConfig::default()
+                }
+            }
+        };
+
+        // Create global event loop to manage window events
+        let event_loop = EventLoop::new();
+
+        // Use Engine helper to initialize Vulkan instance
+        let engine = engine::Engine::new(&event_loop, &app_config);
+
+        // Capture reference to audio stream and use message passing to receive data
+        let (tx, rx) = crossbeam_channel::bounded(4);
+        let capture_stream = audio::process_loopback_audio_and_send(tx);
+
         // State vars
         engine.surface().window().focus_window();
-        let window_state = WindowState::default();
+        let window_state = WindowState {
+            is_fullscreen: app_config.launch_fullscreen,
+            ..WindowState::default()
+        };
         let audio_state = LocalAudioState::default();
         let game_state = GameState::default();
 

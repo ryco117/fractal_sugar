@@ -29,6 +29,10 @@ features = [
     "Win32_UI_WindowsAndMessaging",
 ]
 
+[profile.release]
+lto = true
+strip = true
+
 [[bin]]
 name = "fractal_sugar"
 path = "src/main.rs"
