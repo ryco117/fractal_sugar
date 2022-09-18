@@ -22,7 +22,6 @@
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 
-use std::sync::Arc;
 use std::time::SystemTime;
 
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -174,23 +173,23 @@ impl FractalSugar {
         let (tx, rx) = crossbeam_channel::bounded(4);
         let capture_stream = audio::process_loopback_audio_and_send(tx);
 
-        // State vars
-        engine.surface().window().focus_window();
-        let window_state = WindowState::default();
-        let audio_state = LocalAudioState::default();
-        let game_state = GameState::default();
-
+        // Windows-specific console clean-ulp
         #[cfg(target_os = "windows")]
         let console_state = unsafe {
-            if windows::Win32::System::Console::AllocConsole().into() {
-                let handle = windows::Win32::System::Console::GetConsoleWindow();
+            use windows::Win32::{
+                System::Console::{AllocConsole, GetConsoleWindow},
+                UI::WindowsAndMessaging::IsWindowVisible,
+            };
+            if AllocConsole().into() {
+                let handle = GetConsoleWindow();
                 let mut state = ConsoleState {
                     handle,
-                    visible: true,
+                    visible: IsWindowVisible(handle).into(),
                 };
 
+                // If console window is hidden by default, do not toggle.
                 if state.visible {
-                    toggle_console_visibility(&mut state, &engine.surface());
+                    toggle_console_visibility(&mut state);
                 }
 
                 Some(state)
@@ -198,6 +197,12 @@ impl FractalSugar {
                 None
             }
         };
+
+        // State vars
+        engine.surface().window().focus_window();
+        let window_state = WindowState::default();
+        let audio_state = LocalAudioState::default();
+        let game_state = GameState::default();
 
         Self {
             app_config,
@@ -518,7 +523,7 @@ impl FractalSugar {
             #[cfg(target_os = "windows")]
             VirtualKeyCode::Return => {
                 if let Some(console_state) = &mut self.console_state {
-                    toggle_console_visibility(console_state, &self.engine.surface());
+                    toggle_console_visibility(console_state);
                 }
             }
 
@@ -744,23 +749,18 @@ fn bool_to_u32(b: bool) -> u32 {
 }
 
 #[cfg(target_os = "windows")]
-fn toggle_console_visibility(
-    console_state: &mut ConsoleState,
-    surface: &Arc<vulkano::swapchain::Surface<winit::window::Window>>,
-) {
+fn toggle_console_visibility(console_state: &mut ConsoleState) {
     unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOW};
-        windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+        use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE};
+        ShowWindow(
             console_state.handle,
             if console_state.visible {
                 SW_HIDE
             } else {
-                SW_SHOW
+                SW_SHOWNOACTIVATE
             },
         );
         console_state.visible = !console_state.visible;
-
-        surface.window().focus_window();
     }
 }
 
