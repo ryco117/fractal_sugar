@@ -16,10 +16,13 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+// Ensure Windows builds are not console apps
+#![windows_subsystem = "windows"]
 // TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -113,11 +116,20 @@ struct WindowState {
     pub last_mouse_movement: SystemTime,
 }
 
+#[cfg(target_os = "windows")]
+struct ConsoleState {
+    pub handle: windows::Win32::Foundation::HWND,
+    pub visible: bool,
+}
+
 struct FractalSugar {
     app_config: AppConfig,
     engine: Engine,
     event_loop: Option<EventLoop<()>>,
     audio_receiver: crossbeam_channel::Receiver<audio::State>,
+
+    #[cfg(target_os = "windows")]
+    console_state: Option<ConsoleState>,
 
     // This field keeps the audio stream alive for the duration of the app
     #[allow(dead_code)]
@@ -168,12 +180,34 @@ impl FractalSugar {
         let audio_state = LocalAudioState::default();
         let game_state = GameState::default();
 
+        #[cfg(target_os = "windows")]
+        let console_state = unsafe {
+            if windows::Win32::System::Console::AllocConsole().into() {
+                let handle = windows::Win32::System::Console::GetConsoleWindow();
+                let mut state = ConsoleState {
+                    handle,
+                    visible: true,
+                };
+
+                if state.visible {
+                    toggle_console_visibility(&mut state, &engine.surface());
+                }
+
+                Some(state)
+            } else {
+                None
+            }
+        };
+
         Self {
             app_config,
             engine,
             event_loop: Some(event_loop),
             audio_receiver: rx,
             capture_stream,
+
+            #[cfg(target_os = "windows")]
+            console_state,
 
             audio_state,
             game_state,
@@ -479,6 +513,15 @@ impl FractalSugar {
                 );
             }
 
+            // Handle toggling the debug-console.
+            // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
+            #[cfg(target_os = "windows")]
+            VirtualKeyCode::Return => {
+                if let Some(console_state) = &mut self.console_state {
+                    toggle_console_visibility(console_state, &self.engine.surface());
+                }
+            }
+
             // Set different fractal types
             VirtualKeyCode::Key0 => self.game_state.distance_estimator_id = 0,
             VirtualKeyCode::Key1 => self.game_state.distance_estimator_id = 1,
@@ -697,6 +740,27 @@ fn bool_to_u32(b: bool) -> u32 {
         1
     } else {
         0
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn toggle_console_visibility(
+    console_state: &mut ConsoleState,
+    surface: &Arc<vulkano::swapchain::Surface<winit::window::Window>>,
+) {
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, SW_SHOW};
+        windows::Win32::UI::WindowsAndMessaging::ShowWindow(
+            console_state.handle,
+            if console_state.visible {
+                SW_HIDE
+            } else {
+                SW_SHOW
+            },
+        );
+        console_state.visible = !console_state.visible;
+
+        surface.window().focus_window();
     }
 }
 
