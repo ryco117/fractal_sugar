@@ -4,8 +4,10 @@ version = "0.1.2"
 authors = ["Ryan Andersen <ryco117@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2021" # Rust Edition used in this package
+build = "build.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[build-dependencies]
+embed-resource = "1.7.3"
 
 [dependencies]
 bytemuck = "1.9.1"
@@ -15,7 +17,7 @@ css-color-parser = "0.1.2"
 ico = "0.1.0"
 rustfft = "6.0.1"
 serde = { version = "1.0.143", features = ["derive"] }
-toml = "0.5.9"
+toml = "0.5.8"
 vulkano = "0.30.0"
 vulkano-shaders = "0.30.0"
 vulkano-win = "0.30.0"

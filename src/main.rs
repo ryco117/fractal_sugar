@@ -198,7 +198,7 @@ impl FractalSugar {
 
         // Load icon from file resources
         let icon = {
-            let icon_bytes = std::include_bytes!("../fractal_sugar.ico");
+            let icon_bytes = std::include_bytes!("../res/fractal_sugar.ico");
             let ico_reader = std::io::Cursor::<&[u8]>::new(icon_bytes);
             let ico_list = ico::IconDir::read(ico_reader).unwrap();
             let ico = ico_list
