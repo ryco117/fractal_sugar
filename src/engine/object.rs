@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use vulkano::buffer::device_local::DeviceLocalBuffer;
-use vulkano::buffer::{BufferUsage, CpuBufferPool, ImmutableBuffer};
+use vulkano::buffer::{BufferUsage, CpuBufferPool};
 use vulkano::descriptor_set::single_layout_pool::SingleLayoutDescSetPool;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
@@ -30,7 +30,6 @@ use vulkano::shader::ShaderModule;
 use vulkano::sync::GpuFuture;
 
 use super::pipeline;
-use super::utils;
 use super::vertex::Vertex;
 use super::AppConstants;
 use crate::app_config::{AppConfig, Scheme};
@@ -47,7 +46,7 @@ mod particle_shaders {
     pub mod fs {
         vulkano_shaders::shader! {
             ty: "fragment",
-            path: "shaders/particles.frag"
+            path: "shaders/particles.frag",
         }
     }
     pub mod vs {
@@ -63,7 +62,11 @@ mod particle_shaders {
     pub mod cs {
         vulkano_shaders::shader! {
             ty: "compute",
-            path: "shaders/particles.comp"
+            path: "shaders/particles.comp",
+            types_meta: {
+                use bytemuck::{Pod, Zeroable};
+                #[derive(Clone, Copy, Zeroable, Pod)]
+            },
         }
     }
 }
@@ -78,13 +81,17 @@ mod fractal_shaders {
     pub mod fs {
         vulkano_shaders::shader! {
             ty: "fragment",
-            path: "shaders/ray_march.frag"
+            path: "shaders/ray_march.frag",
+            types_meta: {
+            use bytemuck::{Pod, Zeroable};
+                #[derive(Clone, Copy, Zeroable, Pod)]
+            },
         }
     }
     pub mod vs {
         vulkano_shaders::shader! {
             ty: "vertex",
-            path: "shaders/entire_view.vert"
+            path: "shaders/entire_view.vert",
         }
     }
 }
@@ -120,12 +127,11 @@ pub struct Particles {
 // Helper type for `create_particle_buffers`
 struct ParticleBuffersTriplet {
     vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
-    fixed_square_buffer: Arc<ImmutableBuffer<[Vector2]>>,
-    fixed_cube_buffer: Arc<ImmutableBuffer<[Vector3]>>,
+    fixed_square_buffer: Arc<DeviceLocalBuffer<[Vector2]>>,
+    fixed_cube_buffer: Arc<DeviceLocalBuffer<[Vector3]>>,
 }
 
 fn create_particle_buffers(
-    device: &Arc<Device>,
     queue: &Arc<Queue>,
     app_config: &AppConfig,
     app_constants_future: ImmutableBufferFromBufferFuture,
@@ -146,21 +152,20 @@ fn create_particle_buffers(
         )
     });
 
+    let storage_usage = BufferUsage {
+        storage_buffer: true,
+        ..Default::default()
+    };
+
     // Create immutable fixed-position buffer for 2D perspective
-    let (fixed_square_buffer, fixed_square_copy_future) = ImmutableBuffer::from_iter(
-        square_position_iter,
-        BufferUsage::storage_buffer(),
-        queue.clone(),
-    )
-    .expect("Failed to create immutable fixed-position buffer");
+    let (fixed_square_buffer, fixed_square_copy_future) =
+        DeviceLocalBuffer::from_iter(square_position_iter, storage_usage, queue.clone())
+            .expect("Failed to create 2D-fixed-position buffer");
 
     // Create immutable fixed-position buffer for 3D perspective
-    let (fixed_cube_buffer, fixed_cube_copy_future) = ImmutableBuffer::from_iter(
-        cube_position_iter,
-        BufferUsage::storage_buffer(),
-        queue.clone(),
-    )
-    .expect("Failed to create immutable fixed-position buffer");
+    let (fixed_cube_buffer, fixed_cube_copy_future) =
+        DeviceLocalBuffer::from_iter(cube_position_iter, storage_usage, queue.clone())
+            .expect("Failed to create 3D-fixed-position buffer");
 
     // Create vertex data by re-calculating position
     let vertex_iter = (0..app_config.particle_count).map(|i| Vertex {
@@ -175,12 +180,16 @@ fn create_particle_buffers(
     });
 
     // Create position buffer
-    let (vertex_buffer, vertex_future) = utils::local_buffer_from_iter(
-        device,
-        queue,
+    let (vertex_buffer, vertex_future) = DeviceLocalBuffer::from_iter(
         vertex_iter,
-        BufferUsage::storage_buffer() | BufferUsage::vertex_buffer(),
-    );
+        BufferUsage {
+            storage_buffer: true,
+            vertex_buffer: true,
+            ..Default::default()
+        },
+        queue.clone(),
+    )
+    .expect("Failed to create 3D-fixed-position buffer");
 
     // Wait for all futures to finish before continuing
     fixed_square_copy_future
@@ -206,7 +215,7 @@ impl Particles {
         render_pass: &Arc<RenderPass>,
         viewport: Viewport,
         app_config: &AppConfig,
-        app_constants: &Arc<ImmutableBuffer<AppConstants>>,
+        app_constants: &Arc<DeviceLocalBuffer<AppConstants>>,
         app_constants_future: ImmutableBufferFromBufferFuture,
     ) -> Self {
         // Load particle shaders
@@ -242,7 +251,7 @@ impl Particles {
         // Particle color schemes?!
         let graphics_descriptor_set = {
             let color_scheme_buffer = scheme_buffer_pool
-                .next(app_config.color_schemes[0])
+                .from_data(app_config.color_schemes[0])
                 .unwrap();
             PersistentDescriptorSet::new(
                 graphics_pipeline
@@ -264,7 +273,7 @@ impl Particles {
             vertex_buffer,
             fixed_square_buffer,
             fixed_cube_buffer,
-        } = create_particle_buffers(device, queue, app_config, app_constants_future);
+        } = create_particle_buffers(queue, app_config, app_constants_future);
 
         // Create a new descriptor set for binding particle storage buffers
         // Required to access layout() method
@@ -314,7 +323,7 @@ impl Fractal {
         );
 
         let layout = pipeline.layout().set_layouts().get(0).unwrap();
-        let descriptor_set_pool = SingleLayoutDescSetPool::new(layout.clone());
+        let descriptor_set_pool = SingleLayoutDescSetPool::new(layout.clone()).unwrap();
         Self {
             descriptor_set_pool,
             frag_shader,

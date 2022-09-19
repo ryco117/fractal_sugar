@@ -18,10 +18,11 @@ ico = "0.1.0"
 rustfft = "6.0.1"
 serde = { version = "1.0.143", features = ["derive"] }
 toml = "0.5.8"
-vulkano = "0.30.0"
-vulkano-shaders = "0.30.0"
-vulkano-win = "0.30.0"
-winit = "0.26.1"
+vulkano = "0.31.0"
+vulkano-shaders = "0.31.0"
+vulkano-util = "0.31.0"
+vulkano-win = "0.31.0"
+winit = "0.27.3"
 
 [dependencies.windows]
 version = "0.40.0"

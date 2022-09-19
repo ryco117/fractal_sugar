@@ -510,6 +510,7 @@ impl FractalSugar {
                     // Exit window loop
                     println!("The Escape key was pressed, exiting");
                     *control_flow = ControlFlow::Exit;
+                    std::process::exit(0)
                 }
             }
 

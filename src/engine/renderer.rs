@@ -61,7 +61,7 @@ pub fn create_render_commands(
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
         engine.device(),
-        engine.queue().family(),
+        engine.queue().queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();

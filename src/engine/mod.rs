@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use vulkano::buffer::{BufferUsage, ImmutableBuffer};
+use vulkano::buffer::{device_local::DeviceLocalBuffer, BufferUsage};
 use vulkano::descriptor_set::single_layout_pool::SingleLayoutDescSetPool;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
@@ -29,7 +29,7 @@ use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
-use vulkano::swapchain::{PresentMode, Surface};
+use vulkano::swapchain::{PresentInfo, PresentMode, Surface};
 use vulkano::sync::{FenceSignalFuture, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -40,7 +40,6 @@ pub mod core;
 mod object;
 pub mod pipeline;
 pub mod renderer;
-mod utils;
 mod vertex;
 
 use self::core::{EngineSwapchain, RecreateSwapchainResult};
@@ -51,7 +50,7 @@ pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVer
 type EngineFrameFuture = Arc<FenceSignalFuture<Box<dyn GpuFuture>>>;
 
 pub struct Engine {
-    app_constants: Arc<ImmutableBuffer<AppConstants>>,
+    app_constants: Arc<DeviceLocalBuffer<AppConstants>>,
     device: Arc<Device>,
     fences: Vec<Option<EngineFrameFuture>>,
     fractal: Fractal,
@@ -87,17 +86,25 @@ pub struct DrawData {
 impl Engine {
     pub fn new(event_loop: &EventLoop<()>, app_config: &AppConfig, icon: Option<Icon>) -> Self {
         // Create instance with extensions required for windowing (and optional debugging layer(s))
-        let instance = Instance::new(InstanceCreateInfo {
-            enabled_extensions: vulkano_win::required_extensions(),
-            enabled_layers: if DEBUG_VULKAN {
-                vec!["VK_LAYER_KHRONOS_validation".to_owned()]
-            } else {
-                vec![]
-            },
-            enumerate_portability: true, // Allows for non-conformant devices to be considered when searching for the best graphics device
-            ..Default::default()
-        })
-        .expect("Failed to create Vulkan instance");
+        let instance = {
+            let library =
+                vulkano::VulkanLibrary::new().expect("Could not determine Vulkan library to use.");
+            let enabled_extensions = vulkano_win::required_extensions(&library);
+            Instance::new(
+                library,
+                InstanceCreateInfo {
+                    enabled_extensions,
+                    enabled_layers: if DEBUG_VULKAN {
+                        vec!["VK_LAYER_KHRONOS_validation".to_owned()]
+                    } else {
+                        vec![]
+                    },
+                    enumerate_portability: true, // Allows for non-conformant devices to be considered when searching for the best graphics device
+                    ..Default::default()
+                },
+            )
+            .expect("Failed to create Vulkan instance")
+        };
 
         // Create a window! Set some basic window properties and get a vulkan surface
         let surface = WindowBuilder::new()
@@ -117,7 +124,7 @@ impl Engine {
 
         // Create swapchain and associated image buffers from the relevant parameters
         let engine_swapchain = EngineSwapchain::new(
-            physical_device,
+            &physical_device,
             device.clone(),
             surface.clone(),
             PresentMode::Fifo,
@@ -132,12 +139,15 @@ impl Engine {
         // Before creating descriptor sets and other buffers, allocate app-constants buffer
         let particle_count: usize = app_config.particle_count;
         let particle_count_f32: f32 = particle_count as f32;
-        let (app_constants, app_constants_future) = ImmutableBuffer::from_data(
+        let (app_constants, app_constants_future) = DeviceLocalBuffer::from_data(
             AppConstants {
                 max_speed: app_config.max_speed,
                 particle_count: particle_count_f32,
             },
-            BufferUsage::uniform_buffer(),
+            BufferUsage {
+                uniform_buffer: true,
+                ..Default::default()
+            },
             queue.clone(),
         )
         .unwrap();
@@ -293,7 +303,13 @@ impl Engine {
             .then_execute(self.queue.clone(), colored_sugar_commands)
             .unwrap()
             // Present result to swapchain buffer
-            .then_swapchain_present(self.queue.clone(), self.swapchain.swapchain(), image_index)
+            .then_swapchain_present(
+                self.queue.clone(),
+                PresentInfo {
+                    index: image_index,
+                    ..vulkano::swapchain::PresentInfo::swapchain(self.swapchain.swapchain())
+                },
+            )
             .boxed()
             // Finish synchronization
             .then_signal_fence_and_flush();
@@ -322,7 +338,7 @@ impl Engine {
     }
 
     pub fn update_color_scheme(&mut self, scheme: Scheme) {
-        let color_scheme_buffer = self.particles.scheme_buffer_pool.next(scheme).unwrap();
+        let color_scheme_buffer = self.particles.scheme_buffer_pool.from_data(scheme).unwrap();
         self.particles.graphics_descriptor_set = PersistentDescriptorSet::new(
             self.particles
                 .graphics_pipeline
@@ -411,7 +427,7 @@ fn create_framebuffers(
                         transfer_dst: true,
                         input_attachment: true,
                         color_attachment: true,
-                        ..ImageUsage::none()
+                        ..ImageUsage::empty()
                     },
                 )
                 .unwrap(),
