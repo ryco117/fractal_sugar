@@ -19,7 +19,7 @@
 use std::time::SystemTime;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Device, SampleFormat, SupportedStreamConfig};
+use cpal::{Device, SupportedStreamConfig};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use rustfft::{num_complex::Complex, FftPlanner};
 
@@ -316,17 +316,12 @@ pub fn process_loopback_audio_and_send(tx: Sender<State>) -> cpal::Stream {
     );
 
     // Search device for a supported Float32 compatible format
-    let audio_config = match default_audio_out
-        .supported_output_configs()
-        .unwrap()
-        .find(|c| c.sample_format() == SampleFormat::F32)
-    {
-        Some(config) => {
+    let audio_config = match default_audio_out.default_output_config() {
+        Ok(config) => {
             println!("Default config from output device: {:?}", config);
-            let sample_rate = config.min_sample_rate();
-            config.with_sample_rate(sample_rate)
+            config
         }
-        None => panic!("Could not find a supported audio format meeting our requirements"),
+        Err(e) => panic!("Could not find default audio format: {:?}", e),
     };
 
     // Store stream details we are intersted in
