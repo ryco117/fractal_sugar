@@ -269,6 +269,7 @@ impl FractalSugar {
                 } => {
                     println!("The close button was pressed, exiting");
                     *control_flow = ControlFlow::Exit;
+                    std::process::exit(0);
                 }
 
                 // Handle resize
@@ -510,7 +511,7 @@ impl FractalSugar {
                     // Exit window loop
                     println!("The Escape key was pressed, exiting");
                     *control_flow = ControlFlow::Exit;
-                    std::process::exit(0)
+                    std::process::exit(0);
                 }
             }
 

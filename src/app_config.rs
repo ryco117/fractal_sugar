@@ -16,7 +16,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::error::Error;
+use std::num::NonZeroUsize;
 
 use bytemuck::{Pod, Zeroable};
 use css_color_parser::Color as CssColor;
@@ -48,7 +48,7 @@ struct CustomScheme {
 #[serde(deny_unknown_fields)]
 struct TomlData {
     pub max_speed: Option<f32>,
-    pub particle_count: Option<usize>,
+    pub particle_count: Option<NonZeroUsize>,
     pub launch_fullscreen: Option<bool>,
 
     #[serde(default)]
@@ -133,7 +133,7 @@ impl std::convert::From<&CustomScheme> for Scheme {
     }
 }
 
-pub fn parse_file(filepath: &str) -> Result<AppConfig, Box<dyn Error>> {
+pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
     let config: TomlData = toml::from_str(&std::fs::read_to_string(filepath)?)?;
 
     let mut schemes: Vec<Scheme> = vec![];
@@ -162,18 +162,26 @@ pub fn parse_file(filepath: &str) -> Result<AppConfig, Box<dyn Error>> {
         (schemes, scheme_names)
     };
 
-    let particle_count = {
-        let n = config.particle_count.unwrap_or(PARTICLE_COUNT);
-        if n == 0 {
-            return Err(Box::<dyn Error>::from(
-                "The `particle_count` must be a positive integer.",
-            ));
+    let max_speed = match config.max_speed {
+        Some(max_speed) => {
+            if max_speed > 0. {
+                max_speed
+            } else {
+                anyhow::bail!("`max_speed` must be a positive number, was given: {}", max_speed);
+            }
         }
-        n
+        None => MAX_SPEED,
+    };
+
+    let particle_count = {
+        let n = config
+            .particle_count
+            .unwrap_or(unsafe { NonZeroUsize::new_unchecked(PARTICLE_COUNT) });
+        n.get()
     };
 
     Ok(AppConfig {
-        max_speed: config.max_speed.unwrap_or(MAX_SPEED),
+        max_speed,
         particle_count,
         launch_fullscreen: config.launch_fullscreen.unwrap_or_default(),
         color_schemes,
