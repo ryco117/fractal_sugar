@@ -87,10 +87,14 @@ enum KaleidoscopeDirection {
     Backward,
     BackwardComplete,
 }
+#[derive(PartialEq)]
+enum ParticleTension {
+    None,
+    Spring,
+}
 
-#[allow(clippy::struct_excessive_bools)]
 struct GameState {
-    pub fix_particles: bool,
+    pub fix_particles: ParticleTension,
     pub render_particles: bool,
     pub distance_estimator_id: u32,
     pub camera_quaternion: Quaternion,
@@ -447,17 +451,18 @@ impl FractalSugar {
                 };
 
                 // Update 2D big boomers
-                if self.game_state.fix_particles {
-                    let smooth = 1. - (-7.25 * big_boomer.w * delta_time).exp();
-                    self.audio_state.big_boomer.x +=
-                        smooth * (big_boomer.x - self.audio_state.big_boomer.x);
-                    self.audio_state.big_boomer.y +=
-                        smooth * (big_boomer.y - self.audio_state.big_boomer.y);
-                    self.audio_state.big_boomer.z +=
-                        smooth * (big_boomer.z - self.audio_state.big_boomer.z);
-                    self.audio_state.big_boomer.w = big_boomer.w;
-                } else {
-                    self.audio_state.big_boomer = big_boomer;
+                match self.game_state.fix_particles {
+                    ParticleTension::Spring => {
+                        let smooth = 1. - (-7.25 * big_boomer.w * delta_time).exp();
+                        self.audio_state.big_boomer.x +=
+                            smooth * (big_boomer.x - self.audio_state.big_boomer.x);
+                        self.audio_state.big_boomer.y +=
+                            smooth * (big_boomer.y - self.audio_state.big_boomer.y);
+                        self.audio_state.big_boomer.z +=
+                            smooth * (big_boomer.z - self.audio_state.big_boomer.z);
+                        self.audio_state.big_boomer.w = big_boomer.w;
+                    }
+                    ParticleTension::None => self.audio_state.big_boomer = big_boomer,
                 }
 
                 // Update 2D (curl)attractors
@@ -517,8 +522,7 @@ impl FractalSugar {
 
             // Handle Space bar for toggling Kaleidoscope effect
             VirtualKeyCode::Space => {
-                #[allow(clippy::enum_glob_use)]
-                use KaleidoscopeDirection::*;
+                use KaleidoscopeDirection::{Backward, BackwardComplete, Forward, ForwardComplete};
                 self.game_state.kaleidoscope_dir = match self.game_state.kaleidoscope_dir {
                     Forward | ForwardComplete => Backward,
                     Backward | BackwardComplete => Forward,
@@ -526,7 +530,12 @@ impl FractalSugar {
             }
 
             // Handle toggling of Jello mode (i.e., fixing particles to positions)
-            VirtualKeyCode::J => self.game_state.fix_particles = !self.game_state.fix_particles,
+            VirtualKeyCode::J => {
+                self.game_state.fix_particles = match self.game_state.fix_particles {
+                    ParticleTension::None => ParticleTension::Spring,
+                    ParticleTension::Spring => ParticleTension::None,
+                }
+            }
 
             // Handle toggling of particle rendering
             VirtualKeyCode::P => {
@@ -658,7 +667,7 @@ impl FractalSugar {
         let particle_data = if self.game_state.render_particles {
             // Create a unique attractor based on mouse position
             let cursor_attractor = {
-                let strength = if self.game_state.fix_particles {
+                let strength = if self.game_state.fix_particles == ParticleTension::Spring {
                     CURSOR_FIXED_STRENGTH
                 } else {
                     CURSOR_LOOSE_STRENGTH
@@ -688,7 +697,9 @@ impl FractalSugar {
                 delta_time,
                 width,
                 height,
-                fix_particles: bool_to_u32(self.game_state.fix_particles),
+                fix_particles: bool_to_u32(
+                    self.game_state.fix_particles == ParticleTension::Spring,
+                ),
                 use_third_dimension: bool_to_u32(self.game_state.particles_are_3d),
             };
 
@@ -831,7 +842,7 @@ impl Default for LocalAudioState {
 impl Default for GameState {
     fn default() -> Self {
         Self {
-            fix_particles: true,
+            fix_particles: ParticleTension::Spring,
             render_particles: true,
             distance_estimator_id: 4,
             camera_quaternion: Quaternion::default(),

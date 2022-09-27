@@ -1,14 +1,20 @@
 # This is the configuration file for fractal_sugar.
 # Every field in this file is optional. A reasonable default value is used if a field is not present.
 
+# Can choose to launch the application into fullscreen. Default is `false`.
+launch_fullscreen = true
+
 # Can specify the maximum particle speed. Default value is 7.0.
-max_speed = 6.0
+max_speed = 6
 
 # Can specify the number of particles to simulate. Default value is 1_250_000.
 particle_count = 2_000_000
 
-# Can choose to launch the application into fullscreen. Default is `false`
-launch_fullscreen = true
+# Can set the spring coefficient `k` in Hooke's Law `F_s = -kx` used for particle spring-tension. Default value is 75.0.
+spring_coefficient = 75
+
+# The decibel adjustment to apply to the incoming audio. Default value is -20.0.
+audio_scale = -20
 
 # This file can define a series of color schemes that may be applied to each particle.
 # Each color scheme requires a title, 4 speed-dependent color values, and 4 index-dependent color values.

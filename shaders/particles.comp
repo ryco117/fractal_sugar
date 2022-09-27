@@ -22,6 +22,9 @@ layout (binding = 2) buffer readonly FixedCubePosBuffer {
 layout (binding = 3) uniform AppConstants {
 	float max_speed;
 	float particle_count;
+	float spring_coefficient;
+
+	float audio_scale;
 } appConstants;
 
 layout (push_constant) uniform PushConstants {
@@ -37,11 +40,7 @@ layout (push_constant) uniform PushConstants {
 	bool use_third_dimension;
 } push;
 
-const float spring_coefficient = 75.0;
-
 const float min_length = 0.01;
-
-const float audio_scale = 0.01;
 
 vec2 safe_normalize(vec2 t) {
 	if(dot(t,t) < 0.0000001) {
@@ -76,7 +75,7 @@ void main(void) {
 			{
 				vec3 t = push.big_boomer.xyz - pos;
 				float r = max(length(t), min_length);
-				g -= push.big_boomer.w * safe_normalize(t) / (r*r*r*r*r) * 2.15;
+				g -= push.big_boomer.w * safe_normalize(t) / (r*r*r*r*r) * 2.4;
 			}
 
 			for(int i = 0; i < push.curl_attractors.length(); i++) {
@@ -91,9 +90,9 @@ void main(void) {
 				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 34.0;
 			}
 
-			g *= audio_scale;
+			g *= appConstants.audio_scale;
 
-			g += spring_coefficient * (fixed_cube_positions[index] - pos);
+			g += appConstants.spring_coefficient * (fixed_cube_positions[index] - pos);
 		} else {
 			friction = -2.1;
 
@@ -115,7 +114,7 @@ void main(void) {
 				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 17.5;
 			}
 
-			g *= audio_scale;
+			g *= appConstants.audio_scale;
 		}
 	} else { // Start 2D block
 		mat2 aspect;
@@ -135,7 +134,7 @@ void main(void) {
 				vec2 t = push.big_boomer.xy - pos.xy;
 				t = aspect * t;
 				float r = max(length(t), min_length);
-				g.xy -= push.big_boomer.w * safe_normalize(t) / (r*r*r) * 0.6;
+				g.xy -= push.big_boomer.w * safe_normalize(t) / (r*r*r) * 0.65;
 			}
 
 			for(int i = 0; i < push.curl_attractors.length(); i++) {
@@ -152,9 +151,9 @@ void main(void) {
 				g.xy += push.attractors[i].w * safe_normalize(t) / (r*r) * 5.25;
 			}
 
-			g *= audio_scale;
+			g *= appConstants.audio_scale;
 
-			g.xy += spring_coefficient * (aspect * (fixed_square_positions[index] - pos.xy));
+			g.xy += appConstants.spring_coefficient * (aspect * (fixed_square_positions[index] - pos.xy));
 		} else {
 			friction = -1.5;
 
@@ -179,7 +178,7 @@ void main(void) {
 				g.xy += push.attractors[i].w * safe_normalize(t) / (r*r) * 8.75;
 			}
 
-			g *= audio_scale;
+			g *= appConstants.audio_scale;
 		}
 
 		g.xy = invaspect*g.xy;

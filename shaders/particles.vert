@@ -13,6 +13,9 @@ layout (binding = 0) uniform ParticleColorScheme {
 layout (binding = 1) uniform AppConstants {
 	float max_speed;
 	float particle_count;
+	float spring_coefficient;
+
+	float audio_scale;
 } appConstants;
 
 layout (push_constant) uniform PushConstants {

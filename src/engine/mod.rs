@@ -73,6 +73,9 @@ const DEBUG_VULKAN: bool = false;
 pub struct AppConstants {
     pub max_speed: f32,
     pub particle_count: f32,
+    pub spring_coefficient: f32,
+
+    pub audio_scale: f32,
 }
 
 pub struct DrawData {
@@ -143,6 +146,8 @@ impl Engine {
             AppConstants {
                 max_speed: app_config.max_speed,
                 particle_count: particle_count_f32,
+                spring_coefficient: app_config.spring_coefficient,
+                audio_scale: app_config.audio_scale,
             },
             BufferUsage {
                 uniform_buffer: true,
@@ -307,7 +312,7 @@ impl Engine {
                 self.queue.clone(),
                 PresentInfo {
                     index: image_index,
-                    ..vulkano::swapchain::PresentInfo::swapchain(self.swapchain.swapchain())
+                    ..PresentInfo::swapchain(self.swapchain.swapchain())
                 },
             )
             .boxed()

@@ -47,32 +47,49 @@ struct CustomScheme {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct TomlData {
-    pub max_speed: Option<f32>,
-    pub particle_count: Option<NonZeroUsize>,
     pub launch_fullscreen: Option<bool>,
+
+    pub max_speed: Option<f32>,
+    pub spring_coefficient: Option<f32>,
+    pub particle_count: Option<NonZeroUsize>,
+
+    pub audio_scale: Option<f32>,
 
     #[serde(default)]
     pub color_schemes: Vec<CustomScheme>,
 }
 
 // Hardcoded default values
-const MAX_SPEED: f32 = 7.;
-const PARTICLE_COUNT: usize = 1_250_000;
+const DEFAULT_MAX_SPEED: f32 = 7.;
+const DEFAULT_PARTICLE_COUNT: usize = 1_250_000;
+const DEFAULT_SPRING_COEFFICIENT: f32 = 75.;
+
+const DEFAULT_AUDIO_SCALE: f32 = -20.;
 
 #[derive(Clone)]
 pub struct AppConfig {
-    pub max_speed: f32,
-    pub particle_count: usize,
     pub launch_fullscreen: bool,
+
+    pub max_speed: f32,
+    pub spring_coefficient: f32,
+    pub particle_count: usize,
+
+    pub audio_scale: f32,
+
     pub color_schemes: Vec<Scheme>,
     pub color_scheme_names: Vec<String>,
 }
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            max_speed: MAX_SPEED,
-            particle_count: PARTICLE_COUNT,
             launch_fullscreen: Default::default(),
+
+            max_speed: DEFAULT_MAX_SPEED,
+            spring_coefficient: DEFAULT_SPRING_COEFFICIENT,
+            particle_count: DEFAULT_PARTICLE_COUNT,
+
+            audio_scale: DEFAULT_AUDIO_SCALE,
+
             color_schemes: COLOR_SCHEMES.to_vec(),
             color_scheme_names: COLOR_SCHEME_NAMES
                 .iter()
@@ -167,23 +184,37 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
             if max_speed > 0. {
                 max_speed
             } else {
-                anyhow::bail!("`max_speed` must be a positive number, was given: {}", max_speed);
+                anyhow::bail!(
+                    "`max_speed` must be a positive number, was given: {}",
+                    max_speed
+                );
             }
         }
-        None => MAX_SPEED,
+        None => DEFAULT_MAX_SPEED,
     };
+
+    let spring_coefficient = config
+        .spring_coefficient
+        .unwrap_or(DEFAULT_SPRING_COEFFICIENT);
 
     let particle_count = {
         let n = config
             .particle_count
-            .unwrap_or(unsafe { NonZeroUsize::new_unchecked(PARTICLE_COUNT) });
+            .unwrap_or(unsafe { NonZeroUsize::new_unchecked(DEFAULT_PARTICLE_COUNT) });
         n.get()
     };
 
+    let audio_scale = {
+        const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;
+        (DECIBEL_SCALE * config.audio_scale.unwrap_or(DEFAULT_AUDIO_SCALE)).exp()
+    };
+
     Ok(AppConfig {
+        launch_fullscreen: config.launch_fullscreen.unwrap_or_default(),
         max_speed,
         particle_count,
-        launch_fullscreen: config.launch_fullscreen.unwrap_or_default(),
+        spring_coefficient,
+        audio_scale,
         color_schemes,
         color_scheme_names,
     })
