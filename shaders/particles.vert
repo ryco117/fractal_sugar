@@ -14,8 +14,11 @@ layout (binding = 1) uniform AppConstants {
 	float max_speed;
 	float particle_count;
 	float spring_coefficient;
+	float point_size;
 
 	float audio_scale;
+
+	float vertical_fov;
 } appConstants;
 
 layout (push_constant) uniform PushConstants {
@@ -30,11 +33,10 @@ layout (push_constant) uniform PushConstants {
 // Define constants for perspective rendering
 // Distances must match those used in `ray_march.frag`
 const float pi = 3.14159265358;
-const float verticalFov = (pi/2.5) / 2.0;	// Roughly 70 degress vertical FOV
 const float far = 8.0;
 const float near = 0.03125;
 mat4 createPerspective(float aspectRatio) {
-	float focalLength = 1.0 / tan(verticalFov);
+	float focalLength = 1.0 / tan(appConstants.vertical_fov);
 	return mat4(
 		// Column-major declaration
 		vec4(focalLength / aspectRatio, 0.0, 0.0, 0.0),
@@ -50,7 +52,7 @@ vec3 rotateByQuaternion(vec3 v, vec4 q) {
 }
 
 void main() {
-	gl_PointSize = 2.0;
+	gl_PointSize = appConstants.point_size;
 
 	// Calculate screen position based on desired perspective
 	if(push.use_third_dimension) {

@@ -23,8 +23,11 @@ layout (binding = 3) uniform AppConstants {
 	float max_speed;
 	float particle_count;
 	float spring_coefficient;
+	float point_size;
 
 	float audio_scale;
+
+	float vertical_fov;
 } appConstants;
 
 layout (push_constant) uniform PushConstants {

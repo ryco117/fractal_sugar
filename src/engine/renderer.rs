@@ -154,11 +154,13 @@ fn inline_fractal_cmds(
     particle_input: Arc<dyn ImageViewAbstract>,
     particle_depth: Arc<dyn ImageViewAbstract>,
 ) {
+    let app_constants = engine.app_constants.clone();
     let descriptor_set = engine
         .fractal_descriptor_pool()
         .next([
             WriteDescriptorSet::image_view(0, particle_input),
             WriteDescriptorSet::image_view(1, particle_depth),
+            WriteDescriptorSet::buffer(2, app_constants),
         ])
         .unwrap();
     let pipeline = engine.fractal_pipeline();

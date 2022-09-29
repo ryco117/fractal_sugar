@@ -74,8 +74,11 @@ pub struct AppConstants {
     pub max_speed: f32,
     pub particle_count: f32,
     pub spring_coefficient: f32,
+    pub particle_point_size: f32,
 
     pub audio_scale: f32,
+
+    pub vertical_fov: f32,
 }
 
 pub struct DrawData {
@@ -147,7 +150,9 @@ impl Engine {
                 max_speed: app_config.max_speed,
                 particle_count: particle_count_f32,
                 spring_coefficient: app_config.spring_coefficient,
+                particle_point_size: app_config.point_size,
                 audio_scale: app_config.audio_scale,
+                vertical_fov: app_config.vertical_fov,
             },
             BufferUsage {
                 uniform_buffer: true,

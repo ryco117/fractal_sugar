@@ -35,7 +35,7 @@ pub const MIDS_POW: f32 = 0.75;
 pub const HIGH_POW: f32 = 0.445;
 
 const BASS_KICK: f32 = 0.05;
-const PREVIOUS_BASS_COUNT: usize = 10;
+const PREVIOUS_BASS_COUNT: usize = 16;
 
 // Simple type to store a single note with normalized frequency and strength
 #[derive(Clone, Copy, Default)]

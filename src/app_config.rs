@@ -52,8 +52,11 @@ struct TomlData {
     pub max_speed: Option<f32>,
     pub spring_coefficient: Option<f32>,
     pub particle_count: Option<NonZeroUsize>,
+    pub point_size: Option<f32>,
 
     pub audio_scale: Option<f32>,
+
+    pub vertical_fov: Option<f32>,
 
     #[serde(default)]
     pub color_schemes: Vec<CustomScheme>,
@@ -63,8 +66,11 @@ struct TomlData {
 const DEFAULT_MAX_SPEED: f32 = 7.;
 const DEFAULT_PARTICLE_COUNT: usize = 1_250_000;
 const DEFAULT_SPRING_COEFFICIENT: f32 = 75.;
+const DEFAULT_PARTICLE_POINT_SIZE: f32 = 2.;
 
 const DEFAULT_AUDIO_SCALE: f32 = -20.;
+
+const DEFAULT_VERTICAL_FOV: f32 = 72.; // 72 degrees of vertical FOV
 
 #[derive(Clone)]
 pub struct AppConfig {
@@ -73,8 +79,11 @@ pub struct AppConfig {
     pub max_speed: f32,
     pub spring_coefficient: f32,
     pub particle_count: usize,
+    pub point_size: f32,
 
     pub audio_scale: f32,
+
+    pub vertical_fov: f32,
 
     pub color_schemes: Vec<Scheme>,
     pub color_scheme_names: Vec<String>,
@@ -87,8 +96,11 @@ impl Default for AppConfig {
             max_speed: DEFAULT_MAX_SPEED,
             spring_coefficient: DEFAULT_SPRING_COEFFICIENT,
             particle_count: DEFAULT_PARTICLE_COUNT,
+            point_size: DEFAULT_PARTICLE_POINT_SIZE,
 
             audio_scale: DEFAULT_AUDIO_SCALE,
+
+            vertical_fov: DEFAULT_VERTICAL_FOV,
 
             color_schemes: COLOR_SCHEMES.to_vec(),
             color_scheme_names: COLOR_SCHEME_NAMES
@@ -197,24 +209,40 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
         .spring_coefficient
         .unwrap_or(DEFAULT_SPRING_COEFFICIENT);
 
-    let particle_count = {
-        let n = config
-            .particle_count
-            .unwrap_or(unsafe { NonZeroUsize::new_unchecked(DEFAULT_PARTICLE_COUNT) });
-        n.get()
-    };
+    let particle_count = config
+        .particle_count
+        .unwrap_or(unsafe { NonZeroUsize::new_unchecked(DEFAULT_PARTICLE_COUNT) })
+        .get();
+
+    let point_size = config
+        .point_size
+        .unwrap_or(DEFAULT_PARTICLE_POINT_SIZE)
+        .clamp(0., 32.);
 
     let audio_scale = {
         const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;
         (DECIBEL_SCALE * config.audio_scale.unwrap_or(DEFAULT_AUDIO_SCALE)).exp()
     };
 
+    let vertical_fov = config
+        .vertical_fov
+        .unwrap_or(DEFAULT_VERTICAL_FOV)
+        .clamp(-180., 180.)
+        * std::f32::consts::PI
+        / 360.;
+
     Ok(AppConfig {
         launch_fullscreen: config.launch_fullscreen.unwrap_or_default(),
+
         max_speed,
         particle_count,
         spring_coefficient,
+        point_size,
+
         audio_scale,
+
+        vertical_fov,
+
         color_schemes,
         color_scheme_names,
     })

@@ -7,6 +7,17 @@ layout (location = 0) out vec4 fragColor;
 layout (input_attachment_index = 0, set = 0, binding = 0) uniform subpassInput particle_color;
 layout (input_attachment_index = 1, set = 0, binding = 1) uniform subpassInputMS particle_depth;
 
+layout (set = 0, binding = 2) uniform AppConstants {
+	float max_speed;
+	float particle_count;
+	float spring_coefficient;
+	float point_size;
+
+	float audio_scale;
+
+	float vertical_fov;
+} appConstants;
+
 layout (push_constant) uniform PushConstants {
 	vec4 quaternion;
 
@@ -323,8 +334,8 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 }
 
 void main(void) {
-	const float verticalFov = (pi/2.5) / 2.0;	// Roughly 70 degress vertical FOV
-	const float fovY = tan(verticalFov);
+	//const float verticalFov = (pi/2.5) / 2.0;	// Roughly 70 degress vertical FOV
+	const float fovY = tan(appConstants.vertical_fov);
 	float fovX = push.aspect_ratio * fovY;
 
 	float kaleidoTheta = boundReflect(getAngle(coord), push.kaleidoscope*(pi/6.0 - tau) + tau);
