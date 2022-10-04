@@ -97,7 +97,7 @@ void main(void) {
 
 			g += appConstants.spring_coefficient * (fixed_cube_positions[index] - pos);
 		} else {
-			friction = -2.1;
+			friction = -2.2;
 
 			{
 				vec3 t = push.big_boomer.xyz - pos;
@@ -158,7 +158,7 @@ void main(void) {
 
 			g.xy += appConstants.spring_coefficient * (aspect * (fixed_square_positions[index] - pos.xy));
 		} else {
-			friction = -1.5;
+			friction = -1.85;
 
 			{
 				vec2 t = push.big_boomer.xy - pos.xy;

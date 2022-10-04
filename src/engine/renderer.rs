@@ -55,7 +55,7 @@ fn begin_render_pass(
 
 pub fn create_render_commands(
     engine: &mut Engine,
-    image_index: usize,
+    framebuffer: &Arc<Framebuffer>,
     draw_data: &DrawData,
 ) -> PrimaryAutoCommandBuffer {
     // Regular ol' single submit buffer
@@ -65,8 +65,6 @@ pub fn create_render_commands(
         CommandBufferUsage::OneTimeSubmit,
     )
     .unwrap();
-
-    let framebuffer = &engine.framebuffers[image_index];
 
     // Allow toggling of particle effects and avoid unnecesary computation
     if let Some((compute_push_constants, vertex_push_constants)) = draw_data.particle_data {
@@ -114,8 +112,8 @@ pub fn create_render_commands(
         &mut builder,
         engine,
         draw_data.fractal_data,
-        (*framebuffer.attachments())[1].clone(),
-        (*framebuffer.attachments())[2].clone(),
+        framebuffer.attachments()[1].clone(),
+        framebuffer.attachments()[2].clone(),
     );
 
     // Mark completion of frame rendering (for this pass)

@@ -17,13 +17,14 @@
 */
 
 // Ensure Windows builds are not console apps
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 // TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 
 use std::time::SystemTime;
 
+use config_window::ConfigWindow;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{
     ElementState, Event, KeyboardInput, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
@@ -36,6 +37,7 @@ use engine::{DrawData, Engine};
 
 mod app_config;
 mod audio;
+mod config_window;
 mod engine;
 mod my_math;
 mod space_filling_curves;
@@ -127,9 +129,11 @@ struct ConsoleState {
 
 struct FractalSugar {
     app_config: AppConfig,
+    //config_window: ConfigWindow,
     engine: Engine,
     event_loop: Option<EventLoop<()>>,
     audio_receiver: crossbeam_channel::Receiver<audio::State>,
+    displaying_gui: bool,
 
     #[cfg(target_os = "windows")]
     console_state: Option<ConsoleState>,
@@ -235,7 +239,7 @@ impl FractalSugar {
         let capture_stream = audio::process_loopback_audio_and_send(tx);
 
         // State vars
-        engine.surface().window().focus_window();
+        engine.window().focus_window();
         let window_state = WindowState {
             is_fullscreen: app_config.launch_fullscreen,
             ..WindowState::default()
@@ -243,19 +247,22 @@ impl FractalSugar {
         let audio_state = LocalAudioState::default();
         let game_state = GameState::default();
 
+        //let config_window = config_window::ConfigWindow::new(engine.instance(), &event_loop);
+
         Self {
             app_config,
+            //config_window,
             engine,
             event_loop: Some(event_loop),
             audio_receiver: rx,
+            displaying_gui: false,
             capture_stream,
-
-            #[cfg(target_os = "windows")]
-            console_state,
-
             audio_state,
             game_state,
             window_state,
+
+            #[cfg(target_os = "windows")]
+            console_state,
         }
     }
 
@@ -266,93 +273,11 @@ impl FractalSugar {
             .take()
             .unwrap()
             .run(move |event, _, control_flow| match event {
-                // Handle window close
-                Event::WindowEvent {
-                    event: WindowEvent::CloseRequested,
-                    ..
-                } => {
-                    println!("The close button was pressed, exiting");
-                    *control_flow = ControlFlow::Exit;
-                    std::process::exit(0);
-                }
-
-                // Handle resize
-                Event::WindowEvent {
-                    event: WindowEvent::Resized(_),
-                    ..
-                } => self.window_state.resized = true,
-
                 // All UI events have been handled (ie., executes once per frame)
                 Event::MainEventsCleared => self.tock_frame(),
 
-                // Handle some keyboard input
-                Event::WindowEvent {
-                    event:
-                        WindowEvent::KeyboardInput {
-                            input:
-                                KeyboardInput {
-                                    state: ElementState::Pressed,
-                                    virtual_keycode: Some(keycode),
-                                    ..
-                                },
-                            ..
-                        },
-                    ..
-                } => self.handle_keyboard_input(keycode, control_flow),
-
-                // Track window focus in a state var
-                Event::WindowEvent {
-                    event: WindowEvent::Focused(focused),
-                    ..
-                } => {
-                    if !focused {
-                        // Force cursor visibility when focus is lost
-                        self.engine.surface().window().set_cursor_visible(true);
-                        self.game_state.is_cursor_visible = true;
-                    }
-                    self.window_state.is_focused = focused;
-                }
-
-                // Handle mouse movement
-                Event::WindowEvent {
-                    event: WindowEvent::CursorMoved { position, .. },
-                    ..
-                } => {
-                    self.window_state.last_mouse_movement = SystemTime::now();
-                    self.engine.surface().window().set_cursor_visible(true);
-                    self.game_state.is_cursor_visible = true;
-
-                    self.game_state.cursor_position = position;
-                }
-
-                // Handle mouse buttons to allow cursor-applied forces
-                Event::WindowEvent {
-                    event: WindowEvent::MouseInput { state, button, .. },
-                    ..
-                } => {
-                    let pressed = match state {
-                        ElementState::Pressed => 1.,
-                        ElementState::Released => -1.,
-                    };
-                    self.game_state.cursor_force += pressed
-                        * match button {
-                            MouseButton::Left => -1.,
-                            MouseButton::Right => 1.,
-                            _ => 0.,
-                        };
-                }
-
-                // Handle mouse scroll wheel to change strength of cursor-applied forces
-                Event::WindowEvent {
-                    event: WindowEvent::MouseWheel { delta, .. },
-                    ..
-                } => {
-                    let delta = match delta {
-                        MouseScrollDelta::LineDelta(_, y) => y,
-                        MouseScrollDelta::PixelDelta(p) => p.y as f32,
-                    };
-                    self.game_state.cursor_force_mult *= (SCROLL_SENSITIVITY * delta).exp();
-                }
+                // Handle all window-interaction events
+                Event::WindowEvent { event, .. } => self.handle_window_event(&event, control_flow),
 
                 // Catch-all
                 _ => {}
@@ -399,7 +324,7 @@ impl FractalSugar {
                 .engine
                 .recreate_swapchain(dimensions, self.window_state.resized)
             {
-                RecreateSwapchainResult::Success => {
+                RecreateSwapchainResult::Ok => {
                     self.window_state.recreate_swapchain = false;
                     self.window_state.resized = false;
                 }
@@ -408,10 +333,25 @@ impl FractalSugar {
         }
 
         // Create per-frame data for particle compute-shader
-        let draw_data = self.next_shader_data(delta_time, dimensions);
+        let draw_data = self.next_shader_data(delta_time, self.engine.window().inner_size());
+
+        // if self.displaying_gui {
+        //     self.config_window
+        //         .gui
+        //         .immediate_ui(config_window::create_ui);
+        // }
 
         // Draw frame and return whether a swapchain recreation was deemed necessary
-        self.window_state.recreate_swapchain |= self.engine.draw_frame(&draw_data);
+        let (future, suboptimal) = match self.engine.render(&draw_data) {
+            Ok(pair) => pair,
+            Err(vulkano::swapchain::AcquireError::OutOfDate) => {
+                self.window_state.recreate_swapchain = true;
+                return;
+            }
+            Err(e) => panic!("Failed to acquire next image: {:?}", e),
+        };
+
+        self.window_state.recreate_swapchain |= self.engine.present(future) || suboptimal;
     }
 
     // Helper for receiving the latest audio state from the input stream
@@ -495,11 +435,10 @@ impl FractalSugar {
             // Handle fullscreen toggle (F11)
             VirtualKeyCode::F11 => {
                 if self.window_state.is_fullscreen {
-                    self.engine.surface().window().set_fullscreen(None);
+                    self.engine.window().set_fullscreen(None);
                     self.window_state.is_fullscreen = false;
                 } else {
                     self.engine
-                        .surface()
                         .window()
                         .set_fullscreen(Some(Fullscreen::Borderless(None)));
                     self.window_state.is_fullscreen = true;
@@ -510,7 +449,7 @@ impl FractalSugar {
             VirtualKeyCode::Escape => {
                 if self.window_state.is_fullscreen {
                     // Leave fullscreen
-                    self.engine.surface().window().set_fullscreen(None);
+                    self.engine.window().set_fullscreen(None);
                     self.window_state.is_fullscreen = false;
                 } else {
                     // Exit window loop
@@ -564,6 +503,9 @@ impl FractalSugar {
                 );
             }
 
+            // Toggle display of GUI
+            VirtualKeyCode::G => self.displaying_gui = !self.displaying_gui,
+
             // Handle toggling the debug-console.
             // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
             #[cfg(target_os = "windows")]
@@ -582,6 +524,81 @@ impl FractalSugar {
             VirtualKeyCode::Key5 => self.game_state.distance_estimator_id = 5,
 
             // No-op
+            _ => {}
+        }
+    }
+
+    fn handle_window_event(&mut self, event: &WindowEvent, control_flow: &mut ControlFlow) {
+        let read_keyboard = if self.displaying_gui {
+            // !self.config_window.gui.update(event)
+            true
+        } else {
+            true
+        };
+        match *event {
+            // Handle window close
+            WindowEvent::CloseRequested => {
+                println!("The close button was pressed, exiting");
+                *control_flow = ControlFlow::Exit;
+                std::process::exit(0);
+            }
+
+            // Handle resize
+            WindowEvent::Resized(_) => self.window_state.resized = true,
+
+            // Handle some keyboard input
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        state: ElementState::Pressed,
+                        virtual_keycode: Some(keycode),
+                        ..
+                    },
+                ..
+            } if read_keyboard => self.handle_keyboard_input(keycode, control_flow),
+
+            // Track window focus in a state var
+            WindowEvent::Focused(focused) => {
+                if !focused {
+                    // Force cursor visibility when focus is lost
+                    self.engine.window().set_cursor_visible(true);
+                    self.game_state.is_cursor_visible = true;
+                }
+                self.window_state.is_focused = focused;
+            }
+
+            // Handle mouse movement
+            WindowEvent::CursorMoved { position, .. } => {
+                self.window_state.last_mouse_movement = SystemTime::now();
+                self.engine.window().set_cursor_visible(true);
+                self.game_state.is_cursor_visible = true;
+
+                self.game_state.cursor_position = position;
+            }
+
+            // Handle mouse buttons to allow cursor-applied forces
+            WindowEvent::MouseInput { state, button, .. } => {
+                let pressed = match state {
+                    ElementState::Pressed => 1.,
+                    ElementState::Released => -1.,
+                };
+                self.game_state.cursor_force += pressed
+                    * match button {
+                        MouseButton::Left => -1.,
+                        MouseButton::Right => 1.,
+                        _ => 0.,
+                    };
+            }
+
+            // Handle mouse scroll wheel to change strength of cursor-applied forces
+            WindowEvent::MouseWheel { delta, .. } => {
+                let delta = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32,
+                };
+                self.game_state.cursor_force_mult *= (SCROLL_SENSITIVITY * delta).exp();
+            }
+
             _ => {}
         }
     }

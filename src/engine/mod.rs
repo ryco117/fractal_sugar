@@ -29,8 +29,8 @@ use vulkano::instance::{Instance, InstanceCreateInfo};
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
-use vulkano::swapchain::{PresentInfo, PresentMode, Surface};
-use vulkano::sync::{FenceSignalFuture, GpuFuture};
+use vulkano::swapchain::{AcquireError, PresentMode, Surface};
+use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event_loop::EventLoop;
@@ -47,16 +47,14 @@ use crate::app_config::{AppConfig, Scheme};
 use object::{Fractal, Particles};
 pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
 
-type EngineFrameFuture = Arc<FenceSignalFuture<Box<dyn GpuFuture>>>;
+pub use self::core::EngineFrameFuture;
 
 pub struct Engine {
     app_constants: Arc<DeviceLocalBuffer<AppConstants>>,
     device: Arc<Device>,
-    fences: Vec<Option<EngineFrameFuture>>,
     fractal: Fractal,
     framebuffers: Vec<Arc<Framebuffer>>,
     particles: Particles,
-    previous_fence_index: usize,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
     surface: Arc<Surface<Window>>,
@@ -137,11 +135,6 @@ impl Engine {
         );
         let image_format = engine_swapchain.swapchain().image_format();
 
-        // Create a frame-in-flight fence for each image buffer.
-        // This allows CPU work to continue while GPU is busy with previous frames
-        let frames_in_flight = engine_swapchain.images().len();
-        let fences: Vec<Option<EngineFrameFuture>> = vec![None; frames_in_flight];
-
         // Before creating descriptor sets and other buffers, allocate app-constants buffer
         let particle_count: usize = app_config.particle_count;
         let particle_count_f32: f32 = particle_count as f32;
@@ -189,7 +182,7 @@ impl Engine {
             &device,
             &render_pass,
             dimensions.into(),
-            &engine_swapchain.images(),
+            engine_swapchain.images(),
             image_format,
         );
 
@@ -197,11 +190,10 @@ impl Engine {
         Self {
             app_constants,
             device,
-            fences,
             fractal,
             framebuffers,
             particles,
-            previous_fence_index: 0,
+
             queue,
             render_pass,
             surface,
@@ -225,7 +217,7 @@ impl Engine {
         // Create new swapchain from the previous, specifying new window size
         match self.swapchain.recreate(dimensions) {
             // Continue logic
-            RecreateSwapchainResult::Success => {}
+            RecreateSwapchainResult::Ok => {}
 
             // Return that swapchain could not be recreated (often due to a resizing error)
             RecreateSwapchainResult::ExtentNotSupported => {
@@ -238,7 +230,7 @@ impl Engine {
             &self.device,
             &self.render_pass,
             dimensions.into(),
-            &self.swapchain.images(),
+            self.swapchain.images(),
             self.swapchain.image_format(),
         );
 
@@ -264,84 +256,43 @@ impl Engine {
         }
 
         // Recreated swapchain and necessary follow-up structures without error
-        RecreateSwapchainResult::Success
+        RecreateSwapchainResult::Ok
     }
 
     // Use given push constants and synchronization-primitives to render next frame in swapchain.
     // Returns whether a swapchain recreation was deemed necessary
-    pub fn draw_frame(&mut self, draw_data: &DrawData) -> bool {
+    pub fn render(
+        &mut self,
+        draw_data: &DrawData,
+    ) -> Result<(Box<dyn GpuFuture>, bool), AcquireError> {
         // Acquire the index of the next image we should render to in this swapchain
-        let (image_index, suboptimal, acquire_future) = match vulkano::swapchain::acquire_next_image(
-            self.swapchain.swapchain(),
-            None, /*timeout*/
-        ) {
+        let core::AcquiredImageData {
+            image_index,
+            suboptimal,
+            acquire_future,
+        } = match self.swapchain.acquire_next_image() {
             Ok(tuple) => tuple,
-            Err(vulkano::swapchain::AcquireError::OutOfDate) => return true,
-            Err(e) => panic!("Failed to acquire next image: {:?}", e),
-        };
-
-        if suboptimal {
-            // Acquired image will still work for rendering this frame, so we will continue.
-            // However, the surface's properties no longer match the swapchain's so we will recreate next chance
-            return true;
-        }
-
-        // If this image buffer already has a fence, wait for the fence to be completed, then cleanup.
-        // Usually the fence for this index will have completed by the time we are rendering it again
-        if let Some(image_fence) = &mut self.fences[image_index] {
-            image_fence.wait(None).unwrap();
-            image_fence.cleanup_finished();
-        }
-
-        // If the previous image has a fence, use it for synchronization, else create a new one
-        let previous_future = match self.fences[self.previous_fence_index].clone() {
-            // Ensure current frame is synchronized with previous
-            Some(fence) => fence.boxed(),
-
-            // Create new future to guarentee synchronization with (fake) previous frame
-            None => vulkano::sync::now(self.device.clone()).boxed(),
+            Err(e) => return Err(e),
         };
 
         // Create a one-time-submit command buffer for this frame
-        let colored_sugar_commands = renderer::create_render_commands(self, image_index, draw_data);
+        let colored_sugar_commands = {
+            let framebuffer = self.framebuffers[image_index].clone();
+            renderer::create_render_commands(self, &framebuffer, draw_data)
+        };
 
         // Create synchronization future for rendering the current frame
-        let future = previous_future
-            // Wait for previous and current futures to synchronize
-            .join(acquire_future)
+        let future = acquire_future
             // Execute the one-time command buffer
             .then_execute(self.queue.clone(), colored_sugar_commands)
             .unwrap()
-            // Present result to swapchain buffer
-            .then_swapchain_present(
-                self.queue.clone(),
-                PresentInfo {
-                    index: image_index,
-                    ..PresentInfo::swapchain(self.swapchain.swapchain())
-                },
-            )
-            .boxed()
-            // Finish synchronization
-            .then_signal_fence_and_flush();
+            .boxed();
 
-        // Update this frame's future with result of current render
-        let mut requires_recreate_swapchain = false;
-        self.fences[image_index] = match future {
-            // Success, store result into vector
-            Ok(value) => Some(Arc::new(value)),
+        Ok((future, suboptimal))
+    }
 
-            // Swapchain is out-of-date, request its recreation next frame
-            Err(vulkano::sync::FlushError::OutOfDate) => {
-                requires_recreate_swapchain = true;
-                None
-            }
-
-            // Unknown failure
-            Err(e) => panic!("Failed to flush future: {:?}", e),
-        };
-
-        // Update the last rendered index to be this frame
-        self.previous_fence_index = image_index;
+    pub fn present(&mut self, future: Box<dyn GpuFuture>) -> bool {
+        let requires_recreate_swapchain = self.swapchain.present(self.queue.clone(), future);
 
         // Return whether a swapchain recreation was deemed necessary
         requires_recreate_swapchain
@@ -381,12 +332,24 @@ impl Engine {
     pub fn fractal_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.fractal.pipeline.clone()
     }
+    // pub fn image_format(&self) -> vulkano::format::Format {
+    //     self.swapchain.image_format()
+    // }
+    // pub fn instance(&self) -> Arc<Instance> {
+    //     self.instance.clone()
+    // }
     pub fn particle_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
         self.particles.graphics_descriptor_set.clone()
     }
     pub fn particle_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.particles.graphics_pipeline.clone()
     }
+    // pub fn present_image(&self) -> Option<Arc<dyn ImageViewAbstract>> {
+    //     let index = self.swapchain.present_index()?;
+    //     let framebuffer = self.framebuffers.get(index)?;
+
+    //     Some(framebuffer.attachments().last().unwrap().clone())
+    // }
     pub fn queue(&self) -> Arc<Queue> {
         self.queue.clone()
     }
@@ -396,6 +359,9 @@ impl Engine {
     pub fn particle_count(&self) -> u64 {
         use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
         self.particles.vertex_buffer.len()
+    }
+    pub fn window(&self) -> &Window {
+        self.surface.window()
     }
 }
 

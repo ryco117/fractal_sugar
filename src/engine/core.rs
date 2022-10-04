@@ -24,20 +24,36 @@ use vulkano::format::Format;
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::Instance;
 use vulkano::swapchain::{
-    PresentMode, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo, SwapchainCreationError,
+    AcquireError, PresentFuture, PresentInfo, PresentMode, Surface, SurfaceInfo, Swapchain,
+    SwapchainCreateInfo, SwapchainCreationError,
 };
 
+use vulkano::sync::{FenceSignalFuture, GpuFuture};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
+// NOTE: Against all odds, this type needs to be wraped in Arc<..> as below
+// in order to not leak memory in Win11 on NVIDIA device(s)
+pub type EngineFrameFuture = Arc<FenceSignalFuture<PresentFuture<Box<dyn GpuFuture>, Window>>>;
+
 pub struct EngineSwapchain {
-    swapchain: Arc<Swapchain<Window>>,
+    fences: Vec<Option<EngineFrameFuture>>,
     images: Vec<Arc<SwapchainImage<Window>>>,
+    present_index: Option<usize>,
+    previous_fence_index: usize,
+    swapchain: Arc<Swapchain<Window>>,
 }
 
 pub enum RecreateSwapchainResult {
-    Success,
+    Ok,
     ExtentNotSupported,
+}
+
+// Information for an acquired swapchain image.
+pub struct AcquiredImageData {
+    pub image_index: usize,
+    pub suboptimal: bool,
+    pub acquire_future: Box<dyn GpuFuture>,
 }
 
 // Select the best physical device for performing Vulkan operations
@@ -137,7 +153,12 @@ impl EngineSwapchain {
             .next()
             .unwrap();
         let image_format = {
-            let desired_formats = [Format::R8G8B8A8_UNORM, Format::B8G8R8A8_UNORM];
+            let desired_formats = [
+                Format::B8G8R8A8_SRGB,
+                Format::R8G8B8A8_SRGB,
+                Format::B8G8R8A8_UNORM,
+                Format::R8G8B8A8_UNORM,
+            ];
             physical_device
                 .surface_formats(&surface, SurfaceInfo::default())
                 .unwrap()
@@ -151,6 +172,7 @@ impl EngineSwapchain {
                 })
                 .expect("Failed to find suitable surface format")
         };
+        println!("Using image color-format {:?}", image_format);
 
         // Get preferred present mode with fallback to FIFO (which any Vulkan instance must support)
         let present_mode = {
@@ -200,7 +222,18 @@ impl EngineSwapchain {
         )
         .unwrap();
 
-        Self { swapchain, images }
+        // Create a frame-in-flight fence for each image buffer.
+        // This allows CPU work to continue while GPU is busy with previous frames
+        let fences: Vec<Option<EngineFrameFuture>> =
+            std::iter::repeat_with(|| None).take(images.len()).collect();
+
+        Self {
+            fences,
+            swapchain,
+            images,
+            present_index: None,
+            previous_fence_index: 0,
+        }
     }
 
     // Recreate swapchain using new dimensions
@@ -216,7 +249,7 @@ impl EngineSwapchain {
                 self.swapchain = new_swapchain;
                 self.images = new_images;
 
-                RecreateSwapchainResult::Success
+                RecreateSwapchainResult::Ok
             }
 
             // This error tends to happen when the user is manually resizing the window.
@@ -230,14 +263,81 @@ impl EngineSwapchain {
         }
     }
 
-    // Swapchain getters
-    pub fn swapchain(&self) -> Arc<Swapchain<Window>> {
-        self.swapchain.clone()
+    // Retrieve the index of the next render destination
+    pub fn acquire_next_image(&mut self) -> Result<AcquiredImageData, AcquireError> {
+        let (image_index, suboptimal, acquire_future) =
+            vulkano::swapchain::acquire_next_image(self.swapchain.clone(), None)?;
+        self.present_index = Some(image_index);
+
+        // If this image buffer already has a fence, wait for the fence to be completed, then cleanup.
+        // Usually the fence for this index will have completed by the time we are rendering it again
+        if let Some(image_fence) = &mut self.fences[image_index] {
+            image_fence.wait(None).unwrap();
+            image_fence.cleanup_finished();
+        }
+
+        let future = match self.fences[self.previous_fence_index].clone() {
+            Some(previous_future) => previous_future.join(acquire_future).boxed(),
+            None => acquire_future.boxed(),
+        };
+
+        Ok(AcquiredImageData {
+            image_index,
+            suboptimal,
+            acquire_future: future,
+        })
     }
-    pub fn images(&self) -> Vec<Arc<SwapchainImage<Window>>> {
-        self.images.clone()
+
+    // Present the current swapchain index
+    pub fn present(&mut self, queue: Arc<Queue>, future: Box<dyn GpuFuture>) -> bool {
+        let image_index = self
+            .present_index
+            .take()
+            .expect("Must acquire an image before presenting");
+
+        // Present result to swapchain buffer
+        let present_future = future
+            .then_swapchain_present(
+                queue,
+                PresentInfo {
+                    index: image_index,
+                    ..PresentInfo::swapchain(self.swapchain.clone())
+                },
+            )
+            // Finish synchronization
+            .then_signal_fence_and_flush();
+
+        // Update this frame's future with result of current render
+        let mut requires_recreate_swapchain = false;
+        self.fences[image_index] = match present_future {
+            // Success, store result into vector
+            Ok(future) => Some(Arc::new(future)),
+
+            // Swapchain is out-of-date, request its recreation next frame
+            Err(vulkano::sync::FlushError::OutOfDate) => {
+                requires_recreate_swapchain = true;
+                None
+            }
+
+            // Unknown failure
+            Err(e) => panic!("Failed to flush future: {:?}", e),
+        };
+
+        // Update the last rendered index to be this frame
+        self.previous_fence_index = image_index;
+
+        // Return whether a swapchain recreation was deemed necessary
+        requires_recreate_swapchain
+    }
+
+    // Swapchain getters
+    pub fn images(&self) -> &Vec<Arc<SwapchainImage<Window>>> {
+        &self.images
     }
     pub fn image_format(&self) -> Format {
         self.swapchain.image_format()
+    }
+    pub fn swapchain(&self) -> Arc<Swapchain<Window>> {
+        self.swapchain.clone()
     }
 }
