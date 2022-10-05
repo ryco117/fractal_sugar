@@ -22,10 +22,10 @@ use egui_winit_vulkano::Gui;
 use vulkano::device::Queue;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
-use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass};
+use vulkano::instance::Instance;
 use vulkano::swapchain::{PresentMode, Surface};
-use vulkano::{device::Device, instance::Instance};
 use winit::{
+    event::WindowEvent,
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
@@ -49,57 +49,36 @@ pub fn create_ui(gui: &mut Gui) {
 }
 
 pub struct ConfigWindow {
-    framebuffers: Vec<Arc<Framebuffer>>,
-    pub gui: Gui,
-    render_pass: Arc<RenderPass>,
+    framebuffers: Vec<Arc<ImageView<SwapchainImage<Window>>>>,
+    gui: Gui,
     surface: Arc<Surface<Window>>,
     swapchain: EngineSwapchain,
     queue: Arc<Queue>,
+    visible: bool,
 }
 
+const DEFAULT_VISIBILITY: bool = false;
+
 impl ConfigWindow {
-    pub fn new(instance: Arc<Instance>, event_loop: &EventLoop<()>) -> Self {
+    pub fn new(instance: &Arc<Instance>, event_loop: &EventLoop<()>) -> Self {
         use vulkano_win::VkSurfaceBuild;
         let surface = WindowBuilder::new()
             .with_title("app config")
             .with_resizable(false)
-            .with_visible(false)
+            .with_visible(DEFAULT_VISIBILITY)
             .build_vk_surface(event_loop, instance.clone())
             .unwrap();
 
-        let (physical_device, device, queue) = select_hardware(&instance, &surface);
+        let (physical_device, device, queue) = select_hardware(instance, &surface);
 
-        let swapchain = EngineSwapchain::new(
-            &physical_device,
-            device.clone(),
-            surface.clone(),
-            PresentMode::Fifo,
-        );
+        let swapchain =
+            EngineSwapchain::new(&physical_device, device, surface.clone(), PresentMode::Fifo);
 
-        let render_pass = vulkano::single_pass_renderpass!(
-            device.clone(),
-            attachments: {
-                color: {
-                    load: Clear,
-                    store: Store,
-                    format: swapchain.image_format(),
-                    samples: 1,
-                }
-            },
-            pass: {
-                color: [color],
-                depth_stencil: {}
-            }
-        )
-        .unwrap();
-
-        let framebuffers = create_framebuffers(
-            &device,
-            &render_pass,
-            surface.window().inner_size().into(),
-            swapchain.images(),
-            swapchain.image_format(),
-        );
+        let framebuffers = swapchain
+            .images()
+            .iter()
+            .map(|img| ImageView::new_default(img.clone()).unwrap())
+            .collect();
 
         let gui = Gui::new(
             event_loop,
@@ -112,52 +91,51 @@ impl ConfigWindow {
         Self {
             framebuffers,
             gui,
-            render_pass,
             surface,
             swapchain,
             queue,
+            visible: DEFAULT_VISIBILITY,
+        }
+    }
+
+    pub fn handle_input(&mut self, event: &WindowEvent) {
+        self.gui.update(event);
+
+        // Ensure to handle the 'close' event
+        if event == &WindowEvent::CloseRequested {
+            self.window().set_visible(false);
+            self.visible = false;
         }
     }
 
     pub fn draw(&mut self) {
-        match self.swapchain.acquire_next_image() {
-            Ok(AcquiredImageData {
-                acquire_future,
-                image_index,
-                ..
-            }) => {
-                let future = self.gui.draw_on_image(
-                    acquire_future,
-                    self.framebuffers[image_index].attachments()[0].clone(),
-                );
-
-                self.swapchain.present(self.queue.clone(), future);
-            }
+        // Acquire next frame for rendering
+        let AcquiredImageData {
+            acquire_future,
+            image_index,
+            ..
+        } = match self.swapchain.acquire_next_image() {
+            Ok(data) => data,
             Err(e) => panic!("Failed to acquire next image: {:?}", e),
-        }
+        };
+
+        // Setup UI layout
+        self.gui.immediate_ui(create_ui);
+
+        // Draw commands
+        let future = self
+            .gui
+            .draw_on_image(acquire_future, self.framebuffers[image_index].clone());
+        self.swapchain.present(self.queue.clone(), future);
     }
-}
 
-fn create_framebuffers(
-    device: &Arc<Device>,
-    render_pass: &Arc<RenderPass>,
-    dimensions: [u32; 2],
-    images: &Vec<Arc<SwapchainImage<Window>>>,
-    image_format: vulkano::format::Format,
-) -> Vec<Arc<Framebuffer>> {
-    (0..images.len())
-        .map(|i| {
-            let view = ImageView::new_default(images[i].clone()).unwrap();
+    pub fn toggle_visibility(&mut self) {
+        self.visible = !self.visible;
+        self.window().set_visible(self.visible);
+    }
 
-            // Create framebuffer specifying underlying renderpass and image attachments
-            Framebuffer::new(
-                render_pass.clone(),
-                FramebufferCreateInfo {
-                    attachments: vec![view],
-                    ..Default::default()
-                },
-            )
-            .unwrap()
-        })
-        .collect()
+    // Getters
+    pub fn window(&self) -> &Window {
+        self.surface.window()
+    }
 }

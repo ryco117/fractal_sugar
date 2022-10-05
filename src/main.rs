@@ -17,7 +17,7 @@
 */
 
 // Ensure Windows builds are not console apps
-//#![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 // TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
@@ -30,7 +30,7 @@ use winit::event::{
     ElementState, Event, KeyboardInput, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
 };
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::Fullscreen;
+use winit::window::{Fullscreen, WindowId};
 
 use engine::core::RecreateSwapchainResult;
 use engine::{DrawData, Engine};
@@ -119,6 +119,7 @@ struct WindowState {
     pub is_focused: bool,
     pub last_frame_time: SystemTime,
     pub last_mouse_movement: SystemTime,
+    pub window_id: WindowId,
 }
 
 #[cfg(target_os = "windows")]
@@ -129,11 +130,10 @@ struct ConsoleState {
 
 struct FractalSugar {
     app_config: AppConfig,
-    //config_window: ConfigWindow,
+    config_window: ConfigWindow,
     engine: Engine,
     event_loop: Option<EventLoop<()>>,
     audio_receiver: crossbeam_channel::Receiver<audio::State>,
-    displaying_gui: bool,
 
     #[cfg(target_os = "windows")]
     console_state: Option<ConsoleState>,
@@ -242,20 +242,24 @@ impl FractalSugar {
         engine.window().focus_window();
         let window_state = WindowState {
             is_fullscreen: app_config.launch_fullscreen,
-            ..WindowState::default()
+            resized: false,
+            recreate_swapchain: false,
+            is_focused: true,
+            last_frame_time: SystemTime::now(),
+            last_mouse_movement: SystemTime::now(),
+            window_id: engine.window().id(),
         };
         let audio_state = LocalAudioState::default();
         let game_state = GameState::default();
 
-        //let config_window = config_window::ConfigWindow::new(engine.instance(), &event_loop);
+        let config_window = config_window::ConfigWindow::new(engine.instance(), &event_loop);
 
         Self {
             app_config,
-            //config_window,
+            config_window,
             engine,
             event_loop: Some(event_loop),
             audio_receiver: rx,
-            displaying_gui: false,
             capture_stream,
             audio_state,
             game_state,
@@ -277,7 +281,21 @@ impl FractalSugar {
                 Event::MainEventsCleared => self.tock_frame(),
 
                 // Handle all window-interaction events
-                Event::WindowEvent { event, .. } => self.handle_window_event(&event, control_flow),
+                Event::WindowEvent { event, window_id } => {
+                    if window_id == self.window_state.window_id {
+                        // Handle events to main window
+                        self.handle_window_event(&event, control_flow);
+                    } else if window_id == self.config_window.window().id() {
+                        self.config_window.handle_input(&event);
+                    }
+                }
+
+                // Handle drawing of config window
+                Event::RedrawRequested(window_id)
+                    if window_id == self.config_window.window().id() =>
+                {
+                    self.config_window.draw();
+                }
 
                 // Catch-all
                 _ => {}
@@ -334,12 +352,6 @@ impl FractalSugar {
 
         // Create per-frame data for particle compute-shader
         let draw_data = self.next_shader_data(delta_time, self.engine.window().inner_size());
-
-        // if self.displaying_gui {
-        //     self.config_window
-        //         .gui
-        //         .immediate_ui(config_window::create_ui);
-        // }
 
         // Draw frame and return whether a swapchain recreation was deemed necessary
         let (future, suboptimal) = match self.engine.render(&draw_data) {
@@ -504,7 +516,7 @@ impl FractalSugar {
             }
 
             // Toggle display of GUI
-            VirtualKeyCode::G => self.displaying_gui = !self.displaying_gui,
+            VirtualKeyCode::G => self.config_window.toggle_visibility(),
 
             // Handle toggling the debug-console.
             // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
@@ -529,12 +541,6 @@ impl FractalSugar {
     }
 
     fn handle_window_event(&mut self, event: &WindowEvent, control_flow: &mut ControlFlow) {
-        let read_keyboard = if self.displaying_gui {
-            // !self.config_window.gui.update(event)
-            true
-        } else {
-            true
-        };
         match *event {
             // Handle window close
             WindowEvent::CloseRequested => {
@@ -555,7 +561,7 @@ impl FractalSugar {
                         ..
                     },
                 ..
-            } if read_keyboard => self.handle_keyboard_input(keycode, control_flow),
+            } => self.handle_keyboard_input(keycode, control_flow),
 
             // Track window focus in a state var
             WindowEvent::Focused(focused) => {
@@ -871,19 +877,6 @@ impl Default for GameState {
             alternate_colors: AlternateColors::Normal,
             particles_are_3d: false,
             color_scheme_index: 0,
-        }
-    }
-}
-
-impl Default for WindowState {
-    fn default() -> Self {
-        Self {
-            resized: false,
-            recreate_swapchain: false,
-            is_fullscreen: false,
-            is_focused: true,
-            last_frame_time: SystemTime::now(),
-            last_mouse_movement: SystemTime::now(),
         }
     }
 }

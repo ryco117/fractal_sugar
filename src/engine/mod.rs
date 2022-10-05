@@ -47,13 +47,12 @@ use crate::app_config::{AppConfig, Scheme};
 use object::{Fractal, Particles};
 pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
 
-pub use self::core::EngineFrameFuture;
-
 pub struct Engine {
     app_constants: Arc<DeviceLocalBuffer<AppConstants>>,
     device: Arc<Device>,
     fractal: Fractal,
     framebuffers: Vec<Arc<Framebuffer>>,
+    instance: Arc<Instance>,
     particles: Particles,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
@@ -192,6 +191,7 @@ impl Engine {
             device,
             fractal,
             framebuffers,
+            instance,
             particles,
 
             queue,
@@ -292,10 +292,7 @@ impl Engine {
     }
 
     pub fn present(&mut self, future: Box<dyn GpuFuture>) -> bool {
-        let requires_recreate_swapchain = self.swapchain.present(self.queue.clone(), future);
-
-        // Return whether a swapchain recreation was deemed necessary
-        requires_recreate_swapchain
+        self.swapchain.present(self.queue.clone(), future)
     }
 
     pub fn update_color_scheme(&mut self, scheme: Scheme) {
@@ -335,9 +332,9 @@ impl Engine {
     // pub fn image_format(&self) -> vulkano::format::Format {
     //     self.swapchain.image_format()
     // }
-    // pub fn instance(&self) -> Arc<Instance> {
-    //     self.instance.clone()
-    // }
+    pub fn instance(&self) -> &Arc<Instance> {
+        &self.instance
+    }
     pub fn particle_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
         self.particles.graphics_descriptor_set.clone()
     }
