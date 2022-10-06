@@ -252,7 +252,8 @@ impl FractalSugar {
         let audio_state = LocalAudioState::default();
         let game_state = GameState::default();
 
-        let config_window = config_window::ConfigWindow::new(engine.instance(), &event_loop);
+        let config_window =
+            config_window::ConfigWindow::new(engine.instance(), &event_loop, &app_config);
 
         Self {
             app_config,
@@ -285,16 +286,14 @@ impl FractalSugar {
                     if window_id == self.window_state.window_id {
                         // Handle events to main window
                         self.handle_window_event(&event, control_flow);
-                    } else if window_id == self.config_window.window().id() {
+                    } else if window_id == self.config_window.id() {
                         self.config_window.handle_input(&event);
                     }
                 }
 
                 // Handle drawing of config window
-                Event::RedrawRequested(window_id)
-                    if window_id == self.config_window.window().id() =>
-                {
-                    self.config_window.draw();
+                Event::RedrawRequested(window_id) if window_id == self.config_window.id() => {
+                    self.config_window.draw(&mut self.engine);
                 }
 
                 // Catch-all

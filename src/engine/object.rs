@@ -18,11 +18,13 @@
 
 use std::sync::Arc;
 
+use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
 use vulkano::buffer::device_local::DeviceLocalBuffer;
 use vulkano::buffer::{BufferUsage, CpuBufferPool};
 use vulkano::descriptor_set::single_layout_pool::SingleLayoutDescSetPool;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
+use vulkano::memory::pool::StandardMemoryPool;
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline};
 use vulkano::render_pass::{RenderPass, Subpass};
@@ -99,13 +101,15 @@ mod fractal_shaders {
 // Export Push Constant types to callers
 pub type FractalPushConstants = fractal_shaders::fs::ty::PushConstants;
 
-type ImmutableBufferFromBufferFuture = vulkano::command_buffer::CommandBufferExecFuture<
-    vulkano::sync::NowFuture,
-    vulkano::command_buffer::PrimaryAutoCommandBuffer,
->;
-
 const SQUARE_FILLING_CURVE_DEPTH: usize = 6;
 const CUBE_FILLING_CURVE_DEPTH: usize = 4;
+
+// Helper for containing relevant particle data
+pub struct ParticleBuffersTriplet {
+    pub vertex: Arc<DeviceLocalBuffer<[Vertex]>>,
+    pub fixed_square: Arc<DeviceLocalBuffer<[Vector2]>>,
+    pub fixed_cube: Arc<DeviceLocalBuffer<[Vector3]>>,
+}
 
 pub struct Fractal {
     pub descriptor_set_pool: SingleLayoutDescSetPool,
@@ -115,27 +119,17 @@ pub struct Fractal {
 }
 pub struct Particles {
     pub scheme_buffer_pool: CpuBufferPool<Scheme>,
+    pub scheme_buffer: Arc<CpuBufferPoolSubbuffer<Scheme, Arc<StandardMemoryPool>>>,
     pub compute_descriptor_set: Arc<PersistentDescriptorSet>,
     pub compute_pipeline: Arc<ComputePipeline>,
     pub frag_shader: Arc<ShaderModule>,
     pub graphics_descriptor_set: Arc<PersistentDescriptorSet>,
     pub graphics_pipeline: Arc<GraphicsPipeline>,
     pub vert_shader: Arc<ShaderModule>,
-    pub vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
+    pub vertex_buffers: ParticleBuffersTriplet,
 }
 
-// Helper type for `create_particle_buffers`
-struct ParticleBuffersTriplet {
-    vertex_buffer: Arc<DeviceLocalBuffer<[Vertex]>>,
-    fixed_square_buffer: Arc<DeviceLocalBuffer<[Vector2]>>,
-    fixed_cube_buffer: Arc<DeviceLocalBuffer<[Vector3]>>,
-}
-
-fn create_particle_buffers(
-    queue: &Arc<Queue>,
-    app_config: &AppConfig,
-    app_constants_future: ImmutableBufferFromBufferFuture,
-) -> ParticleBuffersTriplet {
+fn create_particle_buffers(queue: &Arc<Queue>, app_config: &AppConfig) -> ParticleBuffersTriplet {
     let particle_count_f32 = app_config.particle_count as f32;
 
     // Create position data by mapping particle index to screen using a space filling curve
@@ -158,12 +152,12 @@ fn create_particle_buffers(
     };
 
     // Create immutable fixed-position buffer for 2D perspective
-    let (fixed_square_buffer, fixed_square_copy_future) =
+    let (fixed_square, fixed_square_copy_future) =
         DeviceLocalBuffer::from_iter(square_position_iter, storage_usage, queue.clone())
             .expect("Failed to create 2D-fixed-position buffer");
 
     // Create immutable fixed-position buffer for 3D perspective
-    let (fixed_cube_buffer, fixed_cube_copy_future) =
+    let (fixed_cube, fixed_cube_copy_future) =
         DeviceLocalBuffer::from_iter(cube_position_iter, storage_usage, queue.clone())
             .expect("Failed to create 3D-fixed-position buffer");
 
@@ -180,7 +174,7 @@ fn create_particle_buffers(
     });
 
     // Create position buffer
-    let (vertex_buffer, vertex_future) = DeviceLocalBuffer::from_iter(
+    let (vertex, vertex_future) = DeviceLocalBuffer::from_iter(
         vertex_iter,
         BufferUsage {
             storage_buffer: true,
@@ -195,16 +189,15 @@ fn create_particle_buffers(
     fixed_square_copy_future
         .join(fixed_cube_copy_future)
         .join(vertex_future)
-        .join(app_constants_future)
         .then_signal_fence_and_flush()
         .unwrap()
         .wait(None)
         .unwrap();
 
     ParticleBuffersTriplet {
-        vertex_buffer,
-        fixed_square_buffer,
-        fixed_cube_buffer,
+        vertex,
+        fixed_square,
+        fixed_cube,
     }
 }
 
@@ -215,8 +208,7 @@ impl Particles {
         render_pass: &Arc<RenderPass>,
         viewport: Viewport,
         app_config: &AppConfig,
-        app_constants: &Arc<DeviceLocalBuffer<AppConstants>>,
-        app_constants_future: ImmutableBufferFromBufferFuture,
+        app_constants: &Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
     ) -> Self {
         // Load particle shaders
         let frag_shader = particle_shaders::fs::load(device.clone())
@@ -249,60 +241,99 @@ impl Particles {
         let scheme_buffer_pool = CpuBufferPool::uniform_buffer(device.clone());
 
         // Particle color schemes?!
-        let graphics_descriptor_set = {
-            let color_scheme_buffer = scheme_buffer_pool
-                .from_data(app_config.color_schemes[0])
-                .unwrap();
-            PersistentDescriptorSet::new(
-                graphics_pipeline
-                    .layout()
-                    .set_layouts()
-                    .get(0)
-                    .unwrap()
-                    .clone(),
-                [
-                    WriteDescriptorSet::buffer(0, color_scheme_buffer),
-                    WriteDescriptorSet::buffer(1, app_constants.clone()),
-                ],
-            )
-            .unwrap()
-        };
+        let scheme_buffer = scheme_buffer_pool
+            .from_data(app_config.color_schemes[0])
+            .unwrap();
+        let graphics_descriptor_set = Self::new_graphics_descriptor(
+            &graphics_pipeline,
+            scheme_buffer.clone(),
+            app_constants.clone(),
+        );
 
         // Create storage buffers for particle info
-        let ParticleBuffersTriplet {
-            vertex_buffer,
-            fixed_square_buffer,
-            fixed_cube_buffer,
-        } = create_particle_buffers(queue, app_config, app_constants_future);
+        let vertex_buffers = create_particle_buffers(queue, app_config);
 
         // Create a new descriptor set for binding particle storage buffers
         // Required to access layout() method
-        let compute_descriptor_set = PersistentDescriptorSet::new(
-            compute_pipeline
-                .layout()
-                .set_layouts()
-                .get(0) // 0 is the index of the descriptor set layout we want
-                .unwrap()
-                .clone(),
-            [
-                WriteDescriptorSet::buffer(0, vertex_buffer.clone()), // 0 is the binding of the data in this set
-                WriteDescriptorSet::buffer(1, fixed_square_buffer),
-                WriteDescriptorSet::buffer(2, fixed_cube_buffer),
-                WriteDescriptorSet::buffer(3, app_constants.clone()),
-            ],
-        )
-        .unwrap();
+        let compute_descriptor_set =
+            Self::new_compute_descriptor(&compute_pipeline, &vertex_buffers, app_constants.clone());
 
         Self {
             scheme_buffer_pool,
+            scheme_buffer,
             compute_descriptor_set,
             compute_pipeline,
             frag_shader,
             graphics_descriptor_set,
             graphics_pipeline,
             vert_shader,
-            vertex_buffer,
+            vertex_buffers,
         }
+    }
+
+    pub fn update_color_scheme(
+        &mut self,
+        scheme: Scheme,
+        app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
+    ) {
+        self.scheme_buffer = self.scheme_buffer_pool.from_data(scheme).unwrap();
+        self.update_graphics_descriptor(app_constants);
+    }
+    pub fn update_app_constants(
+        &mut self,
+        app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
+    ) {
+        self.update_graphics_descriptor(app_constants.clone());
+        self.compute_descriptor_set = Self::new_compute_descriptor(
+            &self.compute_pipeline,
+            &self.vertex_buffers,
+            app_constants,
+        );
+    }
+    fn update_graphics_descriptor(
+        &mut self,
+        app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
+    ) {
+        self.graphics_descriptor_set = Self::new_graphics_descriptor(
+            &self.graphics_pipeline,
+            self.scheme_buffer.clone(),
+            app_constants,
+        );
+    }
+    fn new_graphics_descriptor(
+        pipeline: &Arc<GraphicsPipeline>,
+        scheme: Arc<CpuBufferPoolSubbuffer<Scheme, Arc<StandardMemoryPool>>>,
+        app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
+    ) -> Arc<PersistentDescriptorSet> {
+        PersistentDescriptorSet::new(
+            pipeline.layout().set_layouts().get(0).unwrap().clone(),
+            [
+                WriteDescriptorSet::buffer(0, scheme),
+                WriteDescriptorSet::buffer(1, app_constants),
+            ],
+        )
+        .unwrap()
+    }
+    fn new_compute_descriptor(
+        pipeline: &Arc<ComputePipeline>,
+        vertex_buffers: &ParticleBuffersTriplet,
+        app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
+    ) -> Arc<PersistentDescriptorSet> {
+        PersistentDescriptorSet::new(
+            pipeline
+                .layout()
+                .set_layouts()
+                .get(0) // 0 is the index of the descriptor set layout we want
+                .unwrap()
+                .clone(),
+            [
+                WriteDescriptorSet::buffer(0, vertex_buffers.vertex.clone()), // 0 is the binding of the data in this set
+                WriteDescriptorSet::buffer(1, vertex_buffers.fixed_square.clone()),
+                WriteDescriptorSet::buffer(2, vertex_buffers.fixed_cube.clone()),
+                WriteDescriptorSet::buffer(3, app_constants),
+            ],
+        )
+        .unwrap()
     }
 }
 

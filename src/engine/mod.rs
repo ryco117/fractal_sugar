@@ -19,15 +19,17 @@
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use vulkano::buffer::{device_local::DeviceLocalBuffer, BufferUsage};
+use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
+use vulkano::buffer::CpuBufferPool;
 use vulkano::descriptor_set::single_layout_pool::SingleLayoutDescSetPool;
-use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
+use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
 use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, InstanceCreateInfo};
+use vulkano::memory::pool::StandardMemoryPool;
 use vulkano::pipeline::graphics::viewport::Viewport;
-use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline};
+use vulkano::pipeline::{ComputePipeline, GraphicsPipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
 use vulkano::swapchain::{AcquireError, PresentMode, Surface};
 use vulkano::sync::GpuFuture;
@@ -47,20 +49,6 @@ use crate::app_config::{AppConfig, Scheme};
 use object::{Fractal, Particles};
 pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
 
-pub struct Engine {
-    app_constants: Arc<DeviceLocalBuffer<AppConstants>>,
-    device: Arc<Device>,
-    fractal: Fractal,
-    framebuffers: Vec<Arc<Framebuffer>>,
-    instance: Arc<Instance>,
-    particles: Particles,
-    queue: Arc<Queue>,
-    render_pass: Arc<RenderPass>,
-    surface: Arc<Surface<Window>>,
-    swapchain: EngineSwapchain,
-    viewport: Viewport,
-}
-
 const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 450;
 const DEBUG_VULKAN: bool = false;
@@ -71,7 +59,7 @@ pub struct AppConstants {
     pub max_speed: f32,
     pub particle_count: f32,
     pub spring_coefficient: f32,
-    pub particle_point_size: f32,
+    pub point_size: f32,
 
     pub audio_scale: f32,
 
@@ -84,6 +72,21 @@ pub struct DrawData {
         object::ParticleVertexPushConstants,
     )>,
     pub fractal_data: object::FractalPushConstants,
+}
+
+pub struct Engine {
+    app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
+    app_constants_pool: CpuBufferPool<AppConstants>,
+    device: Arc<Device>,
+    fractal: Fractal,
+    framebuffers: Vec<Arc<Framebuffer>>,
+    instance: Arc<Instance>,
+    particles: Particles,
+    queue: Arc<Queue>,
+    render_pass: Arc<RenderPass>,
+    surface: Arc<Surface<Window>>,
+    swapchain: EngineSwapchain,
+    viewport: Viewport,
 }
 
 impl Engine {
@@ -135,24 +138,9 @@ impl Engine {
         let image_format = engine_swapchain.swapchain().image_format();
 
         // Before creating descriptor sets and other buffers, allocate app-constants buffer
-        let particle_count: usize = app_config.particle_count;
-        let particle_count_f32: f32 = particle_count as f32;
-        let (app_constants, app_constants_future) = DeviceLocalBuffer::from_data(
-            AppConstants {
-                max_speed: app_config.max_speed,
-                particle_count: particle_count_f32,
-                spring_coefficient: app_config.spring_coefficient,
-                particle_point_size: app_config.point_size,
-                audio_scale: app_config.audio_scale,
-                vertical_fov: app_config.vertical_fov,
-            },
-            BufferUsage {
-                uniform_buffer: true,
-                ..Default::default()
-            },
-            queue.clone(),
-        )
-        .unwrap();
+        let app_constants_pool: CpuBufferPool<AppConstants> =
+            CpuBufferPool::uniform_buffer(device.clone());
+        let app_constants = app_constants_pool.from_data(app_config.into()).unwrap();
 
         let render_pass = create_app_render_pass(&device, image_format);
 
@@ -173,7 +161,6 @@ impl Engine {
             viewport.clone(),
             app_config,
             &app_constants,
-            app_constants_future,
         );
 
         // Create a framebuffer to store results of render pass
@@ -188,6 +175,7 @@ impl Engine {
         // Construct new Engine
         Self {
             app_constants,
+            app_constants_pool,
             device,
             fractal,
             framebuffers,
@@ -296,21 +284,13 @@ impl Engine {
     }
 
     pub fn update_color_scheme(&mut self, scheme: Scheme) {
-        let color_scheme_buffer = self.particles.scheme_buffer_pool.from_data(scheme).unwrap();
-        self.particles.graphics_descriptor_set = PersistentDescriptorSet::new(
-            self.particles
-                .graphics_pipeline
-                .layout()
-                .set_layouts()
-                .get(0)
-                .unwrap()
-                .clone(),
-            [
-                WriteDescriptorSet::buffer(0, color_scheme_buffer),
-                WriteDescriptorSet::buffer(1, self.app_constants.clone()),
-            ],
-        )
-        .unwrap();
+        self.particles
+            .update_color_scheme(scheme, self.app_constants.clone());
+    }
+    pub fn update_app_constants(&mut self, app_constants: AppConstants) {
+        self.app_constants = self.app_constants_pool.from_data(app_constants).unwrap();
+        self.particles
+            .update_app_constants(self.app_constants.clone());
     }
 
     // Engine getters
@@ -329,9 +309,6 @@ impl Engine {
     pub fn fractal_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.fractal.pipeline.clone()
     }
-    // pub fn image_format(&self) -> vulkano::format::Format {
-    //     self.swapchain.image_format()
-    // }
     pub fn instance(&self) -> &Arc<Instance> {
         &self.instance
     }
@@ -341,12 +318,6 @@ impl Engine {
     pub fn particle_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.particles.graphics_pipeline.clone()
     }
-    // pub fn present_image(&self) -> Option<Arc<dyn ImageViewAbstract>> {
-    //     let index = self.swapchain.present_index()?;
-    //     let framebuffer = self.framebuffers.get(index)?;
-
-    //     Some(framebuffer.attachments().last().unwrap().clone())
-    // }
     pub fn queue(&self) -> Arc<Queue> {
         self.queue.clone()
     }
@@ -355,7 +326,7 @@ impl Engine {
     }
     pub fn particle_count(&self) -> u64 {
         use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
-        self.particles.vertex_buffer.len()
+        self.particles.vertex_buffers.vertex.len()
     }
     pub fn window(&self) -> &Window {
         self.surface.window()
@@ -493,4 +464,17 @@ fn create_app_render_pass(
         ]
     )
     .unwrap()
+}
+
+impl From<&AppConfig> for AppConstants {
+    fn from(app_config: &AppConfig) -> Self {
+        Self {
+            max_speed: app_config.max_speed,
+            particle_count: app_config.particle_count as f32,
+            spring_coefficient: app_config.spring_coefficient,
+            point_size: app_config.point_size,
+            audio_scale: app_config.audio_scale,
+            vertical_fov: app_config.vertical_fov,
+        }
+    }
 }

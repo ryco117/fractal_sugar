@@ -217,7 +217,7 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
     let point_size = config
         .point_size
         .unwrap_or(DEFAULT_PARTICLE_POINT_SIZE)
-        .clamp(0., 32.);
+        .clamp(0., 16.);
 
     let audio_scale = {
         const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;

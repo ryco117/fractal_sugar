@@ -2118,9 +2118,9 @@ dependencies = [
 
 [[package]]
 name = "vulkano"
-version = "0.31.0"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "617cd0984a92f4839e58e1ae7c94e6f7e0b79695ec8f2c516cfbcdaaa4a9f921"
+checksum = "49e6f6f908670b33ec1fcb1e9c25677cb4d6783893f89bc11d49d2eb5061ccb5"
 dependencies = [
  "ash",
  "bytemuck",
@@ -2144,9 +2144,9 @@ dependencies = [
 
 [[package]]
 name = "vulkano-shaders"
-version = "0.31.0"
+version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbf704c3a109eeec3deed8ed058888c4321da200ef8d23d664f40b3b0a39b5b4"
+checksum = "d37cab769e550b5f969b8ee6c7f7721d51c8da79e40be5bf122b478715500536"
 dependencies = [
  "heck",
  "proc-macro2",

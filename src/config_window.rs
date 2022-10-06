@@ -18,39 +18,30 @@
 
 use std::sync::Arc;
 
+use egui::Slider;
 use egui_winit_vulkano::Gui;
 use vulkano::device::Queue;
 use vulkano::image::view::ImageView;
 use vulkano::image::SwapchainImage;
 use vulkano::instance::Instance;
 use vulkano::swapchain::{PresentMode, Surface};
+use winit::window::WindowId;
 use winit::{
+    dpi::LogicalSize,
     event::WindowEvent,
     event_loop::EventLoop,
     window::{Window, WindowBuilder},
 };
 
+use crate::app_config::AppConfig;
 use crate::engine::core::{select_hardware, AcquiredImageData, EngineSwapchain};
-
-fn sized_text(ui: &mut egui::Ui, text: impl Into<String>, size: f32) {
-    ui.label(egui::RichText::new(text).size(size));
-}
-
-pub fn create_ui(gui: &mut Gui) {
-    let ctx = gui.context();
-    egui::CentralPanel::default().show(&ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.add(egui::widgets::Label::new("Hi there!"));
-            sized_text(ui, "Rich Text", 32.0);
-        });
-        ui.separator();
-        ui.color_edit_button_rgb(&mut [1.; 3]);
-    });
-}
+use crate::engine::{AppConstants, Engine};
 
 pub struct ConfigWindow {
     framebuffers: Vec<Arc<ImageView<SwapchainImage<Window>>>>,
     gui: Gui,
+    id: WindowId,
+    state: AppConstants,
     surface: Arc<Surface<Window>>,
     swapchain: EngineSwapchain,
     queue: Arc<Queue>,
@@ -58,13 +49,41 @@ pub struct ConfigWindow {
 }
 
 const DEFAULT_VISIBILITY: bool = false;
+const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 250];
+
+fn create_ui(gui: &mut Gui, state: &mut AppConstants, engine: &mut Engine) {
+    let ctx = gui.context();
+    egui::CentralPanel::default().show(&ctx, |ui| {
+        ui.heading("App Config");
+        ui.separator();
+        ui.add(Slider::new(&mut state.audio_scale, -35.0..=10.).text("audio scale (dB)"));
+        ui.add(Slider::new(&mut state.max_speed, 0.0..=10.).text("max speed"));
+        ui.add(Slider::new(&mut state.point_size, 0.0..=8.).text("point size"));
+        ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=300.).text("spring coefficient"));
+        ui.add(Slider::new(&mut state.vertical_fov, 30.0..=105.).text("vertical fov"));
+        ui.separator();
+        ui.vertical_centered(|ui| {
+            if ui.button("Apply").clicked() {
+                let constants = constants_from_presentable(*state);
+                engine.update_app_constants(constants);
+
+                println!("Applied settings!");
+            }
+        });
+    });
+}
 
 impl ConfigWindow {
-    pub fn new(instance: &Arc<Instance>, event_loop: &EventLoop<()>) -> Self {
+    pub fn new(
+        instance: &Arc<Instance>,
+        event_loop: &EventLoop<()>,
+        app_config: &AppConfig,
+    ) -> Self {
         use vulkano_win::VkSurfaceBuild;
         let surface = WindowBuilder::new()
             .with_title("app config")
             .with_resizable(false)
+            .with_inner_size(LogicalSize::<u32>::from(CONFIG_WINDOW_SIZE))
             .with_visible(DEFAULT_VISIBILITY)
             .build_vk_surface(event_loop, instance.clone())
             .unwrap();
@@ -91,6 +110,8 @@ impl ConfigWindow {
         Self {
             framebuffers,
             gui,
+            id: surface.window().id(),
+            state: constants_to_presentable(app_config.into()),
             surface,
             swapchain,
             queue,
@@ -99,7 +120,9 @@ impl ConfigWindow {
     }
 
     pub fn handle_input(&mut self, event: &WindowEvent) {
+        // Handle events and request update next draw
         self.gui.update(event);
+        self.window().request_redraw();
 
         // Ensure to handle the 'close' event
         if event == &WindowEvent::CloseRequested {
@@ -108,7 +131,7 @@ impl ConfigWindow {
         }
     }
 
-    pub fn draw(&mut self) {
+    pub fn draw(&mut self, engine: &mut Engine) {
         // Acquire next frame for rendering
         let AcquiredImageData {
             acquire_future,
@@ -120,7 +143,9 @@ impl ConfigWindow {
         };
 
         // Setup UI layout
-        self.gui.immediate_ui(create_ui);
+        self.gui.immediate_ui(|gui| {
+            create_ui(gui, &mut self.state, engine);
+        });
 
         // Draw commands
         let future = self
@@ -135,7 +160,48 @@ impl ConfigWindow {
     }
 
     // Getters
+    pub fn id(&self) -> WindowId {
+        self.id
+    }
     pub fn window(&self) -> &Window {
         self.surface.window()
+    }
+}
+
+const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;
+fn constants_to_presentable(app_constants: AppConstants) -> AppConstants {
+    let AppConstants {
+        max_speed,
+        particle_count,
+        spring_coefficient,
+        point_size,
+        audio_scale,
+        vertical_fov,
+    } = app_constants;
+    AppConstants {
+        max_speed,
+        particle_count,
+        spring_coefficient,
+        point_size,
+        audio_scale: audio_scale.ln() / DECIBEL_SCALE,
+        vertical_fov: vertical_fov * 360. / std::f32::consts::PI,
+    }
+}
+fn constants_from_presentable(app_constants: AppConstants) -> AppConstants {
+    let AppConstants {
+        max_speed,
+        particle_count,
+        spring_coefficient,
+        point_size,
+        audio_scale,
+        vertical_fov,
+    } = app_constants;
+    AppConstants {
+        max_speed,
+        particle_count,
+        spring_coefficient,
+        point_size,
+        audio_scale: (DECIBEL_SCALE * audio_scale).exp(),
+        vertical_fov: vertical_fov * std::f32::consts::PI / 360.,
     }
 }

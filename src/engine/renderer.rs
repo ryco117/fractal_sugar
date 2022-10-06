@@ -70,7 +70,7 @@ pub fn create_render_commands(
     if let Some((compute_push_constants, vertex_push_constants)) = draw_data.particle_data {
         let compute_pipeline = engine.compute_pipeline();
         let descriptor_set = engine.compute_descriptor_set();
-        let vertex_buffer = engine.particles.vertex_buffer.clone();
+        let vertex_buffer = engine.particles.vertex_buffers.vertex.clone();
         let buffer_count = engine.particle_count() as u32;
 
         // Build compute commands
