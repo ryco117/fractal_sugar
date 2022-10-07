@@ -152,7 +152,7 @@ fn inline_fractal_cmds(
     particle_input: Arc<dyn ImageViewAbstract>,
     particle_depth: Arc<dyn ImageViewAbstract>,
 ) {
-    let app_constants = engine.app_constants.clone();
+    let app_constants = engine.app_constants.buffer.clone();
     let descriptor_set = engine
         .fractal_descriptor_pool()
         .next([

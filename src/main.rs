@@ -789,7 +789,7 @@ impl FractalSugar {
         if self.game_state.particles_are_3d && self.game_state.cursor_force != 0. {
             const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
             const PERSPECTIVE_DISTANCE: f32 = 1.35;
-            let fov_y = self.app_config.vertical_fov.tan();
+            let fov_y = self.engine.app_constants().vertical_fov.tan();
             let fov_x = fov_y * aspect_ratio;
 
             // Map cursor to 3D world using camera orientation

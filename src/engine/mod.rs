@@ -65,6 +65,11 @@ pub struct AppConstants {
 
     pub vertical_fov: f32,
 }
+struct AppConstantsState {
+    pub buffer: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
+    pub constants: AppConstants,
+    pub pool: CpuBufferPool<AppConstants>,
+}
 
 pub struct DrawData {
     pub particle_data: Option<(
@@ -75,8 +80,7 @@ pub struct DrawData {
 }
 
 pub struct Engine {
-    app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
-    app_constants_pool: CpuBufferPool<AppConstants>,
+    app_constants: AppConstantsState,
     device: Arc<Device>,
     fractal: Fractal,
     framebuffers: Vec<Arc<Framebuffer>>,
@@ -138,9 +142,16 @@ impl Engine {
         let image_format = engine_swapchain.swapchain().image_format();
 
         // Before creating descriptor sets and other buffers, allocate app-constants buffer
-        let app_constants_pool: CpuBufferPool<AppConstants> =
-            CpuBufferPool::uniform_buffer(device.clone());
-        let app_constants = app_constants_pool.from_data(app_config.into()).unwrap();
+        let app_constants = {
+            let pool: CpuBufferPool<AppConstants> = CpuBufferPool::uniform_buffer(device.clone());
+            let constants = app_config.into();
+            let buffer = pool.from_data(constants).unwrap();
+            AppConstantsState {
+                buffer,
+                constants,
+                pool,
+            }
+        };
 
         let render_pass = create_app_render_pass(&device, image_format);
 
@@ -160,7 +171,7 @@ impl Engine {
             &render_pass,
             viewport.clone(),
             app_config,
-            &app_constants,
+            &app_constants.buffer,
         );
 
         // Create a framebuffer to store results of render pass
@@ -175,7 +186,6 @@ impl Engine {
         // Construct new Engine
         Self {
             app_constants,
-            app_constants_pool,
             device,
             fractal,
             framebuffers,
@@ -285,23 +295,27 @@ impl Engine {
 
     pub fn update_color_scheme(&mut self, scheme: Scheme) {
         self.particles
-            .update_color_scheme(scheme, self.app_constants.clone());
+            .update_color_scheme(scheme, self.app_constants.buffer.clone());
     }
     pub fn update_app_constants(&mut self, app_constants: AppConstants) {
-        self.app_constants = self.app_constants_pool.from_data(app_constants).unwrap();
+        self.app_constants.constants = app_constants;
+        self.app_constants.buffer = self.app_constants.pool.from_data(app_constants).unwrap();
         self.particles
-            .update_app_constants(self.app_constants.clone());
+            .update_app_constants(self.app_constants.buffer.clone());
     }
 
     // Engine getters
+    pub fn app_constants(&self) -> &AppConstants {
+        &self.app_constants.constants
+    }
+    pub fn compute_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
+        self.particles.compute_descriptor_set.clone()
+    }
     pub fn compute_pipeline(&self) -> Arc<ComputePipeline> {
         self.particles.compute_pipeline.clone()
     }
     pub fn device(&self) -> Arc<Device> {
         self.device.clone()
-    }
-    pub fn compute_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
-        self.particles.compute_descriptor_set.clone()
     }
     pub fn fractal_descriptor_pool(&mut self) -> &mut SingleLayoutDescSetPool {
         &mut self.fractal.descriptor_set_pool

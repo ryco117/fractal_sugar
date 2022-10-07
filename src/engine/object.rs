@@ -271,6 +271,7 @@ impl Particles {
         }
     }
 
+    // Update particle state when color scheme changes
     pub fn update_color_scheme(
         &mut self,
         scheme: Scheme,
@@ -279,6 +280,8 @@ impl Particles {
         self.scheme_buffer = self.scheme_buffer_pool.from_data(scheme).unwrap();
         self.update_graphics_descriptor(app_constants);
     }
+
+    // Update particle state when app constants change
     pub fn update_app_constants(
         &mut self,
         app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
@@ -290,6 +293,8 @@ impl Particles {
             app_constants,
         );
     }
+
+    // Helpers for creating particle desciptor sets
     fn update_graphics_descriptor(
         &mut self,
         app_constants: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,

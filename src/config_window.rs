@@ -41,6 +41,7 @@ pub struct ConfigWindow {
     framebuffers: Vec<Arc<ImageView<SwapchainImage<Window>>>>,
     gui: Gui,
     id: WindowId,
+    initial_state: AppConstants,
     state: AppConstants,
     surface: Arc<Surface<Window>>,
     swapchain: EngineSwapchain,
@@ -51,23 +52,32 @@ pub struct ConfigWindow {
 const DEFAULT_VISIBILITY: bool = false;
 const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 250];
 
-fn create_ui(gui: &mut Gui, state: &mut AppConstants, engine: &mut Engine) {
+fn create_ui(
+    gui: &mut Gui,
+    state: &mut AppConstants,
+    init_state: &AppConstants,
+    engine: &mut Engine,
+) {
     let ctx = gui.context();
     egui::CentralPanel::default().show(&ctx, |ui| {
         ui.heading("App Config");
         ui.separator();
-        ui.add(Slider::new(&mut state.audio_scale, -35.0..=10.).text("audio scale (dB)"));
+        ui.add(Slider::new(&mut state.audio_scale, -32.0..=8.).text("audio scale (dB)"));
         ui.add(Slider::new(&mut state.max_speed, 0.0..=10.).text("max speed"));
         ui.add(Slider::new(&mut state.point_size, 0.0..=8.).text("point size"));
-        ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=300.).text("spring coefficient"));
+        ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=250.).text("spring coefficient"));
         ui.add(Slider::new(&mut state.vertical_fov, 30.0..=105.).text("vertical fov"));
         ui.separator();
-        ui.vertical_centered(|ui| {
+        ui.horizontal_top(|ui| {
+            // Allow user to reset back to values used at creation
+            if ui.button("Reset").clicked() {
+                *state = *init_state;
+            }
+
+            // Apply the values on screen to the GPU
             if ui.button("Apply").clicked() {
                 let constants = constants_from_presentable(*state);
                 engine.update_app_constants(constants);
-
-                println!("Applied settings!");
             }
         });
     });
@@ -107,11 +117,13 @@ impl ConfigWindow {
             false,
         );
 
+        let initial_state = constants_to_presentable(app_config.into());
         Self {
             framebuffers,
             gui,
             id: surface.window().id(),
-            state: constants_to_presentable(app_config.into()),
+            initial_state,
+            state: initial_state,
             surface,
             swapchain,
             queue,
@@ -144,7 +156,7 @@ impl ConfigWindow {
 
         // Setup UI layout
         self.gui.immediate_ui(|gui| {
-            create_ui(gui, &mut self.state, engine);
+            create_ui(gui, &mut self.state, &self.initial_state, engine);
         });
 
         // Draw commands
@@ -169,6 +181,8 @@ impl ConfigWindow {
 }
 
 const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;
+
+// Helpers for converting between presentation and internal units of measure
 fn constants_to_presentable(app_constants: AppConstants) -> AppConstants {
     let AppConstants {
         max_speed,
