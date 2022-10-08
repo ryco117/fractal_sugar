@@ -50,8 +50,9 @@ pub struct ConfigWindow {
 }
 
 const DEFAULT_VISIBILITY: bool = false;
-const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 250];
+const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 220];
 
+// Define the layout and behavior of the config UI
 fn create_ui(
     gui: &mut Gui,
     state: &mut AppConstants,
@@ -62,20 +63,28 @@ fn create_ui(
     egui::CentralPanel::default().show(&ctx, |ui| {
         ui.heading("App Config");
         ui.separator();
-        ui.add(Slider::new(&mut state.audio_scale, -32.0..=8.).text("audio scale (dB)"));
+        ui.add(Slider::new(&mut state.audio_scale, -30.0..=5.).text("audio scale (dB)"));
         ui.add(Slider::new(&mut state.max_speed, 0.0..=10.).text("max speed"));
         ui.add(Slider::new(&mut state.point_size, 0.0..=8.).text("point size"));
-        ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=250.).text("spring coefficient"));
+        ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=200.).text("spring coefficient"));
         ui.add(Slider::new(&mut state.vertical_fov, 30.0..=105.).text("vertical fov"));
         ui.separator();
         ui.horizontal_top(|ui| {
             // Allow user to reset back to values used at creation
-            if ui.button("Reset").clicked() {
+            if ui
+                .button("Reset")
+                .on_hover_text("Reset displayed values to the constants used at launch.")
+                .clicked()
+            {
                 *state = *init_state;
             }
 
             // Apply the values on screen to the GPU
-            if ui.button("Apply").clicked() {
+            if ui
+                .button("Apply")
+                .on_hover_text("Apply displayed values to the scene.")
+                .clicked()
+            {
                 let constants = constants_from_presentable(*state);
                 engine.update_app_constants(constants);
             }
@@ -143,7 +152,13 @@ impl ConfigWindow {
         }
     }
 
+    // Draw config UI to window
     pub fn draw(&mut self, engine: &mut Engine) {
+        // Quick escape the render if window is not visible
+        if !self.visible {
+            return;
+        }
+
         // Acquire next frame for rendering
         let AcquiredImageData {
             acquire_future,
