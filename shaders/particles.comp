@@ -24,6 +24,7 @@ layout (binding = 3) uniform AppConstants {
 	float particle_count;
 	float spring_coefficient;
 	float point_size;
+	float friction_scale;
 
 	float audio_scale;
 
@@ -185,7 +186,10 @@ void main(void) {
 		}
 
 		g.xy = invaspect*g.xy;
-	}
+	} // End 2D block
+
+	// Allow scaling of friction force applied
+	friction *= appConstants.friction_scale;
 
 	vel += push.delta_time * g;
 	

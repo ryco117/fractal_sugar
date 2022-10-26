@@ -60,6 +60,7 @@ pub struct AppConstants {
     pub particle_count: f32,
     pub spring_coefficient: f32,
     pub point_size: f32,
+    pub friction_scale: f32,
 
     pub audio_scale: f32,
 
@@ -486,6 +487,7 @@ impl From<&AppConfig> for AppConstants {
             max_speed: app_config.max_speed,
             particle_count: app_config.particle_count as f32,
             spring_coefficient: app_config.spring_coefficient,
+            friction_scale: app_config.friction_scale,
             point_size: app_config.point_size,
             audio_scale: app_config.audio_scale,
             vertical_fov: app_config.vertical_fov,

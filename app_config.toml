@@ -19,6 +19,9 @@ spring_coefficient = 75
 # The vertical field-of-view in degrees. Default value is 72.0.
 vertical_fov = 75
 
+# The scale factor to apply to the default. Default value is 1.0.
+friction_scale = 1
+
 # The decibel adjustment to apply to the incoming audio. Default value is -20.0.
 audio_scale = -20
 

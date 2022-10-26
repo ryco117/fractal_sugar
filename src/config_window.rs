@@ -66,6 +66,7 @@ fn create_ui(
         ui.add(Slider::new(&mut state.audio_scale, -30.0..=5.).text("audio scale (dB)"));
         ui.add(Slider::new(&mut state.max_speed, 0.0..=10.).text("max speed"));
         ui.add(Slider::new(&mut state.point_size, 0.0..=8.).text("point size"));
+        ui.add(Slider::new(&mut state.friction_scale, 0.0..=6.).text("friction scale"));
         ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=200.).text("spring coefficient"));
         ui.add(Slider::new(&mut state.vertical_fov, 30.0..=105.).text("vertical fov"));
         ui.separator();
@@ -204,6 +205,7 @@ fn constants_to_presentable(app_constants: AppConstants) -> AppConstants {
         particle_count,
         spring_coefficient,
         point_size,
+        friction_scale,
         audio_scale,
         vertical_fov,
     } = app_constants;
@@ -212,6 +214,7 @@ fn constants_to_presentable(app_constants: AppConstants) -> AppConstants {
         particle_count,
         spring_coefficient,
         point_size,
+        friction_scale,
         audio_scale: audio_scale.ln() / DECIBEL_SCALE,
         vertical_fov: vertical_fov * 360. / std::f32::consts::PI,
     }
@@ -222,6 +225,7 @@ fn constants_from_presentable(app_constants: AppConstants) -> AppConstants {
         particle_count,
         spring_coefficient,
         point_size,
+        friction_scale,
         audio_scale,
         vertical_fov,
     } = app_constants;
@@ -230,6 +234,7 @@ fn constants_from_presentable(app_constants: AppConstants) -> AppConstants {
         particle_count,
         spring_coefficient,
         point_size,
+        friction_scale,
         audio_scale: (DECIBEL_SCALE * audio_scale).exp(),
         vertical_fov: vertical_fov * std::f32::consts::PI / 360.,
     }

@@ -53,6 +53,7 @@ struct TomlData {
     pub spring_coefficient: Option<f32>,
     pub particle_count: Option<NonZeroUsize>,
     pub point_size: Option<f32>,
+    pub friction_scale: Option<f32>,
 
     pub audio_scale: Option<f32>,
 
@@ -80,6 +81,7 @@ pub struct AppConfig {
     pub spring_coefficient: f32,
     pub particle_count: usize,
     pub point_size: f32,
+    pub friction_scale: f32,
 
     pub audio_scale: f32,
 
@@ -97,6 +99,7 @@ impl Default for AppConfig {
             spring_coefficient: DEFAULT_SPRING_COEFFICIENT,
             particle_count: DEFAULT_PARTICLE_COUNT,
             point_size: DEFAULT_PARTICLE_POINT_SIZE,
+            friction_scale: 1.,
 
             audio_scale: DEFAULT_AUDIO_SCALE,
 
@@ -219,6 +222,8 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
         .unwrap_or(DEFAULT_PARTICLE_POINT_SIZE)
         .clamp(0., 16.);
 
+    let friction_scale = config.friction_scale.unwrap_or(1.);
+
     let audio_scale = {
         const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;
         (DECIBEL_SCALE * config.audio_scale.unwrap_or(DEFAULT_AUDIO_SCALE)).exp()
@@ -238,6 +243,7 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
         particle_count,
         spring_coefficient,
         point_size,
+        friction_scale,
 
         audio_scale,
 

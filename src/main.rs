@@ -95,6 +95,7 @@ enum ParticleTension {
     Spring,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 struct GameState {
     pub fix_particles: ParticleTension,
     pub render_particles: bool,
@@ -109,6 +110,7 @@ struct GameState {
     pub alternate_colors: AlternateColors,
     pub particles_are_3d: bool,
     pub color_scheme_index: usize,
+    pub audio_responsive: bool,
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -367,6 +369,17 @@ impl FractalSugar {
 
     // Helper for receiving the latest audio state from the input stream
     fn update_audio_state_from_stream(&mut self, delta_time: f32) {
+        // Allow user to toggle audio-responsiveness
+        if !self.game_state.audio_responsive {
+            match self.audio_receiver.try_recv() {
+                Ok(_) | Err(crossbeam_channel::TryRecvError::Empty) => {}
+
+                // Unexpected error, bail
+                Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
+            }
+            return;
+        }
+
         // Handle any changes to audio state
         match self.audio_receiver.try_recv() {
             // Update audio state vars
@@ -516,6 +529,19 @@ impl FractalSugar {
 
             // Toggle display of GUI
             VirtualKeyCode::G => self.config_window.toggle_visibility(),
+
+            // Toggle audio-responsiveness
+            VirtualKeyCode::R => {
+                self.game_state.audio_responsive = !self.game_state.audio_responsive;
+
+                if !self.game_state.audio_responsive {
+                    // Ensure audio-state comes to a rest
+                    self.audio_state.latest_volume = 0.;
+                    self.audio_state.big_boomer = Vector4::default();
+                    self.audio_state.curl_attractors = [Vector4::default(); 2];
+                    self.audio_state.attractors = [Vector4::default(); 2];
+                }
+            }
 
             // Handle toggling the debug-console.
             // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
@@ -876,6 +902,7 @@ impl Default for GameState {
             alternate_colors: AlternateColors::Normal,
             particles_are_3d: false,
             color_scheme_index: 0,
+            audio_responsive: true,
         }
     }
 }

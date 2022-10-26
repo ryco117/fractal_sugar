@@ -15,6 +15,7 @@ layout (binding = 1) uniform AppConstants {
 	float particle_count;
 	float spring_coefficient;
 	float point_size;
+	float friction_scale;
 
 	float audio_scale;
 
