@@ -25,8 +25,8 @@ use serde::Deserialize;
 #[repr(C)]
 #[derive(Copy, Clone, Default, Zeroable, Pod)]
 pub struct Scheme {
-    pub speed: [[f32; 4]; 4],
     pub index: [[f32; 4]; 4],
+    pub speed: [[f32; 4]; 4],
 }
 
 #[derive(Deserialize)]
@@ -68,9 +68,7 @@ const DEFAULT_MAX_SPEED: f32 = 7.;
 const DEFAULT_PARTICLE_COUNT: usize = 1_250_000;
 const DEFAULT_SPRING_COEFFICIENT: f32 = 75.;
 const DEFAULT_PARTICLE_POINT_SIZE: f32 = 2.;
-
 const DEFAULT_AUDIO_SCALE: f32 = -20.;
-
 const DEFAULT_VERTICAL_FOV: f32 = 72.; // 72 degrees of vertical FOV
 
 #[derive(Clone)]
@@ -106,10 +104,7 @@ impl Default for AppConfig {
             vertical_fov: DEFAULT_VERTICAL_FOV,
 
             color_schemes: COLOR_SCHEMES.to_vec(),
-            color_scheme_names: COLOR_SCHEME_NAMES
-                .iter()
-                .map(|&s| String::from(s))
-                .collect(),
+            color_scheme_names: COLOR_SCHEME_NAMES.into_iter().map(String::from).collect(),
         }
     }
 }
@@ -181,14 +176,10 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
             COLOR_SCHEME_NAMES.len(),
             "Ensure the compile-time default schemes have equal length."
         );
-
         // Sane default color scheme
         (
             COLOR_SCHEMES.to_vec(),
-            COLOR_SCHEME_NAMES
-                .iter()
-                .map(|&s| String::from(s))
-                .collect(),
+            COLOR_SCHEME_NAMES.into_iter().map(String::from).collect(),
         )
     } else {
         (schemes, scheme_names)

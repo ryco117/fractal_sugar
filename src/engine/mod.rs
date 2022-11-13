@@ -21,13 +21,14 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
 use vulkano::buffer::CpuBufferPool;
-use vulkano::descriptor_set::single_layout_pool::SingleLayoutDescSetPool;
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
 use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, InstanceCreateInfo};
-use vulkano::memory::pool::StandardMemoryPool;
+use vulkano::memory::allocator::StandardMemoryAllocator;
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::{ComputePipeline, GraphicsPipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
@@ -44,7 +45,7 @@ pub mod pipeline;
 pub mod renderer;
 mod vertex;
 
-use self::core::{EngineSwapchain, RecreateSwapchainResult};
+use self::core::{EngineSwapchain, RecreateSwapchainResult, WindowSurface};
 use crate::app_config::{AppConfig, Scheme};
 use object::{Fractal, Particles};
 pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
@@ -67,7 +68,7 @@ pub struct AppConstants {
     pub vertical_fov: f32,
 }
 struct AppConstantsState {
-    pub buffer: Arc<CpuBufferPoolSubbuffer<AppConstants, Arc<StandardMemoryPool>>>,
+    pub buffer: Arc<CpuBufferPoolSubbuffer<AppConstants>>,
     pub constants: AppConstants,
     pub pool: CpuBufferPool<AppConstants>,
 }
@@ -80,7 +81,14 @@ pub struct DrawData {
     pub fractal_data: object::FractalPushConstants,
 }
 
+pub struct Allocators {
+    memory: Arc<StandardMemoryAllocator>,
+    descriptor_set: StandardDescriptorSetAllocator,
+    command_buffer: StandardCommandBufferAllocator,
+}
+
 pub struct Engine {
+    allocators: Allocators,
     app_constants: AppConstantsState,
     device: Arc<Device>,
     fractal: Fractal,
@@ -89,7 +97,7 @@ pub struct Engine {
     particles: Particles,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
-    surface: Arc<Surface<Window>>,
+    surface: Arc<Surface>,
     swapchain: EngineSwapchain,
     viewport: Viewport,
 }
@@ -133,6 +141,9 @@ impl Engine {
         // Fetch device resources based on what is available to the system
         let (physical_device, device, queue) = core::select_hardware(&instance, &surface);
 
+        // Create a memory allocator for VRAM management
+        let allocators = Allocators::new_default(&device);
+
         // Create swapchain and associated image buffers from the relevant parameters
         let engine_swapchain = EngineSwapchain::new(
             &physical_device,
@@ -144,7 +155,8 @@ impl Engine {
 
         // Before creating descriptor sets and other buffers, allocate app-constants buffer
         let app_constants = {
-            let pool: CpuBufferPool<AppConstants> = CpuBufferPool::uniform_buffer(device.clone());
+            let pool: CpuBufferPool<AppConstants> =
+                CpuBufferPool::uniform_buffer(allocators.memory.clone());
             let constants = app_config.into();
             let buffer = pool.from_data(constants).unwrap();
             AppConstantsState {
@@ -167,6 +179,7 @@ impl Engine {
         // Create our "objects"™️
         let fractal = Fractal::new(&device, &render_pass, viewport.clone());
         let particles = Particles::new(
+            &allocators,
             &device,
             &queue,
             &render_pass,
@@ -177,7 +190,7 @@ impl Engine {
 
         // Create a framebuffer to store results of render pass
         let framebuffers = create_framebuffers(
-            &device,
+            &allocators.memory,
             &render_pass,
             dimensions.into(),
             engine_swapchain.images(),
@@ -186,6 +199,7 @@ impl Engine {
 
         // Construct new Engine
         Self {
+            allocators,
             app_constants,
             device,
             fractal,
@@ -226,7 +240,7 @@ impl Engine {
 
         // Framebuffer is tied to the swapchain images, must recreate as well
         self.framebuffers = create_framebuffers(
-            &self.device,
+            &self.allocators.memory,
             &self.render_pass,
             dimensions.into(),
             self.swapchain.images(),
@@ -276,7 +290,7 @@ impl Engine {
 
         // Create a one-time-submit command buffer for this frame
         let colored_sugar_commands = {
-            let framebuffer = self.framebuffers[image_index].clone();
+            let framebuffer = self.framebuffers[image_index as usize].clone();
             renderer::create_render_commands(self, &framebuffer, draw_data)
         };
 
@@ -295,14 +309,19 @@ impl Engine {
     }
 
     pub fn update_color_scheme(&mut self, scheme: Scheme) {
-        self.particles
-            .update_color_scheme(scheme, self.app_constants.buffer.clone());
+        self.particles.update_color_scheme(
+            &self.allocators.descriptor_set,
+            scheme,
+            self.app_constants.buffer.clone(),
+        );
     }
     pub fn update_app_constants(&mut self, app_constants: AppConstants) {
         self.app_constants.constants = app_constants;
         self.app_constants.buffer = self.app_constants.pool.from_data(app_constants).unwrap();
-        self.particles
-            .update_app_constants(self.app_constants.buffer.clone());
+        self.particles.update_app_constants(
+            &self.allocators.descriptor_set,
+            self.app_constants.buffer.clone(),
+        );
     }
 
     // Engine getters
@@ -315,11 +334,8 @@ impl Engine {
     pub fn compute_pipeline(&self) -> Arc<ComputePipeline> {
         self.particles.compute_pipeline.clone()
     }
-    pub fn device(&self) -> Arc<Device> {
-        self.device.clone()
-    }
-    pub fn fractal_descriptor_pool(&mut self) -> &mut SingleLayoutDescSetPool {
-        &mut self.fractal.descriptor_set_pool
+    pub fn descriptor_pool(&self) -> &StandardDescriptorSetAllocator {
+        &self.allocators.descriptor_set
     }
     pub fn fractal_pipeline(&self) -> Arc<GraphicsPipeline> {
         self.fractal.pipeline.clone()
@@ -336,7 +352,7 @@ impl Engine {
     pub fn queue(&self) -> Arc<Queue> {
         self.queue.clone()
     }
-    pub fn surface(&self) -> Arc<Surface<Window>> {
+    pub fn surface(&self) -> Arc<Surface> {
         self.surface.clone()
     }
     pub fn particle_count(&self) -> u64 {
@@ -350,10 +366,10 @@ impl Engine {
 
 // Helper for (re)creating framebuffers
 fn create_framebuffers(
-    device: &Arc<Device>,
+    memory_allocator: &StandardMemoryAllocator,
     render_pass: &Arc<RenderPass>,
     dimensions: [u32; 2],
-    images: &Vec<Arc<SwapchainImage<Window>>>,
+    images: &Vec<Arc<SwapchainImage>>,
     image_format: vulkano::format::Format,
 ) -> Vec<Arc<Framebuffer>> {
     (0..images.len())
@@ -366,7 +382,7 @@ fn create_framebuffers(
             // It is transient but cannot be used as an input
             let msaa_view = ImageView::new_default(
                 AttachmentImage::transient_multisampled(
-                    device.clone(),
+                    memory_allocator,
                     dimensions,
                     vulkano::image::SampleCount::Sample8,
                     image_format,
@@ -379,7 +395,7 @@ fn create_framebuffers(
             // It is transient and will be used as an input to a later pass
             let particle_view = ImageView::new_default(
                 AttachmentImage::with_usage(
-                    device.clone(),
+                    memory_allocator,
                     dimensions,
                     image_format,
                     ImageUsage {
@@ -396,7 +412,7 @@ fn create_framebuffers(
             // Create an attachement for the particle's depth buffer
             let particle_depth = ImageView::new_default(
                 AttachmentImage::transient_multisampled_input_attachment(
-                    device.clone(),
+                    memory_allocator,
                     dimensions,
                     vulkano::image::SampleCount::Sample8,
                     vulkano::format::Format::D16_UNORM,
@@ -491,6 +507,16 @@ impl From<&AppConfig> for AppConstants {
             point_size: app_config.point_size,
             audio_scale: app_config.audio_scale,
             vertical_fov: app_config.vertical_fov,
+        }
+    }
+}
+
+impl Allocators {
+    fn new_default(device: &Arc<Device>) -> Self {
+        Self {
+            memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
+            descriptor_set: StandardDescriptorSetAllocator::new(device.clone()),
+            command_buffer: StandardCommandBufferAllocator::new(device.clone(), Default::default()),
         }
     }
 }

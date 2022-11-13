@@ -18,7 +18,7 @@
 
 use std::sync::Arc;
 
-use egui::Slider;
+use egui::{ScrollArea, Slider, Ui};
 use egui_winit_vulkano::Gui;
 use vulkano::device::Queue;
 use vulkano::image::view::ImageView;
@@ -33,43 +33,78 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::app_config::AppConfig;
-use crate::engine::core::{select_hardware, AcquiredImageData, EngineSwapchain};
+use crate::app_config::{AppConfig, Scheme};
+use crate::engine::core::{select_hardware, AcquiredImageData, EngineSwapchain, WindowSurface};
 use crate::engine::{AppConstants, Engine};
 
+#[derive(Clone, Copy)]
+struct ConfigUiScheme {
+    pub index_rgb: [[f32; 3]; 4],
+    pub index_val: [f32; 4],
+    pub speed_rgb: [[f32; 3]; 4],
+    pub speed_val: [f32; 4],
+}
+
 pub struct ConfigWindow {
-    framebuffers: Vec<Arc<ImageView<SwapchainImage<Window>>>>,
+    colors: Vec<ConfigUiScheme>,
+    framebuffers: Vec<Arc<ImageView<SwapchainImage>>>,
     gui: Gui,
     id: WindowId,
+    initial_colors: Vec<ConfigUiScheme>,
     initial_state: AppConstants,
     state: AppConstants,
-    surface: Arc<Surface<Window>>,
+    surface: Arc<Surface>,
     swapchain: EngineSwapchain,
     queue: Arc<Queue>,
     visible: bool,
 }
+// ui_schemes: &mut [ConfigUiScheme],
+// init_colors: &[ConfigUiScheme],
+// 
+// state: &mut AppConstants,
+// init_state: &AppConstants,
+// 
+// color_scheme_names: &[String],
+// color_schemes: &mut [Scheme],
+// displayed_scheme_index: usize,
 
 const DEFAULT_VISIBILITY: bool = false;
-const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 220];
+const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 600];
+
+fn add_color_scheme(ui: &mut Ui, name: &String, scheme: &mut ConfigUiScheme) {
+    ui.heading(name);
+    egui::Grid::new("colors").show(ui, |ui| {
+        ui.label("Index: ");
+        for i in 0..scheme.index_rgb.len() {
+            ui.color_edit_button_rgb(&mut scheme.index_rgb[i]);
+            ui.add(Slider::new(&mut scheme.index_val[i], 0.0..=1.));
+        }
+        ui.end_row();
+
+        ui.label("Speed: ");
+        for i in 0..scheme.speed_rgb.len() {
+            ui.color_edit_button_rgb(&mut scheme.speed_rgb[i]);
+            ui.add(Slider::new(&mut scheme.speed_val[i], 0.0..=10.));
+        }
+        ui.end_row();
+    });
+    ui.separator();
+}
 
 // Define the layout and behavior of the config UI
 fn create_ui(
     gui: &mut Gui,
+    ui_schemes: &mut [ConfigUiScheme],
+    init_colors: &[ConfigUiScheme],
     state: &mut AppConstants,
     init_state: &AppConstants,
     engine: &mut Engine,
+    color_scheme_names: &[String],
+    color_schemes: &mut [Scheme],
+    displayed_scheme_index: usize,
 ) {
     let ctx = gui.context();
-    egui::CentralPanel::default().show(&ctx, |ui| {
-        ui.heading("App Config");
-        ui.separator();
-        ui.add(Slider::new(&mut state.audio_scale, -30.0..=5.).text("audio scale (dB)"));
-        ui.add(Slider::new(&mut state.max_speed, 0.0..=10.).text("max speed"));
-        ui.add(Slider::new(&mut state.point_size, 0.0..=8.).text("point size"));
-        ui.add(Slider::new(&mut state.friction_scale, 0.0..=6.).text("friction scale"));
-        ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=200.).text("spring coefficient"));
-        ui.add(Slider::new(&mut state.vertical_fov, 30.0..=105.).text("vertical fov"));
-        ui.separator();
+    egui::TopBottomPanel::bottom("bottom_panel").show(&ctx, |ui| {
         ui.horizontal_top(|ui| {
             // Allow user to reset back to values used at creation
             if ui
@@ -78,6 +113,7 @@ fn create_ui(
                 .clicked()
             {
                 *state = *init_state;
+                ui_schemes.copy_from_slice(init_colors);
             }
 
             // Apply the values on screen to the GPU
@@ -88,8 +124,35 @@ fn create_ui(
             {
                 let constants = constants_from_presentable(*state);
                 engine.update_app_constants(constants);
+
+                let new_colors: Vec<Scheme> = ui_schemes.iter().map(|us| (*us).into()).collect();
+                color_schemes.copy_from_slice(&new_colors);
+                engine.update_color_scheme(color_schemes[displayed_scheme_index]);
             }
         });
+    });
+
+    egui::CentralPanel::default().show(&ctx, |ui| {
+        ui.heading("App Config");
+        ui.separator();
+        ScrollArea::both().max_height(350.).show(ui, |ui| {
+            for (i, scheme) in ui_schemes.iter_mut().enumerate() {
+                ui.push_id(i, |ui| {
+                    add_color_scheme(
+                        ui,
+                        color_scheme_names.get(i).unwrap_or(&String::default()),
+                        scheme,
+                    );
+                });
+            }
+        });
+        ui.separator();
+        ui.add(Slider::new(&mut state.audio_scale, -30.0..=5.).text("audio scale (dB)"));
+        ui.add(Slider::new(&mut state.max_speed, 0.0..=10.).text("max speed"));
+        ui.add(Slider::new(&mut state.point_size, 0.0..=8.).text("point size"));
+        ui.add(Slider::new(&mut state.friction_scale, 0.0..=5.).text("friction scale"));
+        ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=200.).text("spring coefficient"));
+        ui.add(Slider::new(&mut state.vertical_fov, 30.0..=105.).text("vertical fov"));
     });
 }
 
@@ -128,10 +191,18 @@ impl ConfigWindow {
         );
 
         let initial_state = constants_to_presentable(app_config.into());
+        let initial_colors: Vec<ConfigUiScheme> = app_config
+            .color_schemes
+            .iter()
+            .map(|cs| (*cs).into())
+            .collect();
+
         Self {
+            colors: initial_colors.clone(),
             framebuffers,
             gui,
             id: surface.window().id(),
+            initial_colors,
             initial_state,
             state: initial_state,
             surface,
@@ -142,9 +213,8 @@ impl ConfigWindow {
     }
 
     pub fn handle_input(&mut self, event: &WindowEvent) {
-        // Handle events and request update next draw
+        // Handle UI events
         self.gui.update(event);
-        self.window().request_redraw();
 
         // Ensure to handle the 'close' event
         if event == &WindowEvent::CloseRequested {
@@ -154,11 +224,32 @@ impl ConfigWindow {
     }
 
     // Draw config UI to window
-    pub fn draw(&mut self, engine: &mut Engine) {
+    pub fn draw(
+        &mut self,
+        engine: &mut Engine,
+        color_scheme_names: &[String],
+        color_schemes: &mut [Scheme],
+        displayed_scheme_index: usize,
+    ) {
         // Quick escape the render if window is not visible
         if !self.visible {
             return;
         }
+
+        // Setup UI layout
+        self.gui.immediate_ui(|gui| {
+            create_ui(
+                gui,
+                &mut self.colors,
+                &self.initial_colors,
+                &mut self.state,
+                &self.initial_state,
+                engine,
+                color_scheme_names,
+                color_schemes,
+                displayed_scheme_index,
+            );
+        });
 
         // Acquire next frame for rendering
         let AcquiredImageData {
@@ -170,15 +261,11 @@ impl ConfigWindow {
             Err(e) => panic!("Failed to acquire next image: {:?}", e),
         };
 
-        // Setup UI layout
-        self.gui.immediate_ui(|gui| {
-            create_ui(gui, &mut self.state, &self.initial_state, engine);
-        });
-
         // Draw commands
-        let future = self
-            .gui
-            .draw_on_image(acquire_future, self.framebuffers[image_index].clone());
+        let future = self.gui.draw_on_image(
+            acquire_future,
+            self.framebuffers[image_index as usize].clone(),
+        );
         self.swapchain.present(self.queue.clone(), future);
     }
 
@@ -237,5 +324,42 @@ fn constants_from_presentable(app_constants: AppConstants) -> AppConstants {
         friction_scale,
         audio_scale: (DECIBEL_SCALE * audio_scale).exp(),
         vertical_fov: vertical_fov * std::f32::consts::PI / 360.,
+    }
+}
+
+impl From<Scheme> for ConfigUiScheme {
+    fn from(scheme: Scheme) -> Self {
+        fn unzip(a: [[f32; 4]; 4]) -> ([[f32; 3]; 4], [f32; 4]) {
+            (a.map(|a| [a[0], a[1], a[2]]), a.map(|a| a[3]))
+        }
+
+        let (index_rgb, index_val) = unzip(scheme.index);
+        let (speed_rgb, speed_val) = unzip(scheme.speed);
+        Self {
+            index_rgb,
+            index_val,
+            speed_rgb,
+            speed_val,
+        }
+    }
+}
+
+impl From<ConfigUiScheme> for Scheme {
+    fn from(ui_scheme: ConfigUiScheme) -> Self {
+        fn zip(a: [[f32; 3]; 4], b: [f32; 4]) -> [[f32; 4]; 4] {
+            fn append(a: [f32; 3], b: f32) -> [f32; 4] {
+                [a[0], a[1], a[2], b]
+            }
+            [
+                append(a[0], b[0]),
+                append(a[1], b[1]),
+                append(a[2], b[2]),
+                append(a[3], b[3]),
+            ]
+        }
+
+        let index = zip(ui_scheme.index_rgb, ui_scheme.index_val);
+        let speed = zip(ui_scheme.speed_rgb, ui_scheme.speed_val);
+        Self { index, speed }
     }
 }

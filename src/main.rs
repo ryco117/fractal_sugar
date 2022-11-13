@@ -17,7 +17,7 @@
 */
 
 // Ensure Windows builds are not console apps
-#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"]
 // TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
@@ -32,7 +32,7 @@ use winit::event::{
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Fullscreen, WindowId};
 
-use engine::core::RecreateSwapchainResult;
+use engine::core::{RecreateSwapchainResult, WindowSurface};
 use engine::{DrawData, Engine};
 
 mod app_config;
@@ -42,7 +42,7 @@ mod engine;
 mod my_math;
 mod space_filling_curves;
 
-use app_config::AppConfig;
+use app_config::{AppConfig, Scheme};
 use my_math::helpers::{interpolate_floats, interpolate_vec3};
 use my_math::{Quaternion, Vector3, Vector4};
 
@@ -131,7 +131,9 @@ struct ConsoleState {
 }
 
 struct FractalSugar {
-    app_config: AppConfig,
+    color_schemes: Vec<Scheme>,
+    color_scheme_names: Vec<String>,
+
     config_window: ConfigWindow,
     engine: Engine,
     event_loop: Option<EventLoop<()>>,
@@ -166,7 +168,8 @@ impl FractalSugar {
                 System::Console::{AllocConsole, GetConsoleWindow},
                 UI::WindowsAndMessaging::IsWindowVisible,
             };
-            if AllocConsole().into() {
+            let use_new_terminal = false;
+            if use_new_terminal && AllocConsole().into() {
                 let handle = GetConsoleWindow();
                 let mut state = ConsoleState {
                     handle,
@@ -254,11 +257,11 @@ impl FractalSugar {
         let audio_state = LocalAudioState::default();
         let game_state = GameState::default();
 
-        let config_window =
-            config_window::ConfigWindow::new(engine.instance(), &event_loop, &app_config);
+        let config_window = ConfigWindow::new(engine.instance(), &event_loop, &app_config);
 
         Self {
-            app_config,
+            color_schemes: app_config.color_schemes,
+            color_scheme_names: app_config.color_scheme_names,
             config_window,
             engine,
             event_loop: Some(event_loop),
@@ -281,7 +284,12 @@ impl FractalSugar {
             .unwrap()
             .run(move |event, _, control_flow| match event {
                 // All UI events have been handled (ie., executes once per frame)
-                Event::MainEventsCleared => self.tock_frame(),
+                Event::MainEventsCleared => {
+                    self.tock_frame();
+
+                    // Request config window is redrawn
+                    self.config_window.window().request_redraw();
+                }
 
                 // Handle all window-interaction events
                 Event::WindowEvent { event, window_id } => {
@@ -295,7 +303,12 @@ impl FractalSugar {
 
                 // Handle drawing of config window
                 Event::RedrawRequested(window_id) if window_id == self.config_window.id() => {
-                    self.config_window.draw(&mut self.engine);
+                    self.config_window.draw(
+                        &mut self.engine,
+                        &self.color_scheme_names,
+                        &mut self.color_schemes,
+                        self.game_state.color_scheme_index,
+                    );
                 }
 
                 // Catch-all
@@ -322,6 +335,7 @@ impl FractalSugar {
         let surface = self.engine.surface();
 
         // If cursor is visible and has been stationary then hide it
+        let window = surface.window();
         if self.game_state.is_cursor_visible
             && self.window_state.is_focused
             && self
@@ -332,12 +346,12 @@ impl FractalSugar {
                 .as_secs_f32()
                 > 2.
         {
-            surface.window().set_cursor_visible(false);
+            window.set_cursor_visible(false);
             self.game_state.is_cursor_visible = false;
         }
 
         // Handle any necessary recreations (usually from window resizing)
-        let dimensions = surface.window().inner_size();
+        let dimensions = window.inner_size();
         if self.window_state.resized || self.window_state.recreate_swapchain {
             match self
                 .engine
@@ -521,10 +535,9 @@ impl FractalSugar {
             // Tab through different color schemes / palattes ?
             VirtualKeyCode::Tab => {
                 self.game_state.color_scheme_index =
-                    (self.game_state.color_scheme_index + 1) % self.app_config.color_schemes.len();
-                self.engine.update_color_scheme(
-                    self.app_config.color_schemes[self.game_state.color_scheme_index],
-                );
+                    (self.game_state.color_scheme_index + 1) % self.color_schemes.len();
+                self.engine
+                    .update_color_scheme(self.color_schemes[self.game_state.color_scheme_index]);
             }
 
             // Toggle display of GUI
@@ -745,22 +758,20 @@ impl FractalSugar {
                 delta_time,
                 width,
                 height,
-                fix_particles: bool_to_u32(
-                    self.game_state.fix_particles == ParticleTension::Spring,
-                ),
-                use_third_dimension: bool_to_u32(self.game_state.particles_are_3d),
+                fix_particles: u32::from(self.game_state.fix_particles == ParticleTension::Spring),
+                use_third_dimension: u32::from(self.game_state.particles_are_3d),
             };
 
             let vertex = engine::ParticleVertexPushConstants {
                 quaternion: self.game_state.camera_quaternion.into(),
                 time: self.audio_state.play_time,
                 aspect_ratio,
-                rendering_fractal: bool_to_u32(self.game_state.distance_estimator_id != 0),
+                rendering_fractal: u32::from(self.game_state.distance_estimator_id != 0),
                 alternate_colors: match self.game_state.alternate_colors {
                     AlternateColors::Inverse => 1,
                     AlternateColors::Normal => 0,
                 },
-                use_third_dimension: bool_to_u32(self.game_state.particles_are_3d),
+                use_third_dimension: u32::from(self.game_state.particles_are_3d),
             };
 
             Some((compute, vertex))
@@ -790,7 +801,7 @@ impl FractalSugar {
             } else {
                 1.
             },
-            render_background: bool_to_u32(!self.game_state.render_particles),
+            render_background: u32::from(!self.game_state.render_particles),
         };
 
         DrawData {
@@ -830,16 +841,6 @@ impl FractalSugar {
         } else {
             Vector3::new(x_norm, y_norm, 0.)
         }
-    }
-}
-
-// Helper for converting booleans to unsigned 32-bit integers.
-// This is necessary for GPU memory alignment
-fn bool_to_u32(b: bool) -> u32 {
-    if b {
-        1
-    } else {
-        0
     }
 }
 

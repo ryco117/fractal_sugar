@@ -24,8 +24,8 @@ use vulkano::format::Format;
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::Instance;
 use vulkano::swapchain::{
-    AcquireError, PresentFuture, PresentInfo, PresentMode, Surface, SurfaceInfo, Swapchain,
-    SwapchainCreateInfo, SwapchainCreationError,
+    AcquireError, PresentFuture, PresentMode, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo,
+    SwapchainCreationError, SwapchainPresentInfo,
 };
 
 use vulkano::sync::{FenceSignalFuture, GpuFuture};
@@ -34,14 +34,14 @@ use winit::window::Window;
 
 // NOTE: Against all odds, this type needs to be wraped in Arc<..> as below
 // in order to not leak memory in Win11 on NVIDIA device(s)
-pub type EngineFrameFuture = Arc<FenceSignalFuture<PresentFuture<Box<dyn GpuFuture>, Window>>>;
+pub type EngineFrameFuture = Arc<FenceSignalFuture<PresentFuture<Box<dyn GpuFuture>>>>;
 
 pub struct EngineSwapchain {
     fences: Vec<Option<EngineFrameFuture>>,
-    images: Vec<Arc<SwapchainImage<Window>>>,
-    present_index: Option<usize>,
-    previous_fence_index: usize,
-    swapchain: Arc<Swapchain<Window>>,
+    images: Vec<Arc<SwapchainImage>>,
+    present_index: Option<u32>,
+    previous_fence_index: u32,
+    swapchain: Arc<Swapchain>,
 }
 
 pub enum RecreateSwapchainResult {
@@ -51,15 +51,25 @@ pub enum RecreateSwapchainResult {
 
 // Information for an acquired swapchain image.
 pub struct AcquiredImageData {
-    pub image_index: usize,
+    pub image_index: u32,
     pub suboptimal: bool,
     pub acquire_future: Box<dyn GpuFuture>,
+}
+
+pub trait WindowSurface {
+    fn window(&self) -> &Window;
+}
+
+impl WindowSurface for Surface {
+    fn window(&self) -> &Window {
+        self.object().unwrap().downcast_ref::<Window>().unwrap()
+    }
 }
 
 // Select the best physical device for performing Vulkan operations
 fn select_best_physical_device(
     instance: &Arc<Instance>,
-    surface: &Arc<Surface<Window>>,
+    surface: &Arc<Surface>,
     device_extensions: &DeviceExtensions,
 ) -> (Arc<PhysicalDevice>, u32) {
     // Iterate through all devices in Vulkan instance
@@ -94,7 +104,7 @@ fn select_best_physical_device(
 // Retrieve resources best suited for graphical Vulkan operations
 pub fn select_hardware(
     instance: &Arc<Instance>,
-    surface: &Arc<Surface<Window>>,
+    surface: &Arc<Surface>,
 ) -> (Arc<PhysicalDevice>, Arc<Device>, Arc<Queue>) {
     // Perform non-trivial search for optimal GPU and corresponding queue family
     let device_extensions = DeviceExtensions {
@@ -137,7 +147,7 @@ impl EngineSwapchain {
     pub fn new(
         physical_device: &Arc<PhysicalDevice>,
         device: Arc<Device>,
-        surface: Arc<Surface<Window>>,
+        surface: Arc<Surface>,
         desired_present_mode: PresentMode,
     ) -> Self {
         // Determine what features our surface can support
@@ -271,12 +281,12 @@ impl EngineSwapchain {
 
         // If this image buffer already has a fence, wait for the fence to be completed, then cleanup.
         // Usually the fence for this index will have completed by the time we are rendering it again
-        if let Some(image_fence) = &mut self.fences[image_index] {
+        if let Some(image_fence) = &mut self.fences[image_index as usize] {
             image_fence.wait(None).unwrap();
             image_fence.cleanup_finished();
         }
 
-        let future = match self.fences[self.previous_fence_index].clone() {
+        let future = match self.fences[self.previous_fence_index as usize].clone() {
             Some(previous_future) => previous_future.join(acquire_future).boxed(),
             None => acquire_future.boxed(),
         };
@@ -299,17 +309,14 @@ impl EngineSwapchain {
         let present_future = future
             .then_swapchain_present(
                 queue,
-                PresentInfo {
-                    index: image_index,
-                    ..PresentInfo::swapchain(self.swapchain.clone())
-                },
+                SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_index),
             )
             // Finish synchronization
             .then_signal_fence_and_flush();
 
         // Update this frame's future with result of current render
         let mut requires_recreate_swapchain = false;
-        self.fences[image_index] = match present_future {
+        self.fences[image_index as usize] = match present_future {
             // Success, store result into vector
             Ok(future) => Some(Arc::new(future)),
 
@@ -331,13 +338,13 @@ impl EngineSwapchain {
     }
 
     // Swapchain getters
-    pub fn images(&self) -> &Vec<Arc<SwapchainImage<Window>>> {
+    pub fn images(&self) -> &Vec<Arc<SwapchainImage>> {
         &self.images
     }
     pub fn image_format(&self) -> Format {
         self.swapchain.image_format()
     }
-    pub fn swapchain(&self) -> Arc<Swapchain<Window>> {
+    pub fn swapchain(&self) -> Arc<Swapchain> {
         self.swapchain.clone()
     }
 }

@@ -6,8 +6,8 @@ layout (location = 1) in vec3 vel;
 layout (location = 0) out vec4 outColor;
 
 layout (binding = 0) uniform ParticleColorScheme {
-    vec4 speedConst[4];
 	vec4 indexConst[4];
+    vec4 speedConst[4];
 } particleColors;
 
 layout (binding = 1) uniform AppConstants {
@@ -65,7 +65,7 @@ void main() {
 		gl_Position = vec4(pos.xy, 0.0, 1.0);
 	}
 
-	float t = fract(float(gl_VertexIndex)/appConstants.particle_count + 0.0475*push.time);
+	float t = fract(float(gl_VertexIndex)/appConstants.particle_count + 0.045*push.time);
 	vec3 indexColor;
 	{
 		vec3 indexStart;

@@ -60,7 +60,7 @@ pub fn create_render_commands(
 ) -> PrimaryAutoCommandBuffer {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
-        engine.device(),
+        &engine.allocators.command_buffer,
         engine.queue().queue_family_index(),
         CommandBufferUsage::OneTimeSubmit,
     )
@@ -153,16 +153,23 @@ fn inline_fractal_cmds(
     particle_depth: Arc<dyn ImageViewAbstract>,
 ) {
     let app_constants = engine.app_constants.buffer.clone();
-    let descriptor_set = engine
-        .fractal_descriptor_pool()
-        .next([
+
+    let pipeline = engine.fractal_pipeline();
+    let layout = pipeline.layout().clone();
+    let descriptor_set = PersistentDescriptorSet::new(
+        engine.descriptor_pool(),
+        layout
+            .set_layouts()
+            .get(0) // 0 is the index of the descriptor set layout we want
+            .unwrap()
+            .clone(),
+        [
             WriteDescriptorSet::image_view(0, particle_input),
             WriteDescriptorSet::image_view(1, particle_depth),
             WriteDescriptorSet::buffer(2, app_constants),
-        ])
-        .unwrap();
-    let pipeline = engine.fractal_pipeline();
-    let layout = pipeline.layout().clone();
+        ],
+    )
+    .unwrap();
 
     // Build render pass commands
     builder
