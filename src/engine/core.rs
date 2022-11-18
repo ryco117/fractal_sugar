@@ -164,8 +164,8 @@ impl EngineSwapchain {
             .unwrap();
         let image_format = {
             let desired_formats = [
-                Format::B8G8R8A8_SRGB,
-                Format::R8G8B8A8_SRGB,
+                Format::B8G8R8A8_SNORM,
+                Format::R8G8B8A8_SNORM,
                 Format::B8G8R8A8_UNORM,
                 Format::R8G8B8A8_UNORM,
             ];

@@ -120,6 +120,14 @@ void main(void) {
 
 			g *= appConstants.audio_scale;
 		}
+
+		vel += push.delta_time * g;
+
+		if(length(vel) > appConstants.max_speed) {
+			vel = appConstants.max_speed*normalize(vel);
+		}
+
+		pos += vel * push.delta_time;
 	} else { // Start 2D block
 		mat2 aspect;
 		mat2 invaspect;
@@ -185,19 +193,18 @@ void main(void) {
 			g *= appConstants.audio_scale;
 		}
 
-		g.xy = invaspect*g.xy;
+		vel.xy += push.delta_time * g.xy;
+
+		if(length(vel) > appConstants.max_speed) {
+			vel = appConstants.max_speed*normalize(vel);
+		}
+
+		pos.xy += push.delta_time * (invaspect * vel.xy);
 	} // End 2D block
 
 	// Allow scaling of friction force applied
 	friction *= appConstants.friction_scale;
 
-	vel += push.delta_time * g;
-	
-	if(length(vel) > appConstants.max_speed) {
-		vel = appConstants.max_speed*normalize(vel);
-	}
-
-	pos += vel * push.delta_time;
 	if(abs(pos.x) > 1.0) {
 		vel.x = sign(pos.x) * (-0.95 * abs(vel.x) - 0.0001);
 		if(abs(pos.x) >= 1.05) {

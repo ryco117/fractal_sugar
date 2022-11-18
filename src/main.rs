@@ -17,7 +17,7 @@
 */
 
 // Ensure Windows builds are not console apps
-//#![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 // TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
@@ -168,8 +168,8 @@ impl FractalSugar {
                 System::Console::{AllocConsole, GetConsoleWindow},
                 UI::WindowsAndMessaging::IsWindowVisible,
             };
-            let use_new_terminal = false;
-            if use_new_terminal && AllocConsole().into() {
+            const ALLOC_NEW_TERMINAL: bool = true;
+            if ALLOC_NEW_TERMINAL && AllocConsole().into() {
                 let handle = GetConsoleWindow();
                 let mut state = ConsoleState {
                     handle,

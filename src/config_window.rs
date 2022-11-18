@@ -39,34 +39,30 @@ use crate::engine::{AppConstants, Engine};
 
 #[derive(Clone, Copy)]
 struct ConfigUiScheme {
-    pub index_rgb: [[f32; 3]; 4],
+    pub index_rgb: [[u8; 3]; 4],
     pub index_val: [f32; 4],
-    pub speed_rgb: [[f32; 3]; 4],
+    pub speed_rgb: [[u8; 3]; 4],
     pub speed_val: [f32; 4],
 }
 
 pub struct ConfigWindow {
-    colors: Vec<ConfigUiScheme>,
+    config_state: AppConfigState,
     framebuffers: Vec<Arc<ImageView<SwapchainImage>>>,
     gui: Gui,
     id: WindowId,
-    initial_colors: Vec<ConfigUiScheme>,
-    initial_state: AppConstants,
-    state: AppConstants,
     surface: Arc<Surface>,
     swapchain: EngineSwapchain,
     queue: Arc<Queue>,
     visible: bool,
 }
-// ui_schemes: &mut [ConfigUiScheme],
-// init_colors: &[ConfigUiScheme],
-// 
-// state: &mut AppConstants,
-// init_state: &AppConstants,
-// 
-// color_scheme_names: &[String],
-// color_schemes: &mut [Scheme],
-// displayed_scheme_index: usize,
+
+struct AppConfigState {
+    color_schemes: Vec<ConfigUiScheme>,
+    init_color_schemes: Vec<ConfigUiScheme>,
+
+    state: AppConstants,
+    init_state: AppConstants,
+}
 
 const DEFAULT_VISIBILITY: bool = false;
 const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 600];
@@ -76,14 +72,14 @@ fn add_color_scheme(ui: &mut Ui, name: &String, scheme: &mut ConfigUiScheme) {
     egui::Grid::new("colors").show(ui, |ui| {
         ui.label("Index: ");
         for i in 0..scheme.index_rgb.len() {
-            ui.color_edit_button_rgb(&mut scheme.index_rgb[i]);
+            ui.color_edit_button_srgb(&mut scheme.index_rgb[i]);
             ui.add(Slider::new(&mut scheme.index_val[i], 0.0..=1.));
         }
         ui.end_row();
 
         ui.label("Speed: ");
         for i in 0..scheme.speed_rgb.len() {
-            ui.color_edit_button_rgb(&mut scheme.speed_rgb[i]);
+            ui.color_edit_button_srgb(&mut scheme.speed_rgb[i]);
             ui.add(Slider::new(&mut scheme.speed_val[i], 0.0..=10.));
         }
         ui.end_row();
@@ -94,10 +90,7 @@ fn add_color_scheme(ui: &mut Ui, name: &String, scheme: &mut ConfigUiScheme) {
 // Define the layout and behavior of the config UI
 fn create_ui(
     gui: &mut Gui,
-    ui_schemes: &mut [ConfigUiScheme],
-    init_colors: &[ConfigUiScheme],
-    state: &mut AppConstants,
-    init_state: &AppConstants,
+    config_state: &mut AppConfigState,
     engine: &mut Engine,
     color_scheme_names: &[String],
     color_schemes: &mut [Scheme],
@@ -112,8 +105,10 @@ fn create_ui(
                 .on_hover_text("Reset displayed values to the constants used at launch.")
                 .clicked()
             {
-                *state = *init_state;
-                ui_schemes.copy_from_slice(init_colors);
+                config_state.state = config_state.init_state;
+                config_state
+                    .color_schemes
+                    .copy_from_slice(&config_state.init_color_schemes);
             }
 
             // Apply the values on screen to the GPU
@@ -122,10 +117,14 @@ fn create_ui(
                 .on_hover_text("Apply displayed values to the scene.")
                 .clicked()
             {
-                let constants = constants_from_presentable(*state);
+                let constants = constants_from_presentable(config_state.state);
                 engine.update_app_constants(constants);
 
-                let new_colors: Vec<Scheme> = ui_schemes.iter().map(|us| (*us).into()).collect();
+                let new_colors: Vec<_> = config_state
+                    .color_schemes
+                    .iter()
+                    .map(|cs| (*cs).into())
+                    .collect();
                 color_schemes.copy_from_slice(&new_colors);
                 engine.update_color_scheme(color_schemes[displayed_scheme_index]);
             }
@@ -136,7 +135,7 @@ fn create_ui(
         ui.heading("App Config");
         ui.separator();
         ScrollArea::both().max_height(350.).show(ui, |ui| {
-            for (i, scheme) in ui_schemes.iter_mut().enumerate() {
+            for (i, scheme) in config_state.color_schemes.iter_mut().enumerate() {
                 ui.push_id(i, |ui| {
                     add_color_scheme(
                         ui,
@@ -147,12 +146,19 @@ fn create_ui(
             }
         });
         ui.separator();
-        ui.add(Slider::new(&mut state.audio_scale, -30.0..=5.).text("audio scale (dB)"));
-        ui.add(Slider::new(&mut state.max_speed, 0.0..=10.).text("max speed"));
-        ui.add(Slider::new(&mut state.point_size, 0.0..=8.).text("point size"));
-        ui.add(Slider::new(&mut state.friction_scale, 0.0..=5.).text("friction scale"));
-        ui.add(Slider::new(&mut state.spring_coefficient, 0.0..=200.).text("spring coefficient"));
-        ui.add(Slider::new(&mut state.vertical_fov, 30.0..=105.).text("vertical fov"));
+        ui.add(
+            Slider::new(&mut config_state.state.audio_scale, -30.0..=5.).text("audio scale (dB)"),
+        );
+        ui.add(Slider::new(&mut config_state.state.max_speed, 0.0..=10.).text("max speed"));
+        ui.add(Slider::new(&mut config_state.state.point_size, 0.0..=8.).text("point size"));
+        ui.add(
+            Slider::new(&mut config_state.state.friction_scale, 0.0..=5.).text("friction scale"),
+        );
+        ui.add(
+            Slider::new(&mut config_state.state.spring_coefficient, 0.0..=200.)
+                .text("spring coefficient"),
+        );
+        ui.add(Slider::new(&mut config_state.state.vertical_fov, 30.0..=105.).text("vertical fov"));
     });
 }
 
@@ -197,14 +203,18 @@ impl ConfigWindow {
             .map(|cs| (*cs).into())
             .collect();
 
+        let config_state = AppConfigState {
+            color_schemes: initial_colors.clone(),
+            init_color_schemes: initial_colors,
+            state: initial_state,
+            init_state: initial_state,
+        };
+
         Self {
-            colors: initial_colors.clone(),
+            config_state,
             framebuffers,
             gui,
             id: surface.window().id(),
-            initial_colors,
-            initial_state,
-            state: initial_state,
             surface,
             swapchain,
             queue,
@@ -240,10 +250,7 @@ impl ConfigWindow {
         self.gui.immediate_ui(|gui| {
             create_ui(
                 gui,
-                &mut self.colors,
-                &self.initial_colors,
-                &mut self.state,
-                &self.initial_state,
+                &mut self.config_state,
                 engine,
                 color_scheme_names,
                 color_schemes,
@@ -270,8 +277,12 @@ impl ConfigWindow {
     }
 
     pub fn toggle_visibility(&mut self) {
-        self.visible = !self.visible;
-        self.window().set_visible(self.visible);
+        if self.visible {
+            self.window().focus_window();
+        } else {
+            self.visible = !self.visible;
+            self.window().set_visible(self.visible);
+        }
     }
 
     // Getters
@@ -329,8 +340,15 @@ fn constants_from_presentable(app_constants: AppConstants) -> AppConstants {
 
 impl From<Scheme> for ConfigUiScheme {
     fn from(scheme: Scheme) -> Self {
-        fn unzip(a: [[f32; 4]; 4]) -> ([[f32; 3]; 4], [f32; 4]) {
-            (a.map(|a| [a[0], a[1], a[2]]), a.map(|a| a[3]))
+        #[allow(clippy::cast_sign_loss)]
+        fn convert(x: f32) -> u8 {
+            (x * 255.) as u8
+        }
+        fn unzip(a: [[f32; 4]; 4]) -> ([[u8; 3]; 4], [f32; 4]) {
+            (
+                a.map(|a| [convert(a[0]), convert(a[1]), convert(a[2])]),
+                a.map(|a| a[3]),
+            )
         }
 
         let (index_rgb, index_val) = unzip(scheme.index);
@@ -346,9 +364,13 @@ impl From<Scheme> for ConfigUiScheme {
 
 impl From<ConfigUiScheme> for Scheme {
     fn from(ui_scheme: ConfigUiScheme) -> Self {
-        fn zip(a: [[f32; 3]; 4], b: [f32; 4]) -> [[f32; 4]; 4] {
-            fn append(a: [f32; 3], b: f32) -> [f32; 4] {
-                [a[0], a[1], a[2], b]
+        fn convert(i: u8) -> f32 {
+            f32::from(i) / 255.
+        }
+        fn zip(a: [[u8; 3]; 4], b: [f32; 4]) -> [[f32; 4]; 4] {
+            fn append(a: [u8; 3], b: f32) -> [f32; 4] {
+                //let a = normalised_from_xyz(a);
+                [convert(a[0]), convert(a[1]), convert(a[2]), b]
             }
             [
                 append(a[0], b[0]),

@@ -8,19 +8,19 @@ launch_fullscreen = true
 max_speed = 6
 
 # The number of particles to simulate. Default value is 1_250_000.
-particle_count = 2_000_000
+particle_count = 2_500_000
 
 # The diameter in pixels of each particle. Larger values may appear better on high resolution/DPI devices. Default is 2.0.
 point_size = 2.5
 
 # The spring coefficient `k` in Hooke's Law `F_s = -kx` used for particle spring-tension. Default value is 75.0.
-spring_coefficient = 75
+spring_coefficient = 60
 
 # The vertical field-of-view in degrees. Default value is 72.0.
 vertical_fov = 75
 
 # The scale factor to apply to the default. Default value is 1.0.
-friction_scale = 1
+friction_scale = 1.8
 
 # The decibel adjustment to apply to the incoming audio. Default value is -20.0.
 audio_scale = -20
