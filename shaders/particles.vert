@@ -102,7 +102,7 @@ void main() {
 		vec3 speedEnd;
 		float speedScale;
 		if(speed < particleColors.speedConst[0].w) {
-			vec3 basesColor = (push.use_third_dimension ? 0.3 : (push.rendering_fractal ? 0.6 : 1.0)) * indexColor;
+			vec3 basesColor = (push.use_third_dimension ? 0.55 : (push.rendering_fractal ? 0.7 : 1.0)) * indexColor;
 			speedStart = basesColor;
 			speedEnd = vec3(particleColors.speedConst[0].x, particleColors.speedConst[0].y * speed/particleColors.speedConst[0].w, particleColors.speedConst[0].z);
 			if(push.alternate_colors) {

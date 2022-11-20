@@ -53,10 +53,10 @@ index = [
     # All four values must be in the range [0.0, 1.0].
     # The index value indicates where in the jello-grid this color is most prominent.
     # Index entries must be sorted by the index value (last column) in ascending order.
-    [0.8, 0.5, 0.3, 0.25],
-    [0.35, 0.4, 0.8, 0.5],
-    [0.8, 0.5, 0.6, 0.75],
-    "#b31abf", # The index value of the last entry is ommitted since this color will be most prominent at the maximum speed. Thus, it is valid to provide only a CSS color.
+    [0.6, 0.4, 0.25, 0.25],
+    [0.3, 0.25, 0.6, 0.5],
+    [0.6, 0.4, 0.5, 0.75],
+    "#94159d", # The index value of the last entry is ommitted since this color will be most prominent at the maximum speed. Thus, it is valid to provide only a CSS color.
 ]
 
 [[color_schemes]]
@@ -68,10 +68,10 @@ speed = [
     [0.65, 0.08, 0.04],
 ]
 index = [
-    [0.0, 0.3, 0.55, 0.25],
-    [0.1, 0.65, 0.45, 0.5],
-    [0.0, 0.3, 0.42, 0.75],
-    [0.0, 0.65, 0.45],
+    [0.0, 0.25, 0.45, 0.25],
+    [0.08, 0.5, 0.35, 0.5],
+    [0.0, 0.25, 0.35, 0.75],
+    [0.0, 0.5, 0.35],
 ]
 
 [[color_schemes]]
@@ -83,10 +83,10 @@ speed = [
     "GhostWhite", # Another example of CSS tom-foolery. https://www.w3schools.com/cssref/css_colors.asp
 ]
 index = [
-    [0.72, 0.75, 0.8, 0.25],
-    [0.3, 0.35, 0.375, 0.5],
-    [0.7, 0.72, 0.75, 0.75],
-    [0.3, 0.375, 0.35],
+    [0.6, 0.65, 0.7, 0.25],
+    [0.25, 0.3, 0.35, 0.5],
+    [0.6, 0.6, 0.65, 0.75],
+    [0.2, 0.25, 0.25],
 ]
 
 [[color_schemes]]
@@ -98,10 +98,10 @@ speed = [
     [0.8, 0.65, 0.5],
 ]
 index = [
-    [0.5, 0.0, 0.05, 0.25],
-    [0.22, 0.22, 0.23, 0.5],
-    [0.75, 0.5, 0.01, 0.75],
-    [0.6, 0.55, 0.5],
+    [0.4, 0.0, 0.04, 0.25],
+    [0.2, 0.19, 0.16, 0.5],
+    [0.55, 0.38, 0.16, 0.75],
+    [0.4, 0.31, 0.2],
 ]
 
 [[color_schemes]]
@@ -113,10 +113,10 @@ speed = [
     [0.2, 0.95, 0.3],
 ]
 index = [
-    [0.8, 0.5, 0.15, 0.25],
-    [0.0, 0.5, 0.25, 0.5],
-    [0.65, 0.5, 0.02, 0.75],
-    [0.02, 0.6, 0.2],
+    [0.65, 0.4, 0.1, 0.25],
+    [0.0, 0.4, 0.2, 0.5],
+    [0.5, 0.4, 0.0, 0.75],
+    [0.0, 0.5, 0.15],
 ]
 
 [[color_schemes]]

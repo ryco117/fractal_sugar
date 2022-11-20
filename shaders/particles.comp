@@ -98,7 +98,7 @@ void main(void) {
 
 			g += appConstants.spring_coefficient * (fixed_cube_positions[index] - pos);
 		} else {
-			friction = -2.2;
+			friction = -2.0;
 
 			{
 				vec3 t = push.big_boomer.xyz - pos;

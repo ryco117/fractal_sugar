@@ -16,9 +16,10 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 
-use egui::{ScrollArea, Slider, Ui};
+use egui::{ComboBox, ScrollArea, Slider, Ui};
 use egui_winit_vulkano::Gui;
 use vulkano::device::Queue;
 use vulkano::image::view::ImageView;
@@ -59,6 +60,7 @@ pub struct ConfigWindow {
 struct AppConfigState {
     color_schemes: Vec<ConfigUiScheme>,
     init_color_schemes: Vec<ConfigUiScheme>,
+    displayed_scheme_index: usize,
 
     state: AppConstants,
     init_state: AppConstants,
@@ -67,24 +69,33 @@ struct AppConfigState {
 const DEFAULT_VISIBILITY: bool = false;
 const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 600];
 
-fn add_color_scheme(ui: &mut Ui, name: &String, scheme: &mut ConfigUiScheme) {
-    ui.heading(name);
-    egui::Grid::new("colors").show(ui, |ui| {
-        ui.label("Index: ");
-        for i in 0..scheme.index_rgb.len() {
-            ui.color_edit_button_srgb(&mut scheme.index_rgb[i]);
-            ui.add(Slider::new(&mut scheme.index_val[i], 0.0..=1.));
-        }
+fn add_scheme_element(
+    ui: &mut Ui,
+    rgb: &mut [[u8; 3]; 4],
+    val: &mut [f32; 4],
+    range: RangeInclusive<f32>,
+) {
+    let n = rgb.len();
+    for i in 0..n - 1 {
+        ui.color_edit_button_srgb(&mut rgb[i]);
+        ui.add(Slider::new(&mut val[i], range.clone()));
         ui.end_row();
+    }
+    ui.color_edit_button_srgb(&mut rgb[n - 1]);
+    ui.end_row();
+}
 
-        ui.label("Speed: ");
-        for i in 0..scheme.speed_rgb.len() {
-            ui.color_edit_button_srgb(&mut scheme.speed_rgb[i]);
-            ui.add(Slider::new(&mut scheme.speed_val[i], 0.0..=10.));
-        }
-        ui.end_row();
+fn add_color_scheme(ui: &mut Ui, scheme: &mut ConfigUiScheme) {
+    ScrollArea::vertical().max_height(350.).show(ui, |ui| {
+        ui.heading("Index-Based Color Scheme");
+        egui::Grid::new("scheme_index_grid").show(ui, |ui| {
+            add_scheme_element(ui, &mut scheme.index_rgb, &mut scheme.index_val, 0.0..=1.);
+        });
+        ui.heading("Speed-Based Color Scheme");
+        egui::Grid::new("scheme_speed_grid").show(ui, |ui| {
+            add_scheme_element(ui, &mut scheme.speed_rgb, &mut scheme.speed_val, 0.0..=10.);
+        });
     });
-    ui.separator();
 }
 
 // Define the layout and behavior of the config UI
@@ -94,11 +105,11 @@ fn create_ui(
     engine: &mut Engine,
     color_scheme_names: &[String],
     color_schemes: &mut [Scheme],
-    displayed_scheme_index: usize,
+    displayed_scheme_index: &mut usize,
 ) {
     let ctx = gui.context();
     egui::TopBottomPanel::bottom("bottom_panel").show(&ctx, |ui| {
-        ui.horizontal_top(|ui| {
+        ui.horizontal_centered(|ui| {
             // Allow user to reset back to values used at creation
             if ui
                 .button("Reset")
@@ -109,6 +120,7 @@ fn create_ui(
                 config_state
                     .color_schemes
                     .copy_from_slice(&config_state.init_color_schemes);
+                config_state.displayed_scheme_index = *displayed_scheme_index;
             }
 
             // Apply the values on screen to the GPU
@@ -126,7 +138,8 @@ fn create_ui(
                     .map(|cs| (*cs).into())
                     .collect();
                 color_schemes.copy_from_slice(&new_colors);
-                engine.update_color_scheme(color_schemes[displayed_scheme_index]);
+                *displayed_scheme_index = config_state.displayed_scheme_index;
+                engine.update_color_scheme(color_schemes[*displayed_scheme_index]);
             }
         });
     });
@@ -134,17 +147,17 @@ fn create_ui(
     egui::CentralPanel::default().show(&ctx, |ui| {
         ui.heading("App Config");
         ui.separator();
-        ScrollArea::both().max_height(350.).show(ui, |ui| {
-            for (i, scheme) in config_state.color_schemes.iter_mut().enumerate() {
-                ui.push_id(i, |ui| {
-                    add_color_scheme(
-                        ui,
-                        color_scheme_names.get(i).unwrap_or(&String::default()),
-                        scheme,
-                    );
-                });
-            }
-        });
+        ComboBox::from_label("Active Color Scheme")
+            .selected_text(color_scheme_names[config_state.displayed_scheme_index].clone())
+            .show_ui(ui, |ui| {
+                for (i, name) in color_scheme_names.iter().enumerate() {
+                    ui.selectable_value(&mut config_state.displayed_scheme_index, i, name.clone());
+                }
+            });
+        add_color_scheme(
+            ui,
+            &mut config_state.color_schemes[config_state.displayed_scheme_index],
+        );
         ui.separator();
         ui.add(
             Slider::new(&mut config_state.state.audio_scale, -30.0..=5.).text("audio scale (dB)"),
@@ -206,6 +219,7 @@ impl ConfigWindow {
         let config_state = AppConfigState {
             color_schemes: initial_colors.clone(),
             init_color_schemes: initial_colors,
+            displayed_scheme_index: 0,
             state: initial_state,
             init_state: initial_state,
         };
@@ -239,7 +253,7 @@ impl ConfigWindow {
         engine: &mut Engine,
         color_scheme_names: &[String],
         color_schemes: &mut [Scheme],
-        displayed_scheme_index: usize,
+        displayed_scheme_index: &mut usize,
     ) {
         // Quick escape the render if window is not visible
         if !self.visible {

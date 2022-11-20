@@ -307,7 +307,7 @@ impl FractalSugar {
                         &mut self.engine,
                         &self.color_scheme_names,
                         &mut self.color_schemes,
-                        self.game_state.color_scheme_index,
+                        &mut self.game_state.color_scheme_index,
                     );
                 }
 
