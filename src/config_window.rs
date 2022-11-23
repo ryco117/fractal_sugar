@@ -110,10 +110,10 @@ fn create_ui(
     let ctx = gui.context();
     egui::TopBottomPanel::bottom("bottom_panel").show(&ctx, |ui| {
         ui.horizontal_centered(|ui| {
-            // Allow user to reset back to values used at creation
+            // Allow user to reset back to values currently applied
             if ui
                 .button("Reset")
-                .on_hover_text("Reset displayed values to the constants used at launch.")
+                .on_hover_text("Reset displayed values to what is currently applied.")
                 .clicked()
             {
                 config_state.state = config_state.init_state;
@@ -140,6 +140,12 @@ fn create_ui(
                 color_schemes.copy_from_slice(&new_colors);
                 *displayed_scheme_index = config_state.displayed_scheme_index;
                 engine.update_color_scheme(color_schemes[*displayed_scheme_index]);
+
+                // Update init values to allow resetting back to applied state
+                config_state.init_state = config_state.state;
+                config_state
+                    .init_color_schemes
+                    .copy_from_slice(&config_state.color_schemes);
             }
         });
     });
