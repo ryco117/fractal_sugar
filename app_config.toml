@@ -53,7 +53,7 @@ index = [
     # All four values must be in the range [0.0, 1.0].
     # The index value indicates where in the jello-grid this color is most prominent.
     # Index entries must be sorted by the index value (last column) in ascending order.
-    [0.6, 0.4, 0.25, 0.25],
+    ["rgb(153, 102, 63)", 0.25],
     [0.3, 0.25, 0.6, 0.5],
     [0.6, 0.4, 0.5, 0.75],
     "#94159d", # The index value of the last entry is ommitted since this color will be most prominent at the maximum speed. Thus, it is valid to provide only a CSS color.

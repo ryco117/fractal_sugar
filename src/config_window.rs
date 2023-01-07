@@ -60,7 +60,7 @@ pub struct ConfigWindow {
 struct AppConfigState {
     color_schemes: Vec<ConfigUiScheme>,
     init_color_schemes: Vec<ConfigUiScheme>,
-    displayed_scheme_index: usize,
+    edit_scheme_index: usize,
 
     state: AppConstants,
     init_state: AppConstants,
@@ -85,7 +85,26 @@ fn add_scheme_element(
     ui.end_row();
 }
 
-fn add_color_scheme(ui: &mut Ui, scheme: &mut ConfigUiScheme) {
+fn add_color_scheme(
+    ui: &mut Ui,
+    scheme: &mut ConfigUiScheme,
+    displayed_scheme_index: &mut usize,
+    edit_scheme_index: usize,
+    engine: &mut Engine,
+) {
+    // Enforce limits
+    fn enforce_limits(vals: &mut [f32; 4]) {
+        let mut max = 0.;
+        for v in vals[0..3].iter_mut() {
+            if *v < max {
+                *v = max;
+            }
+            max = *v;
+        }
+    }
+    enforce_limits(&mut scheme.index_val);
+    enforce_limits(&mut scheme.speed_val);
+
     ScrollArea::vertical().max_height(350.).show(ui, |ui| {
         ui.heading("Index-Based Color Scheme");
         egui::Grid::new("scheme_index_grid").show(ui, |ui| {
@@ -95,6 +114,13 @@ fn add_color_scheme(ui: &mut Ui, scheme: &mut ConfigUiScheme) {
         egui::Grid::new("scheme_speed_grid").show(ui, |ui| {
             add_scheme_element(ui, &mut scheme.speed_rgb, &mut scheme.speed_val, 0.0..=10.);
         });
+
+        if edit_scheme_index != *displayed_scheme_index {
+            if ui.button("Make current color scheme active").clicked() {
+                *displayed_scheme_index = edit_scheme_index;
+                engine.update_color_scheme(scheme.into());
+            }
+        }
     });
 }
 
@@ -113,14 +139,13 @@ fn create_ui(
             // Allow user to reset back to values currently applied
             if ui
                 .button("Reset")
-                .on_hover_text("Reset displayed values to what is currently applied.")
+                .on_hover_text("Reset displayed values to the constants used at launch.")
                 .clicked()
             {
                 config_state.state = config_state.init_state;
                 config_state
                     .color_schemes
                     .copy_from_slice(&config_state.init_color_schemes);
-                config_state.displayed_scheme_index = *displayed_scheme_index;
             }
 
             // Apply the values on screen to the GPU
@@ -138,14 +163,7 @@ fn create_ui(
                     .map(|cs| (*cs).into())
                     .collect();
                 color_schemes.copy_from_slice(&new_colors);
-                *displayed_scheme_index = config_state.displayed_scheme_index;
                 engine.update_color_scheme(color_schemes[*displayed_scheme_index]);
-
-                // Update init values to allow resetting back to applied state
-                config_state.init_state = config_state.state;
-                config_state
-                    .init_color_schemes
-                    .copy_from_slice(&config_state.color_schemes);
             }
         });
     });
@@ -154,15 +172,18 @@ fn create_ui(
         ui.heading("App Config");
         ui.separator();
         ComboBox::from_label("Active Color Scheme")
-            .selected_text(color_scheme_names[config_state.displayed_scheme_index].clone())
+            .selected_text(color_scheme_names[config_state.edit_scheme_index].clone())
             .show_ui(ui, |ui| {
                 for (i, name) in color_scheme_names.iter().enumerate() {
-                    ui.selectable_value(&mut config_state.displayed_scheme_index, i, name.clone());
+                    ui.selectable_value(&mut config_state.edit_scheme_index, i, name.clone());
                 }
             });
         add_color_scheme(
             ui,
-            &mut config_state.color_schemes[config_state.displayed_scheme_index],
+            &mut config_state.color_schemes[config_state.edit_scheme_index],
+            displayed_scheme_index,
+            config_state.edit_scheme_index,
+            engine,
         );
         ui.separator();
         ui.add(
@@ -225,7 +246,7 @@ impl ConfigWindow {
         let config_state = AppConfigState {
             color_schemes: initial_colors.clone(),
             init_color_schemes: initial_colors,
-            displayed_scheme_index: 0,
+            edit_scheme_index: 0,
             state: initial_state,
             init_state: initial_state,
         };
@@ -387,7 +408,7 @@ impl From<ConfigUiScheme> for Scheme {
         fn convert(i: u8) -> f32 {
             f32::from(i) / 255.
         }
-        fn zip(a: [[u8; 3]; 4], b: [f32; 4]) -> [[f32; 4]; 4] {
+        fn zip(a: &[[u8; 3]; 4], b: &[f32; 4]) -> [[f32; 4]; 4] {
             fn append(a: [u8; 3], b: f32) -> [f32; 4] {
                 //let a = normalised_from_xyz(a);
                 [convert(a[0]), convert(a[1]), convert(a[2]), b]
@@ -400,8 +421,31 @@ impl From<ConfigUiScheme> for Scheme {
             ]
         }
 
-        let index = zip(ui_scheme.index_rgb, ui_scheme.index_val);
-        let speed = zip(ui_scheme.speed_rgb, ui_scheme.speed_val);
+        let index = zip(&ui_scheme.index_rgb, &ui_scheme.index_val);
+        let speed = zip(&ui_scheme.speed_rgb, &ui_scheme.speed_val);
+        Self { index, speed }
+    }
+}
+impl From<&mut ConfigUiScheme> for Scheme {
+    fn from(ui_scheme: &mut ConfigUiScheme) -> Self {
+        fn convert(i: u8) -> f32 {
+            f32::from(i) / 255.
+        }
+        fn zip(a: &[[u8; 3]; 4], b: &[f32; 4]) -> [[f32; 4]; 4] {
+            fn append(a: [u8; 3], b: f32) -> [f32; 4] {
+                //let a = normalised_from_xyz(a);
+                [convert(a[0]), convert(a[1]), convert(a[2]), b]
+            }
+            [
+                append(a[0], b[0]),
+                append(a[1], b[1]),
+                append(a[2], b[2]),
+                append(a[3], b[3]),
+            ]
+        }
+
+        let index = zip(&ui_scheme.index_rgb, &ui_scheme.index_val);
+        let speed = zip(&ui_scheme.speed_rgb, &ui_scheme.speed_val);
         Self { index, speed }
     }
 }
