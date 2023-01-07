@@ -62,7 +62,7 @@ pub fn create_particle(
         .build(device)
     {
         Ok(pipeline) => pipeline,
-        Err(e) => panic!("Failed to construct particle graphics pipeline: {:?}", e),
+        Err(e) => panic!("Failed to construct particle graphics pipeline: {e:?}"),
     }
 }
 

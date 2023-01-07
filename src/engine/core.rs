@@ -182,7 +182,7 @@ impl EngineSwapchain {
                 })
                 .expect("Failed to find suitable surface format")
         };
-        println!("Using image color-format {:?}", image_format);
+        println!("Using image color-format {image_format:?}");
 
         // Get preferred present mode with fallback to FIFO (which any Vulkan instance must support)
         let present_mode = {
@@ -269,7 +269,7 @@ impl EngineSwapchain {
             }
 
             // Unexpected error
-            Err(e) => panic!("Failed to recreate swapchian: {:?}", e),
+            Err(e) => panic!("Failed to recreate swapchian: {e:?}"),
         }
     }
 
@@ -327,7 +327,7 @@ impl EngineSwapchain {
             }
 
             // Unknown failure
-            Err(e) => panic!("Failed to flush future: {:?}", e),
+            Err(e) => panic!("Failed to flush future: {e:?}"),
         };
 
         // Update the last rendered index to be this frame

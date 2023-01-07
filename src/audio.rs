@@ -284,7 +284,7 @@ fn transfer_loopback_chunks_for_processing(
                 Err(_) => println!("Audio-processor receiver disconnected.."),
             }
         },
-        |e| panic!("Error on audio input stream: {:?}", e),
+        |e| panic!("Error on audio input stream: {e:?}"),
     ) {
         // Stream was created successfully
         Ok(stream) => {
@@ -294,7 +294,7 @@ fn transfer_loopback_chunks_for_processing(
         }
 
         // Panic application if thread cannot capture audio-out
-        Err(e) => panic!("Error capturing audio stream: {:?}", e),
+        Err(e) => panic!("Error capturing audio stream: {e:?}"),
     }
 }
 
@@ -318,10 +318,10 @@ pub fn process_loopback_audio_and_send(tx: Sender<State>) -> cpal::Stream {
     // Search device for a supported Float32 compatible format
     let audio_config = match default_audio_out.default_output_config() {
         Ok(config) => {
-            println!("Default config from output device: {:?}", config);
+            println!("Default config from output device: {config:?}");
             config
         }
-        Err(e) => panic!("Could not find default audio format: {:?}", e),
+        Err(e) => panic!("Could not find default audio format: {e:?}"),
     };
 
     // Store stream details we are intersted in

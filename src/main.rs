@@ -227,7 +227,7 @@ impl FractalSugar {
             ) {
                 Ok(icon) => Some(icon),
                 Err(e) => {
-                    println!("Failed to parse icon: {:?}", e);
+                    println!("Failed to parse icon: {e:?}");
                     None
                 }
             }
@@ -375,7 +375,7 @@ impl FractalSugar {
                 self.window_state.recreate_swapchain = true;
                 return;
             }
-            Err(e) => panic!("Failed to acquire next image: {:?}", e),
+            Err(e) => panic!("Failed to acquire next image: {e:?}"),
         };
 
         self.window_state.recreate_swapchain |= self.engine.present(future) || suboptimal;
@@ -389,7 +389,7 @@ impl FractalSugar {
                 Ok(_) | Err(crossbeam_channel::TryRecvError::Empty) => {}
 
                 // Unexpected error, bail
-                Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
+                Err(e) => panic!("Failed to receive data from audio thread: {e:?}"),
             }
             return;
         }
@@ -463,7 +463,7 @@ impl FractalSugar {
             Err(crossbeam_channel::TryRecvError::Empty) => {}
 
             // Unexpected error, bail
-            Err(e) => panic!("Failed to receive data from audio thread: {:?}", e),
+            Err(e) => panic!("Failed to receive data from audio thread: {e:?}"),
         }
     }
 

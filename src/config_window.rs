@@ -115,11 +115,11 @@ fn add_color_scheme(
             add_scheme_element(ui, &mut scheme.speed_rgb, &mut scheme.speed_val, 0.0..=10.);
         });
 
-        if edit_scheme_index != *displayed_scheme_index {
-            if ui.button("Make current color scheme active").clicked() {
-                *displayed_scheme_index = edit_scheme_index;
-                engine.update_color_scheme(scheme.into());
-            }
+        if edit_scheme_index != *displayed_scheme_index
+            && ui.button("Make this color scheme active").clicked()
+        {
+            *displayed_scheme_index = edit_scheme_index;
+            engine.update_color_scheme(scheme.into());
         }
     });
 }
@@ -306,7 +306,7 @@ impl ConfigWindow {
             ..
         } = match self.swapchain.acquire_next_image() {
             Ok(data) => data,
-            Err(e) => panic!("Failed to acquire next image: {:?}", e),
+            Err(e) => panic!("Failed to acquire next image: {e:?}"),
         };
 
         // Draw commands
