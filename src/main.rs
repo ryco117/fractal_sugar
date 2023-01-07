@@ -558,6 +558,7 @@ impl FractalSugar {
 
                 if self.config_window.overlay_visible() {
                     self.engine.window().set_cursor_visible(true);
+                    self.game_state.is_cursor_visible = true;
                 }
                 self.game_state.cursor_force = 0.;
             }
