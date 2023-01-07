@@ -30,7 +30,7 @@ use winit::event::{
     ElementState, Event, KeyboardInput, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
 };
 use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Fullscreen, WindowId};
+use winit::window::Fullscreen;
 
 use engine::core::{RecreateSwapchainResult, WindowSurface};
 use engine::{DrawData, Engine};
@@ -121,7 +121,6 @@ struct WindowState {
     pub is_focused: bool,
     pub last_frame_time: SystemTime,
     pub last_mouse_movement: SystemTime,
-    pub window_id: WindowId,
 }
 
 #[cfg(target_os = "windows")]
@@ -252,12 +251,17 @@ impl FractalSugar {
             is_focused: true,
             last_frame_time: SystemTime::now(),
             last_mouse_movement: SystemTime::now(),
-            window_id: engine.window().id(),
         };
         let audio_state = LocalAudioState::default();
         let game_state = GameState::default();
 
-        let config_window = ConfigWindow::new(engine.instance(), &event_loop, &app_config);
+        let config_window = ConfigWindow::new(
+            engine.surface().clone(),
+            engine.swapchain(),
+            engine.queue().clone(),
+            &event_loop,
+            &app_config,
+        );
 
         Self {
             color_schemes: app_config.color_schemes,
@@ -284,31 +288,18 @@ impl FractalSugar {
             .unwrap()
             .run(move |event, _, control_flow| match event {
                 // All UI events have been handled (ie., executes once per frame)
-                Event::MainEventsCleared => {
-                    self.tock_frame();
+                Event::MainEventsCleared => self.tock_frame(),
 
-                    // Request config window is redrawn
-                    self.config_window.window().request_redraw();
-                }
-
-                // Handle all window-interaction events
-                Event::WindowEvent { event, window_id } => {
-                    if window_id == self.window_state.window_id {
-                        // Handle events to main window
-                        self.handle_window_event(&event, control_flow);
-                    } else if window_id == self.config_window.id() {
-                        self.config_window.handle_input(&event);
+                Event::WindowEvent { event, .. } => {
+                    let mut handle_event = true;
+                    if self.config_window.overlay_visible() {
+                        // Handle overlay
+                        handle_event = !self.config_window.handle_input(&event);
                     }
-                }
 
-                // Handle drawing of config window
-                Event::RedrawRequested(window_id) if window_id == self.config_window.id() => {
-                    self.config_window.draw(
-                        &mut self.engine,
-                        &self.color_scheme_names,
-                        &mut self.color_schemes,
-                        &mut self.game_state.color_scheme_index,
-                    );
+                    if handle_event {
+                        self.handle_window_event(&event, control_flow);
+                    }
                 }
 
                 // Catch-all
@@ -337,6 +328,7 @@ impl FractalSugar {
         // If cursor is visible and has been stationary then hide it
         let window = surface.window();
         if self.game_state.is_cursor_visible
+            && !self.config_window.overlay_visible()
             && self.window_state.is_focused
             && self
                 .window_state
@@ -369,7 +361,7 @@ impl FractalSugar {
         let draw_data = self.next_shader_data(delta_time, self.engine.window().inner_size());
 
         // Draw frame and return whether a swapchain recreation was deemed necessary
-        let (future, suboptimal) = match self.engine.render(&draw_data) {
+        let (mut future, suboptimal) = match self.engine.render(&draw_data) {
             Ok(pair) => pair,
             Err(vulkano::swapchain::AcquireError::OutOfDate) => {
                 self.window_state.recreate_swapchain = true;
@@ -377,6 +369,26 @@ impl FractalSugar {
             }
             Err(e) => panic!("Failed to acquire next image: {e:?}"),
         };
+
+        if self.config_window.overlay_visible() {
+            // Render the config as an overlay
+            let frame = self
+                .engine
+                .render_frame()
+                .attachments()
+                .last()
+                .unwrap()
+                .clone();
+
+            future = self.config_window.draw(
+                &mut self.engine,
+                &self.color_scheme_names,
+                &mut self.color_schemes,
+                &mut self.game_state.color_scheme_index,
+                frame,
+                future,
+            );
+        }
 
         self.window_state.recreate_swapchain |= self.engine.present(future) || suboptimal;
     }
@@ -541,7 +553,14 @@ impl FractalSugar {
             }
 
             // Toggle display of GUI
-            VirtualKeyCode::G => self.config_window.toggle_visibility(),
+            VirtualKeyCode::G => {
+                self.config_window.toggle_overlay();
+
+                if self.config_window.overlay_visible() {
+                    self.engine.window().set_cursor_visible(true);
+                }
+                self.game_state.cursor_force = 0.;
+            }
 
             // Toggle audio-responsiveness
             VirtualKeyCode::R => {
@@ -632,6 +651,12 @@ impl FractalSugar {
                         MouseButton::Right => 1.,
                         _ => 0.,
                     };
+
+                // Allow users to fix cursor state issues bly clicking the respective button
+                let m = self.game_state.cursor_force.abs();
+                if m > 1. {
+                    self.game_state.cursor_force /= m;
+                }
             }
 
             // Handle mouse scroll wheel to change strength of cursor-applied forces

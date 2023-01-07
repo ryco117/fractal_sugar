@@ -22,20 +22,12 @@ use std::sync::Arc;
 use egui::{ComboBox, ScrollArea, Slider, Ui};
 use egui_winit_vulkano::Gui;
 use vulkano::device::Queue;
-use vulkano::image::view::ImageView;
-use vulkano::image::SwapchainImage;
-use vulkano::instance::Instance;
-use vulkano::swapchain::{PresentMode, Surface};
-use winit::window::WindowId;
-use winit::{
-    dpi::LogicalSize,
-    event::WindowEvent,
-    event_loop::EventLoop,
-    window::{Window, WindowBuilder},
-};
+use vulkano::image::ImageViewAbstract;
+use vulkano::swapchain::{Surface, Swapchain};
+use vulkano::sync::GpuFuture;
+use winit::{event::WindowEvent, event_loop::EventLoop};
 
 use crate::app_config::{AppConfig, Scheme};
-use crate::engine::core::{select_hardware, AcquiredImageData, EngineSwapchain, WindowSurface};
 use crate::engine::{AppConstants, Engine};
 
 #[derive(Clone, Copy)]
@@ -48,11 +40,7 @@ struct ConfigUiScheme {
 
 pub struct ConfigWindow {
     config_state: AppConfigState,
-    framebuffers: Vec<Arc<ImageView<SwapchainImage>>>,
     gui: Gui,
-    id: WindowId,
-    surface: Arc<Surface>,
-    swapchain: EngineSwapchain,
     queue: Arc<Queue>,
     visible: bool,
 }
@@ -67,7 +55,6 @@ struct AppConfigState {
 }
 
 const DEFAULT_VISIBILITY: bool = false;
-const CONFIG_WINDOW_SIZE: [u32; 2] = [400, 600];
 
 fn add_scheme_element(
     ui: &mut Ui,
@@ -132,108 +119,95 @@ fn create_ui(
     color_scheme_names: &[String],
     color_schemes: &mut [Scheme],
     displayed_scheme_index: &mut usize,
+    visible: &mut bool,
 ) {
     let ctx = gui.context();
-    egui::TopBottomPanel::bottom("bottom_panel").show(&ctx, |ui| {
-        ui.horizontal_centered(|ui| {
-            // Allow user to reset back to values currently applied
-            if ui
-                .button("Reset")
-                .on_hover_text("Reset displayed values to the constants used at launch.")
-                .clicked()
-            {
-                config_state.state = config_state.init_state;
-                config_state
-                    .color_schemes
-                    .copy_from_slice(&config_state.init_color_schemes);
-            }
+    let name = "App Config";
+    egui::Window::new(name)
+        .open(visible)
+        .resizable(true)
+        .show(&ctx, |ui| {
+            ComboBox::from_label("Active Color Scheme")
+                .selected_text(color_scheme_names[config_state.edit_scheme_index].clone())
+                .show_ui(ui, |ui| {
+                    for (i, name) in color_scheme_names.iter().enumerate() {
+                        ui.selectable_value(&mut config_state.edit_scheme_index, i, name.clone());
+                    }
+                });
+            add_color_scheme(
+                ui,
+                &mut config_state.color_schemes[config_state.edit_scheme_index],
+                displayed_scheme_index,
+                config_state.edit_scheme_index,
+                engine,
+            );
+            ui.separator();
+            ui.add(
+                Slider::new(&mut config_state.state.audio_scale, -30.0..=5.)
+                    .text("audio scale (dB)"),
+            );
+            ui.add(Slider::new(&mut config_state.state.max_speed, 0.0..=10.).text("max speed"));
+            ui.add(Slider::new(&mut config_state.state.point_size, 0.0..=8.).text("point size"));
+            ui.add(
+                Slider::new(&mut config_state.state.friction_scale, 0.0..=5.)
+                    .text("friction scale"),
+            );
+            ui.add(
+                Slider::new(&mut config_state.state.spring_coefficient, 0.0..=200.)
+                    .text("spring coefficient"),
+            );
+            ui.add(
+                Slider::new(&mut config_state.state.vertical_fov, 30.0..=105.).text("vertical fov"),
+            );
+            ui.separator();
+            ui.horizontal(|ui| {
+                // Allow user to reset back to values currently applied
+                if ui
+                    .button("Reset")
+                    .on_hover_text("Reset displayed values to the constants used at launch.")
+                    .clicked()
+                {
+                    config_state.state = config_state.init_state;
+                    config_state
+                        .color_schemes
+                        .copy_from_slice(&config_state.init_color_schemes);
+                }
 
-            // Apply the values on screen to the GPU
-            if ui
-                .button("Apply")
-                .on_hover_text("Apply displayed values to the scene.")
-                .clicked()
-            {
-                let constants = constants_from_presentable(config_state.state);
-                engine.update_app_constants(constants);
+                // Apply the values on screen to the GPU
+                if ui
+                    .button("Apply")
+                    .on_hover_text("Apply displayed values to the scene.")
+                    .clicked()
+                {
+                    let constants = constants_from_presentable(config_state.state);
+                    engine.update_app_constants(constants);
 
-                let new_colors: Vec<_> = config_state
-                    .color_schemes
-                    .iter()
-                    .map(|cs| (*cs).into())
-                    .collect();
-                color_schemes.copy_from_slice(&new_colors);
-                engine.update_color_scheme(color_schemes[*displayed_scheme_index]);
-            }
-        });
-    });
-
-    egui::CentralPanel::default().show(&ctx, |ui| {
-        ui.heading("App Config");
-        ui.separator();
-        ComboBox::from_label("Active Color Scheme")
-            .selected_text(color_scheme_names[config_state.edit_scheme_index].clone())
-            .show_ui(ui, |ui| {
-                for (i, name) in color_scheme_names.iter().enumerate() {
-                    ui.selectable_value(&mut config_state.edit_scheme_index, i, name.clone());
+                    let new_colors: Vec<_> = config_state
+                        .color_schemes
+                        .iter()
+                        .map(|cs| (*cs).into())
+                        .collect();
+                    color_schemes.copy_from_slice(&new_colors);
+                    engine.update_color_scheme(color_schemes[*displayed_scheme_index]);
                 }
             });
-        add_color_scheme(
-            ui,
-            &mut config_state.color_schemes[config_state.edit_scheme_index],
-            displayed_scheme_index,
-            config_state.edit_scheme_index,
-            engine,
-        );
-        ui.separator();
-        ui.add(
-            Slider::new(&mut config_state.state.audio_scale, -30.0..=5.).text("audio scale (dB)"),
-        );
-        ui.add(Slider::new(&mut config_state.state.max_speed, 0.0..=10.).text("max speed"));
-        ui.add(Slider::new(&mut config_state.state.point_size, 0.0..=8.).text("point size"));
-        ui.add(
-            Slider::new(&mut config_state.state.friction_scale, 0.0..=5.).text("friction scale"),
-        );
-        ui.add(
-            Slider::new(&mut config_state.state.spring_coefficient, 0.0..=200.)
-                .text("spring coefficient"),
-        );
-        ui.add(Slider::new(&mut config_state.state.vertical_fov, 30.0..=105.).text("vertical fov"));
-    });
+        });
 }
 
 impl ConfigWindow {
     pub fn new(
-        instance: &Arc<Instance>,
+        surface: Arc<Surface>,
+        swapchain: &Arc<Swapchain>,
+        queue: Arc<Queue>,
         event_loop: &EventLoop<()>,
         app_config: &AppConfig,
     ) -> Self {
-        use vulkano_win::VkSurfaceBuild;
-        let surface = WindowBuilder::new()
-            .with_title("app config")
-            .with_resizable(false)
-            .with_inner_size(LogicalSize::<u32>::from(CONFIG_WINDOW_SIZE))
-            .with_visible(DEFAULT_VISIBILITY)
-            .build_vk_surface(event_loop, instance.clone())
-            .unwrap();
-
-        let (physical_device, device, queue) = select_hardware(instance, &surface);
-
-        let swapchain =
-            EngineSwapchain::new(&physical_device, device, surface.clone(), PresentMode::Fifo);
-
-        let framebuffers = swapchain
-            .images()
-            .iter()
-            .map(|img| ImageView::new_default(img.clone()).unwrap())
-            .collect();
-
         let gui = Gui::new(
             event_loop,
-            surface.clone(),
+            surface,
             Some(swapchain.image_format()),
             queue.clone(),
-            false,
+            true,
         );
 
         let initial_state = constants_to_presentable(app_config.into());
@@ -253,25 +227,15 @@ impl ConfigWindow {
 
         Self {
             config_state,
-            framebuffers,
             gui,
-            id: surface.window().id(),
-            surface,
-            swapchain,
             queue,
             visible: DEFAULT_VISIBILITY,
         }
     }
 
-    pub fn handle_input(&mut self, event: &WindowEvent) {
+    pub fn handle_input(&mut self, event: &WindowEvent) -> bool {
         // Handle UI events
-        self.gui.update(event);
-
-        // Ensure to handle the 'close' event
-        if event == &WindowEvent::CloseRequested {
-            self.window().set_visible(false);
-            self.visible = false;
-        }
+        self.gui.update(event)
     }
 
     // Draw config UI to window
@@ -281,10 +245,12 @@ impl ConfigWindow {
         color_scheme_names: &[String],
         color_schemes: &mut [Scheme],
         displayed_scheme_index: &mut usize,
-    ) {
+        frame: Arc<dyn ImageViewAbstract>,
+        before_future: Box<dyn GpuFuture>,
+    ) -> Box<dyn GpuFuture> {
         // Quick escape the render if window is not visible
         if !self.visible {
-            return;
+            return vulkano::sync::now(self.queue.device().clone()).boxed();
         }
 
         // Setup UI layout
@@ -296,42 +262,18 @@ impl ConfigWindow {
                 color_scheme_names,
                 color_schemes,
                 displayed_scheme_index,
+                &mut self.visible,
             );
         });
 
-        // Acquire next frame for rendering
-        let AcquiredImageData {
-            acquire_future,
-            image_index,
-            ..
-        } = match self.swapchain.acquire_next_image() {
-            Ok(data) => data,
-            Err(e) => panic!("Failed to acquire next image: {e:?}"),
-        };
-
-        // Draw commands
-        let future = self.gui.draw_on_image(
-            acquire_future,
-            self.framebuffers[image_index as usize].clone(),
-        );
-        self.swapchain.present(self.queue.clone(), future);
+        self.gui.draw_on_image(before_future, frame)
     }
 
-    pub fn toggle_visibility(&mut self) {
-        if self.visible {
-            self.window().focus_window();
-        } else {
-            self.visible = !self.visible;
-            self.window().set_visible(self.visible);
-        }
+    pub fn toggle_overlay(&mut self) {
+        self.visible = !self.visible;
     }
-
-    // Getters
-    pub fn id(&self) -> WindowId {
-        self.id
-    }
-    pub fn window(&self) -> &Window {
-        self.surface.window()
+    pub fn overlay_visible(&self) -> bool {
+        self.visible
     }
 }
 
@@ -410,7 +352,6 @@ impl From<ConfigUiScheme> for Scheme {
         }
         fn zip(a: &[[u8; 3]; 4], b: &[f32; 4]) -> [[f32; 4]; 4] {
             fn append(a: [u8; 3], b: f32) -> [f32; 4] {
-                //let a = normalised_from_xyz(a);
                 [convert(a[0]), convert(a[1]), convert(a[2]), b]
             }
             [
@@ -433,7 +374,6 @@ impl From<&mut ConfigUiScheme> for Scheme {
         }
         fn zip(a: &[[u8; 3]; 4], b: &[f32; 4]) -> [[f32; 4]; 4] {
             fn append(a: [u8; 3], b: f32) -> [f32; 4] {
-                //let a = normalised_from_xyz(a);
                 [convert(a[0]), convert(a[1]), convert(a[2]), b]
             }
             [

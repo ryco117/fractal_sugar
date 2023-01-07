@@ -69,7 +69,7 @@ pub fn create_render_commands(
     // Allow toggling of particle effects and avoid unnecesary computation
     if let Some((compute_push_constants, vertex_push_constants)) = draw_data.particle_data {
         let compute_pipeline = engine.compute_pipeline();
-        let descriptor_set = engine.compute_descriptor_set();
+        let descriptor_set = engine.compute_descriptor_set().clone();
         let vertex_buffer = engine.particles.vertex_buffers.vertex.clone();
         let buffer_count = engine.particle_count() as u32;
 
@@ -94,10 +94,10 @@ pub fn create_render_commands(
         // Add inline commands to render particles
         inline_particles_cmds(
             &mut builder,
-            engine.particle_pipeline(),
+            engine.particle_pipeline().clone(),
             &vertex_buffer,
             vertex_push_constants,
-            engine.particle_descriptor_set(),
+            engine.particle_descriptor_set().clone(),
         );
     } else {
         // Begin the same render pass as with particles, but skip commands to draw particles
@@ -154,7 +154,7 @@ fn inline_fractal_cmds(
 ) {
     let app_constants = engine.app_constants.buffer.clone();
 
-    let pipeline = engine.fractal_pipeline();
+    let pipeline = engine.fractal_pipeline().clone();
     let layout = pipeline.layout().clone();
     let descriptor_set = PersistentDescriptorSet::new(
         engine.descriptor_pool(),

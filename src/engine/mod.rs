@@ -32,7 +32,7 @@ use vulkano::memory::allocator::StandardMemoryAllocator;
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::{ComputePipeline, GraphicsPipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
-use vulkano::swapchain::{AcquireError, PresentMode, Surface};
+use vulkano::swapchain::{AcquireError, PresentMode, Surface, Swapchain};
 use vulkano::sync::GpuFuture;
 use vulkano_win::VkSurfaceBuild;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -93,7 +93,6 @@ pub struct Engine {
     device: Arc<Device>,
     fractal: Fractal,
     framebuffers: Vec<Arc<Framebuffer>>,
-    instance: Arc<Instance>,
     particles: Particles,
     queue: Arc<Queue>,
     render_pass: Arc<RenderPass>,
@@ -204,7 +203,6 @@ impl Engine {
             device,
             fractal,
             framebuffers,
-            instance,
             particles,
 
             queue,
@@ -328,36 +326,39 @@ impl Engine {
     pub fn app_constants(&self) -> &AppConstants {
         &self.app_constants.constants
     }
-    pub fn compute_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
-        self.particles.compute_descriptor_set.clone()
+    pub fn compute_descriptor_set(&self) -> &Arc<PersistentDescriptorSet> {
+        &self.particles.compute_descriptor_set
     }
-    pub fn compute_pipeline(&self) -> Arc<ComputePipeline> {
-        self.particles.compute_pipeline.clone()
+    pub fn compute_pipeline(&self) -> &Arc<ComputePipeline> {
+        &self.particles.compute_pipeline
     }
     pub fn descriptor_pool(&self) -> &StandardDescriptorSetAllocator {
         &self.allocators.descriptor_set
     }
-    pub fn fractal_pipeline(&self) -> Arc<GraphicsPipeline> {
-        self.fractal.pipeline.clone()
+    pub fn fractal_pipeline(&self) -> &Arc<GraphicsPipeline> {
+        &self.fractal.pipeline
     }
-    pub fn instance(&self) -> &Arc<Instance> {
-        &self.instance
+    pub fn particle_descriptor_set(&self) -> &Arc<PersistentDescriptorSet> {
+        &self.particles.graphics_descriptor_set
     }
-    pub fn particle_descriptor_set(&self) -> Arc<PersistentDescriptorSet> {
-        self.particles.graphics_descriptor_set.clone()
+    pub fn particle_pipeline(&self) -> &Arc<GraphicsPipeline> {
+        &self.particles.graphics_pipeline
     }
-    pub fn particle_pipeline(&self) -> Arc<GraphicsPipeline> {
-        self.particles.graphics_pipeline.clone()
+    pub fn queue(&self) -> &Arc<Queue> {
+        &self.queue
     }
-    pub fn queue(&self) -> Arc<Queue> {
-        self.queue.clone()
+    pub fn surface(&self) -> &Arc<Surface> {
+        &self.surface
     }
-    pub fn surface(&self) -> Arc<Surface> {
-        self.surface.clone()
+    pub fn swapchain(&self) -> &Arc<Swapchain> {
+        self.swapchain.swapchain()
     }
     pub fn particle_count(&self) -> u64 {
         use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
         self.particles.vertex_buffers.vertex.len()
+    }
+    pub fn render_frame(&self) -> &Arc<Framebuffer> {
+        &self.framebuffers[self.swapchain.present_index().unwrap_or_default() as usize]
     }
     pub fn window(&self) -> &Window {
         self.surface.window()
@@ -512,6 +513,7 @@ impl From<&AppConfig> for AppConstants {
 }
 
 impl Allocators {
+    #[allow(clippy::default_trait_access)]
     fn new_default(device: &Arc<Device>) -> Self {
         Self {
             memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),

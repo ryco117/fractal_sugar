@@ -344,7 +344,10 @@ impl EngineSwapchain {
     pub fn image_format(&self) -> Format {
         self.swapchain.image_format()
     }
-    pub fn swapchain(&self) -> Arc<Swapchain> {
-        self.swapchain.clone()
+    pub fn swapchain(&self) -> &Arc<Swapchain> {
+        &self.swapchain
+    }
+    pub fn present_index(&self) -> Option<u32> {
+        self.present_index
     }
 }

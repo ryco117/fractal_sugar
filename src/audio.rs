@@ -422,7 +422,7 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
     let (bass_analysis, current_bass) = {
         let frequency_range: std::ops::Range<f32> = 30.0..250.;
         let delta: f32 = 1.;
-        let min_volume: f32 = 0.25;
+        let min_volume: f32 = 0.2;
         let vol_freq_scale = 1.825;
         let analysis = analyze_frequency_range(
             frequency_range.clone(),
@@ -462,7 +462,7 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
     let mids_analysis = {
         let frequency_range: std::ops::Range<f32> = 250.0..1_800.;
         let delta: f32 = 0.1;
-        let min_volume: f32 = 0.05;
+        let min_volume: f32 = 0.025;
         let vol_freq_scale = 3.;
         analyze_frequency_range(
             frequency_range,
@@ -476,7 +476,7 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
     let high_analysis = {
         let frequency_range: std::ops::Range<f32> = 1_800.0..16_000.;
         let delta: f32 = 0.1;
-        let min_volume: f32 = 0.0075;
+        let min_volume: f32 = 0.005;
         let vol_freq_scale = 8.;
         analyze_frequency_range(
             frequency_range,
