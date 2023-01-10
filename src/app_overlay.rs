@@ -38,39 +38,24 @@ struct ConfigUiScheme {
     pub speed_val: [f32; 4],
 }
 
-pub struct ConfigWindow {
-    config_state: AppConfigState,
+pub struct AppOverlay {
+    config_window: ConfigWindow,
     gui: Gui,
+    help_visible: bool,
     queue: Arc<Queue>,
-    visible: bool,
 }
 
-struct AppConfigState {
+struct ConfigWindow {
     color_schemes: Vec<ConfigUiScheme>,
     init_color_schemes: Vec<ConfigUiScheme>,
     edit_scheme_index: usize,
 
     state: AppConstants,
     init_state: AppConstants,
+    visible: bool,
 }
 
 const DEFAULT_VISIBILITY: bool = false;
-
-fn add_scheme_element(
-    ui: &mut Ui,
-    rgb: &mut [[u8; 3]; 4],
-    val: &mut [f32; 4],
-    range: RangeInclusive<f32>,
-) {
-    let n = rgb.len();
-    for i in 0..n - 1 {
-        ui.color_edit_button_srgb(&mut rgb[i]);
-        ui.add(Slider::new(&mut val[i], range.clone()));
-        ui.end_row();
-    }
-    ui.color_edit_button_srgb(&mut rgb[n - 1]);
-    ui.end_row();
-}
 
 fn add_color_scheme(
     ui: &mut Ui,
@@ -79,14 +64,32 @@ fn add_color_scheme(
     edit_scheme_index: usize,
     engine: &mut Engine,
 ) {
-    // Enforce limits
+    // Helper to add rgb widgets and sliders associated with part of a color-scheme
+    fn add_scheme_element(
+        ui: &mut Ui,
+        rgb: &mut [[u8; 3]; 4],
+        val: &mut [f32; 4],
+        range: RangeInclusive<f32>,
+    ) {
+        let n = rgb.len();
+        for i in 0..n - 1 {
+            ui.color_edit_button_srgb(&mut rgb[i]);
+            ui.add(Slider::new(&mut val[i], range.clone()));
+            ui.end_row();
+        }
+        ui.color_edit_button_srgb(&mut rgb[n - 1]);
+        ui.end_row();
+    }
+
+    // Helper to enforce the given list is an increasing sequence
     fn enforce_limits(vals: &mut [f32; 4]) {
         let mut max = 0.;
         for v in vals[0..3].iter_mut() {
             if *v < max {
                 *v = max;
+            } else {
+                max = *v;
             }
-            max = *v;
         }
     }
     enforce_limits(&mut scheme.index_val);
@@ -112,52 +115,51 @@ fn add_color_scheme(
 }
 
 // Define the layout and behavior of the config UI
-fn create_ui(
+fn create_config_ui(
     gui: &mut Gui,
-    config_state: &mut AppConfigState,
+    config_window: &mut ConfigWindow,
     engine: &mut Engine,
     color_scheme_names: &[String],
     color_schemes: &mut [Scheme],
     displayed_scheme_index: &mut usize,
-    visible: &mut bool,
 ) {
     let ctx = gui.context();
-    let name = "App Config";
-    egui::Window::new(name)
-        .open(visible)
+    egui::Window::new("App Config")
+        .open(&mut config_window.visible)
         .resizable(true)
         .show(&ctx, |ui| {
             ComboBox::from_label("Active Color Scheme")
-                .selected_text(color_scheme_names[config_state.edit_scheme_index].clone())
+                .selected_text(color_scheme_names[config_window.edit_scheme_index].clone())
                 .show_ui(ui, |ui| {
                     for (i, name) in color_scheme_names.iter().enumerate() {
-                        ui.selectable_value(&mut config_state.edit_scheme_index, i, name.clone());
+                        ui.selectable_value(&mut config_window.edit_scheme_index, i, name.clone());
                     }
                 });
             add_color_scheme(
                 ui,
-                &mut config_state.color_schemes[config_state.edit_scheme_index],
+                &mut config_window.color_schemes[config_window.edit_scheme_index],
                 displayed_scheme_index,
-                config_state.edit_scheme_index,
+                config_window.edit_scheme_index,
                 engine,
             );
             ui.separator();
             ui.add(
-                Slider::new(&mut config_state.state.audio_scale, -30.0..=5.)
+                Slider::new(&mut config_window.state.audio_scale, -30.0..=5.)
                     .text("audio scale (dB)"),
             );
-            ui.add(Slider::new(&mut config_state.state.max_speed, 0.0..=10.).text("max speed"));
-            ui.add(Slider::new(&mut config_state.state.point_size, 0.0..=8.).text("point size"));
+            ui.add(Slider::new(&mut config_window.state.max_speed, 0.0..=10.).text("max speed"));
+            ui.add(Slider::new(&mut config_window.state.point_size, 0.0..=8.).text("point size"));
             ui.add(
-                Slider::new(&mut config_state.state.friction_scale, 0.0..=5.)
+                Slider::new(&mut config_window.state.friction_scale, 0.0..=5.)
                     .text("friction scale"),
             );
             ui.add(
-                Slider::new(&mut config_state.state.spring_coefficient, 0.0..=200.)
+                Slider::new(&mut config_window.state.spring_coefficient, 0.0..=200.)
                     .text("spring coefficient"),
             );
             ui.add(
-                Slider::new(&mut config_state.state.vertical_fov, 30.0..=105.).text("vertical fov"),
+                Slider::new(&mut config_window.state.vertical_fov, 30.0..=105.)
+                    .text("vertical fov"),
             );
             ui.separator();
             ui.horizontal(|ui| {
@@ -167,10 +169,10 @@ fn create_ui(
                     .on_hover_text("Reset displayed values to the constants used at launch.")
                     .clicked()
                 {
-                    config_state.state = config_state.init_state;
-                    config_state
+                    config_window.state = config_window.init_state;
+                    config_window
                         .color_schemes
-                        .copy_from_slice(&config_state.init_color_schemes);
+                        .copy_from_slice(&config_window.init_color_schemes);
                 }
 
                 // Apply the values on screen to the GPU
@@ -179,10 +181,10 @@ fn create_ui(
                     .on_hover_text("Apply displayed values to the scene.")
                     .clicked()
                 {
-                    let constants = constants_from_presentable(config_state.state);
+                    let constants = constants_from_presentable(config_window.state);
                     engine.update_app_constants(constants);
 
-                    let new_colors: Vec<_> = config_state
+                    let new_colors: Vec<_> = config_window
                         .color_schemes
                         .iter()
                         .map(|cs| (*cs).into())
@@ -194,7 +196,74 @@ fn create_ui(
         });
 }
 
-impl ConfigWindow {
+enum HelpWindowEntry {
+    Title(&'static str),
+    Item(&'static str, &'static str),
+    Empty(),
+}
+
+// Define the layout and behavior of the config UI
+fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
+    use HelpWindowEntry::{Empty, Item, Title};
+    let ctx = gui.context();
+    egui::Window::new("Help")
+        .open(visible)
+        .resizable(true)
+        .show(&ctx, |ui| {
+            ScrollArea::vertical().show(ui, |ui| {
+                let controls_list = [
+                    Title("App-Window Management"),
+                    Item("F11", "Toggle window fullscreen"),
+                    Item("ESC", "If fullscreen, then enter windowed mode. Else, close the application"),
+                    Empty(),
+
+                    Title("Overlay-Window Management"),
+                    Item("F1", "Toggle visibility of this Help window"),
+                    Item("C", "Toggle visibility of the App Config window"),
+                    Empty(),
+
+                    Title("Audio"),
+                    Item("R", "Toggle the application's responsiveness to system audio"),
+                    Empty(),
+
+                    Title("Visuals"),
+                    Item("SPACE", "Toggle kaleidoscope effect on fractals"),
+                    Item("J", "Toggle 'jello' effect on particles (i.e., the fixing of particles to a position with spring tension)"),
+                    Item("P", "Toggle the rendering and updating of particles"),
+                    Item("CAPS", "Toggle negative-color effect for particles"),
+                    Item("D", "Toggle between 2D and 3D projections of the particles"),
+                    Item("TAB", "Cycle through particle color schemes"),
+                    Item("0", "Select the 'empty' fractal"),
+                    Item("1-5", "Select the fractal corresponding to the respective key"),
+
+                    #[cfg(target_os = "windows")]
+                    Empty(),
+                    #[cfg(target_os = "windows")]
+                    Title("Windows Platform"),
+                    #[cfg(target_os = "windows")]
+                    Item("ENTER", "Toggle the visibility of the output command prompt"),
+                ];
+                egui::Grid::new("scheme_index_grid").show(ui, |ui| {
+                    for entry in controls_list {
+                        match entry {
+                            Item(key, desc) => {
+                                ui.code(key);
+                                ui.label(desc);
+                            }
+                            Empty() => {}
+                            Title(title) => {
+                                ui.separator();
+                                ui.heading(title);
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+            });
+        });
+}
+
+impl AppOverlay {
     pub fn new(
         surface: Arc<Surface>,
         swapchain: &Arc<Swapchain>,
@@ -217,19 +286,20 @@ impl ConfigWindow {
             .map(|cs| (*cs).into())
             .collect();
 
-        let config_state = AppConfigState {
+        let config_window = ConfigWindow {
             color_schemes: initial_colors.clone(),
             init_color_schemes: initial_colors,
             edit_scheme_index: 0,
             state: initial_state,
             init_state: initial_state,
+            visible: DEFAULT_VISIBILITY,
         };
 
         Self {
-            config_state,
+            config_window,
             gui,
+            help_visible: DEFAULT_VISIBILITY,
             queue,
-            visible: DEFAULT_VISIBILITY,
         }
     }
 
@@ -249,31 +319,37 @@ impl ConfigWindow {
         before_future: Box<dyn GpuFuture>,
     ) -> Box<dyn GpuFuture> {
         // Quick escape the render if window is not visible
-        if !self.visible {
+        if !self.visible() {
             return vulkano::sync::now(self.queue.device().clone()).boxed();
         }
 
         // Setup UI layout
         self.gui.immediate_ui(|gui| {
-            create_ui(
+            // Draw config window
+            create_config_ui(
                 gui,
-                &mut self.config_state,
+                &mut self.config_window,
                 engine,
                 color_scheme_names,
                 color_schemes,
                 displayed_scheme_index,
-                &mut self.visible,
             );
+
+            // Draw help window
+            create_help_ui(gui, &mut self.help_visible);
         });
 
         self.gui.draw_on_image(before_future, frame)
     }
 
-    pub fn toggle_overlay(&mut self) {
-        self.visible = !self.visible;
+    pub fn toggle_help(&mut self) {
+        self.help_visible = !self.help_visible;
     }
-    pub fn overlay_visible(&self) -> bool {
-        self.visible
+    pub fn toggle_config(&mut self) {
+        self.config_window.visible = !self.config_window.visible;
+    }
+    pub fn visible(&self) -> bool {
+        self.help_visible || self.config_window.visible
     }
 }
 

@@ -21,10 +21,9 @@
 // TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
-
 use std::time::SystemTime;
 
-use config_window::ConfigWindow;
+use app_overlay::AppOverlay;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{
     ElementState, Event, KeyboardInput, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
@@ -36,8 +35,8 @@ use engine::core::{RecreateSwapchainResult, WindowSurface};
 use engine::{DrawData, Engine};
 
 mod app_config;
+mod app_overlay;
 mod audio;
-mod config_window;
 mod engine;
 mod my_math;
 mod space_filling_curves;
@@ -133,7 +132,7 @@ struct FractalSugar {
     color_schemes: Vec<Scheme>,
     color_scheme_names: Vec<String>,
 
-    config_window: ConfigWindow,
+    app_overlay: AppOverlay,
     engine: Engine,
     event_loop: Option<EventLoop<()>>,
     audio_receiver: crossbeam_channel::Receiver<audio::State>,
@@ -255,7 +254,7 @@ impl FractalSugar {
         let audio_state = LocalAudioState::default();
         let game_state = GameState::default();
 
-        let config_window = ConfigWindow::new(
+        let config_window = AppOverlay::new(
             engine.surface().clone(),
             engine.swapchain(),
             engine.queue().clone(),
@@ -266,7 +265,7 @@ impl FractalSugar {
         Self {
             color_schemes: app_config.color_schemes,
             color_scheme_names: app_config.color_scheme_names,
-            config_window,
+            app_overlay: config_window,
             engine,
             event_loop: Some(event_loop),
             audio_receiver: rx,
@@ -292,9 +291,9 @@ impl FractalSugar {
 
                 Event::WindowEvent { event, .. } => {
                     let mut handle_event = true;
-                    if self.config_window.overlay_visible() {
-                        // Handle overlay
-                        handle_event = !self.config_window.handle_input(&event);
+                    if self.app_overlay.visible() {
+                        // Handle overlay inputs
+                        handle_event = !self.app_overlay.handle_input(&event);
                     }
 
                     if handle_event {
@@ -328,7 +327,7 @@ impl FractalSugar {
         // If cursor is visible and has been stationary then hide it
         let window = surface.window();
         if self.game_state.is_cursor_visible
-            && !self.config_window.overlay_visible()
+            && !self.app_overlay.visible()
             && self.window_state.is_focused
             && self
                 .window_state
@@ -370,7 +369,7 @@ impl FractalSugar {
             Err(e) => panic!("Failed to acquire next image: {e:?}"),
         };
 
-        if self.config_window.overlay_visible() {
+        if self.app_overlay.visible() {
             // Render the config as an overlay
             let frame = self
                 .engine
@@ -380,7 +379,7 @@ impl FractalSugar {
                 .unwrap()
                 .clone();
 
-            future = self.config_window.draw(
+            future = self.app_overlay.draw(
                 &mut self.engine,
                 &self.color_scheme_names,
                 &mut self.color_schemes,
@@ -505,7 +504,6 @@ impl FractalSugar {
                     // Exit window loop
                     println!("The Escape key was pressed, exiting");
                     *control_flow = ControlFlow::Exit;
-                    std::process::exit(0);
                 }
             }
 
@@ -552,16 +550,11 @@ impl FractalSugar {
                     .update_color_scheme(self.color_schemes[self.game_state.color_scheme_index]);
             }
 
-            // Toggle display of GUI
-            VirtualKeyCode::G => {
-                self.config_window.toggle_overlay();
+            // Toggle display of config window
+            VirtualKeyCode::C => self.app_overlay.toggle_config(),
 
-                if self.config_window.overlay_visible() {
-                    self.engine.window().set_cursor_visible(true);
-                    self.game_state.is_cursor_visible = true;
-                }
-                self.game_state.cursor_force = 0.;
-            }
+            // Toggle display of help window
+            VirtualKeyCode::F1 => self.app_overlay.toggle_help(),
 
             // Toggle audio-responsiveness
             VirtualKeyCode::R => {
@@ -604,7 +597,6 @@ impl FractalSugar {
             WindowEvent::CloseRequested => {
                 println!("The close button was pressed, exiting");
                 *control_flow = ControlFlow::Exit;
-                std::process::exit(0);
             }
 
             // Handle resize
@@ -744,7 +736,8 @@ impl FractalSugar {
         };
     }
 
-    // Create
+    // Create the push-constant data for the respective shaders from the current game state
+    #[allow(clippy::cast_precision_loss)]
     fn next_shader_data(&self, delta_time: f32, dimensions: PhysicalSize<u32>) -> DrawData {
         let width = dimensions.width as f32;
         let height = dimensions.height as f32;
@@ -823,7 +816,7 @@ impl FractalSugar {
             distance_estimator_id: self.game_state.distance_estimator_id,
             orbit_distance: if self.game_state.render_particles && self.game_state.particles_are_3d
             {
-                1.42
+                1.385
             } else {
                 1.
             },
@@ -843,6 +836,7 @@ impl FractalSugar {
         aspect_ratio: f32,
     ) -> Vector3 {
         #[allow(clippy::cast_lossless)]
+        #[allow(clippy::cast_possible_truncation)]
         fn normalize_cursor(p: f64, max: u32) -> f32 {
             (2. * (p / max as f64) - 1.) as f32
         }
@@ -873,13 +867,13 @@ impl FractalSugar {
 #[cfg(target_os = "windows")]
 fn toggle_console_visibility(console_state: &mut ConsoleState) {
     unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOWNOACTIVATE};
+        use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOW};
         ShowWindow(
             console_state.handle,
             if console_state.visible {
                 SW_HIDE
             } else {
-                SW_SHOWNOACTIVATE
+                SW_SHOW
             },
         );
         console_state.visible = !console_state.visible;
