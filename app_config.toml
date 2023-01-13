@@ -4,6 +4,9 @@
 # Toggles whether to launch the application into fullscreen. Default is `false`.
 launch_fullscreen = true
 
+# Toggles whether to launch with the Help overlay-window visible. Default is `true`.
+launch_help_visible = true
+
 # The maximum particle speed. Default value is 7.0.
 max_speed = 6
 

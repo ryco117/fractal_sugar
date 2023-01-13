@@ -48,6 +48,7 @@ struct CustomScheme {
 #[serde(deny_unknown_fields)]
 struct TomlData {
     pub launch_fullscreen: Option<bool>,
+    pub launch_help_visible: Option<bool>,
 
     pub max_speed: Option<f32>,
     pub spring_coefficient: Option<f32>,
@@ -64,6 +65,7 @@ struct TomlData {
 }
 
 // Hardcoded default values
+const DEFAULT_HELP_VISIBLE: bool = true;
 const DEFAULT_MAX_SPEED: f32 = 7.;
 const DEFAULT_PARTICLE_COUNT: usize = 1_250_000;
 const DEFAULT_SPRING_COEFFICIENT: f32 = 75.;
@@ -74,6 +76,7 @@ const DEFAULT_VERTICAL_FOV: f32 = 72.; // 72 degrees of vertical FOV
 #[derive(Clone)]
 pub struct AppConfig {
     pub launch_fullscreen: bool,
+    pub launch_help_visible: bool,
 
     pub max_speed: f32,
     pub spring_coefficient: f32,
@@ -91,7 +94,8 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            launch_fullscreen: Default::default(),
+            launch_fullscreen: bool::default(),
+            launch_help_visible: DEFAULT_HELP_VISIBLE,
 
             max_speed: DEFAULT_MAX_SPEED,
             spring_coefficient: DEFAULT_SPRING_COEFFICIENT,
@@ -229,6 +233,7 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
 
     Ok(AppConfig {
         launch_fullscreen: config.launch_fullscreen.unwrap_or_default(),
+        launch_help_visible: config.launch_help_visible.unwrap_or(DEFAULT_HELP_VISIBLE),
 
         max_speed,
         particle_count,

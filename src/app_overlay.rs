@@ -199,12 +199,11 @@ fn create_config_ui(
 enum HelpWindowEntry {
     Title(&'static str),
     Item(&'static str, &'static str),
-    Empty(),
 }
 
 // Define the layout and behavior of the config UI
 fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
-    use HelpWindowEntry::{Empty, Item, Title};
+    use HelpWindowEntry::{Item, Title};
     let ctx = gui.context();
     egui::Window::new("Help")
         .open(visible)
@@ -215,16 +214,15 @@ fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
                     Title("App-Window Management"),
                     Item("F11", "Toggle window fullscreen"),
                     Item("ESC", "If fullscreen, then enter windowed mode. Else, close the application"),
-                    Empty(),
+                    #[cfg(target_os = "windows")]
+                    Item("ENTER", "Toggle the visibility of the output command prompt"),
 
                     Title("Overlay-Window Management"),
                     Item("F1", "Toggle visibility of this Help window"),
                     Item("C", "Toggle visibility of the App Config window"),
-                    Empty(),
 
                     Title("Audio"),
                     Item("R", "Toggle the application's responsiveness to system audio"),
-                    Empty(),
 
                     Title("Visuals"),
                     Item("SPACE", "Toggle kaleidoscope effect on fractals"),
@@ -232,25 +230,19 @@ fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
                     Item("P", "Toggle the rendering and updating of particles"),
                     Item("CAPS", "Toggle negative-color effect for particles"),
                     Item("D", "Toggle between 2D and 3D projections of the particles"),
-                    Item("TAB", "Cycle through particle color schemes"),
+                    Item("TAB", "Cycle through particle color schemes. *Requires that all overlay windows are closed*"),
                     Item("0", "Select the 'empty' fractal"),
                     Item("1-5", "Select the fractal corresponding to the respective key"),
-
-                    #[cfg(target_os = "windows")]
-                    Empty(),
-                    #[cfg(target_os = "windows")]
-                    Title("Windows Platform"),
-                    #[cfg(target_os = "windows")]
-                    Item("ENTER", "Toggle the visibility of the output command prompt"),
+                    Item("MOUSE-BTTN", "Holding the primary or secondary mouse button applies a repulsive or attractive force, respectively, at the cursor's position"),
+                    Item("MOUSE-SCRL", "Scrolling up or down changes the strength of the cursor's applied force"),
                 ];
                 egui::Grid::new("scheme_index_grid").show(ui, |ui| {
                     for entry in controls_list {
                         match entry {
                             Item(key, desc) => {
-                                ui.code(key);
+                                ui.vertical_centered(|ui| ui.label(egui::RichText::new(key).monospace()));
                                 ui.label(desc);
                             }
-                            Empty() => {}
                             Title(title) => {
                                 ui.separator();
                                 ui.heading(title);
@@ -298,7 +290,7 @@ impl AppOverlay {
         Self {
             config_window,
             gui,
-            help_visible: DEFAULT_VISIBILITY,
+            help_visible: app_config.launch_help_visible,
             queue,
         }
     }
