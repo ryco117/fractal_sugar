@@ -199,11 +199,12 @@ fn create_config_ui(
 enum HelpWindowEntry {
     Title(&'static str),
     Item(&'static str, &'static str),
+    Empty(),
 }
 
 // Define the layout and behavior of the config UI
 fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
-    use HelpWindowEntry::{Item, Title};
+    use HelpWindowEntry::{Empty, Item, Title};
     let ctx = gui.context();
     egui::Window::new("Help")
         .open(visible)
@@ -216,14 +217,14 @@ fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
                     Item("ESC", "If fullscreen, then enter windowed mode. Else, close the application"),
                     #[cfg(target_os = "windows")]
                     Item("ENTER", "Toggle the visibility of the output command prompt"),
-
+                    Empty(),
                     Title("Overlay-Window Management"),
                     Item("F1", "Toggle visibility of this Help window"),
                     Item("C", "Toggle visibility of the App Config window"),
-
+                    Empty(),
                     Title("Audio"),
                     Item("R", "Toggle the application's responsiveness to system audio"),
-
+                    Empty(),
                     Title("Visuals"),
                     Item("SPACE", "Toggle kaleidoscope effect on fractals"),
                     Item("J", "Toggle 'jello' effect on particles (i.e., the fixing of particles to a position with spring tension)"),
@@ -239,6 +240,7 @@ fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
                 egui::Grid::new("scheme_index_grid").show(ui, |ui| {
                     for entry in controls_list {
                         match entry {
+                            Empty() => {},
                             Item(key, desc) => {
                                 ui.vertical_centered(|ui| ui.label(egui::RichText::new(key).monospace()));
                                 ui.label(desc);
