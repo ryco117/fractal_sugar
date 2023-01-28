@@ -1,6 +1,6 @@
 [package]
 name = "fractal_sugar"
-version = "0.1.7"
+version = "0.1.8"
 authors = ["Ryan Andersen <ryco117@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2021" # Rust Edition used in this package
@@ -20,14 +20,14 @@ egui_winit_vulkano = "0.22.0"
 ico = "0.3.0"
 rustfft = "6.0.1"
 serde = { version = "1.0.143", features = ["derive"] }
-toml = "0.5.8"
+toml = "0.7.0"
 vulkano = "0.32.0"
 vulkano-shaders = "0.32.0"
 vulkano-win = "0.32.0"
 winit = "0.27.5"
 
 [dependencies.windows]
-version = "0.43.0"
+version = "0.44.0"
 features = [
     "Win32_Foundation",
     "Win32_System_Console",

@@ -59,7 +59,8 @@ const DEFAULT_VISIBILITY: bool = false;
 
 fn add_color_scheme(
     ui: &mut Ui,
-    scheme: &mut ConfigUiScheme,
+    config_scheme: &mut ConfigUiScheme,
+    scheme: &mut Scheme,
     displayed_scheme_index: &mut usize,
     edit_scheme_index: usize,
     engine: &mut Engine,
@@ -70,46 +71,68 @@ fn add_color_scheme(
         rgb: &mut [[u8; 3]; 4],
         val: &mut [f32; 4],
         range: RangeInclusive<f32>,
+        changed: &mut bool,
     ) {
         let n = rgb.len();
         for i in 0..n - 1 {
-            ui.color_edit_button_srgb(&mut rgb[i]);
-            ui.add(Slider::new(&mut val[i], range.clone()));
+            *changed |= ui.color_edit_button_srgb(&mut rgb[i]).changed();
+            *changed |= ui.add(Slider::new(&mut val[i], range.clone())).changed();
             ui.end_row();
         }
-        ui.color_edit_button_srgb(&mut rgb[n - 1]);
+        *changed |= ui.color_edit_button_srgb(&mut rgb[n - 1]).changed();
         ui.end_row();
     }
 
     // Helper to enforce the given list is an increasing sequence
-    fn enforce_limits(vals: &mut [f32; 4]) {
+    fn enforce_limits(vals: &mut [f32; 4], changed: &mut bool) {
         let mut max = 0.;
         for v in vals[0..3].iter_mut() {
             if *v < max {
                 *v = max;
+                *changed = true;
             } else {
                 max = *v;
             }
         }
     }
-    enforce_limits(&mut scheme.index_val);
-    enforce_limits(&mut scheme.speed_val);
+    let mut changed = false;
+    enforce_limits(&mut config_scheme.index_val, &mut changed);
+    enforce_limits(&mut config_scheme.speed_val, &mut changed);
 
     ScrollArea::vertical().max_height(350.).show(ui, |ui| {
         ui.heading("Index-Based Color Scheme");
         egui::Grid::new("scheme_index_grid").show(ui, |ui| {
-            add_scheme_element(ui, &mut scheme.index_rgb, &mut scheme.index_val, 0.0..=1.);
+            add_scheme_element(
+                ui,
+                &mut config_scheme.index_rgb,
+                &mut config_scheme.index_val,
+                0.0..=1.,
+                &mut changed,
+            );
         });
         ui.heading("Speed-Based Color Scheme");
         egui::Grid::new("scheme_speed_grid").show(ui, |ui| {
-            add_scheme_element(ui, &mut scheme.speed_rgb, &mut scheme.speed_val, 0.0..=10.);
+            add_scheme_element(
+                ui,
+                &mut config_scheme.speed_rgb,
+                &mut config_scheme.speed_val,
+                0.0..=10.,
+                &mut changed,
+            );
         });
 
         if edit_scheme_index != *displayed_scheme_index
             && ui.button("Make this color scheme active").clicked()
         {
             *displayed_scheme_index = edit_scheme_index;
-            engine.update_color_scheme(scheme.into());
+            engine.update_color_scheme(config_scheme.into());
+        }
+
+        if changed {
+            *scheme = config_scheme.into();
+            if edit_scheme_index == *displayed_scheme_index {
+                engine.update_color_scheme(config_scheme.into());
+            }
         }
     });
 }
@@ -128,6 +151,7 @@ fn create_config_ui(
         .open(&mut config_window.visible)
         .resizable(true)
         .show(&ctx, |ui| {
+            let mut data_changed = false;
             ComboBox::from_label("Active Color Scheme")
                 .selected_text(color_scheme_names[config_window.edit_scheme_index].clone())
                 .show_ui(ui, |ui| {
@@ -138,29 +162,42 @@ fn create_config_ui(
             add_color_scheme(
                 ui,
                 &mut config_window.color_schemes[config_window.edit_scheme_index],
+                &mut color_schemes[config_window.edit_scheme_index],
                 displayed_scheme_index,
                 config_window.edit_scheme_index,
                 engine,
             );
             ui.separator();
-            ui.add(
-                Slider::new(&mut config_window.state.audio_scale, -30.0..=5.)
-                    .text("audio scale (dB)"),
-            );
-            ui.add(Slider::new(&mut config_window.state.max_speed, 0.0..=10.).text("max speed"));
-            ui.add(Slider::new(&mut config_window.state.point_size, 0.0..=8.).text("point size"));
-            ui.add(
-                Slider::new(&mut config_window.state.friction_scale, 0.0..=5.)
-                    .text("friction scale"),
-            );
-            ui.add(
-                Slider::new(&mut config_window.state.spring_coefficient, 0.0..=200.)
-                    .text("spring coefficient"),
-            );
-            ui.add(
-                Slider::new(&mut config_window.state.vertical_fov, 30.0..=105.)
-                    .text("vertical fov"),
-            );
+            data_changed |= ui
+                .add(
+                    Slider::new(&mut config_window.state.audio_scale, -30.0..=5.)
+                        .text("audio scale (dB)"),
+                )
+                .changed();
+            data_changed |= ui
+                .add(Slider::new(&mut config_window.state.max_speed, 0.0..=10.).text("max speed"))
+                .changed();
+            data_changed |= ui
+                .add(Slider::new(&mut config_window.state.point_size, 0.0..=8.).text("point size"))
+                .changed();
+            data_changed |= ui
+                .add(
+                    Slider::new(&mut config_window.state.friction_scale, 0.0..=5.)
+                        .text("friction scale"),
+                )
+                .changed();
+            data_changed |= ui
+                .add(
+                    Slider::new(&mut config_window.state.spring_coefficient, 0.0..=200.)
+                        .text("spring coefficient"),
+                )
+                .changed();
+            data_changed |= ui
+                .add(
+                    Slider::new(&mut config_window.state.vertical_fov, 30.0..=105.)
+                        .text("vertical fov"),
+                )
+                .changed();
             ui.separator();
             ui.horizontal(|ui| {
                 // Allow user to reset back to values currently applied
@@ -173,14 +210,7 @@ fn create_config_ui(
                     config_window
                         .color_schemes
                         .copy_from_slice(&config_window.init_color_schemes);
-                }
 
-                // Apply the values on screen to the GPU
-                if ui
-                    .button("Apply")
-                    .on_hover_text("Apply displayed values to the scene.")
-                    .clicked()
-                {
                     let constants = constants_from_presentable(config_window.state);
                     engine.update_app_constants(constants);
 
@@ -193,6 +223,11 @@ fn create_config_ui(
                     engine.update_color_scheme(color_schemes[*displayed_scheme_index]);
                 }
             });
+
+            if data_changed {
+                let constants = constants_from_presentable(config_window.state);
+                engine.update_app_constants(constants);
+            }
         });
 }
 
