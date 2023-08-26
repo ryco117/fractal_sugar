@@ -135,10 +135,7 @@ fn spawn_audio_processing_thread(
             while audio_storage_buffer.len() < size {
                 let mut d = match rx_acc.recv() {
                     Ok(data) => data, // Update audio state vars
-                    Err(e) => panic!(
-                        "Failed to receive data from audio accumulator thread: {:?}",
-                        e
-                    ),
+                    Err(e) => panic!("Failed to receive data from audio accumulator thread: {e:?}"),
                 };
                 audio_storage_buffer.append(&mut d);
             }
@@ -252,7 +249,7 @@ fn transfer_loopback_chunks_for_processing(
     let channel_count = audio_config.channels() as usize;
     let channel_count_f32 = channel_count as f32;
 
-    // Create loopback stream for passing for processing
+    // Create loopback stream for passing small audio-chunk to be processed in batches
     match default_audio_out.build_input_stream(
         &audio_config.config(),
         move |data: &[f32], _| {
@@ -285,6 +282,7 @@ fn transfer_loopback_chunks_for_processing(
             }
         },
         |e| panic!("Error on audio input stream: {e:?}"),
+        None,
     ) {
         // Stream was created successfully
         Ok(stream) => {

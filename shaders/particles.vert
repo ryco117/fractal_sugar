@@ -1,7 +1,7 @@
 #version 450
 
-layout (location = 0) in vec3 pos;
-layout (location = 1) in vec3 vel;
+layout (location = 0) in vec4 pos;
+layout (location = 1) in vec4 vel;
 
 layout (location = 0) out vec4 outColor;
 
@@ -10,22 +10,32 @@ layout (binding = 0) uniform ParticleColorScheme {
     vec4 speedConst[4];
 } particleColors;
 
-layout (binding = 1) uniform AppConstants {
-	float max_speed;
+layout (binding = 1) uniform ConfigConstants {
+	// Particle constants
 	float particle_count;
+	float max_speed;
 	float spring_coefficient;
 	float point_size;
 	float friction_scale;
 
 	float audio_scale;
 
+	// Window constants
 	float vertical_fov;
-} appConstants;
+} config;
+
+layout (binding = 2) uniform RuntimeConstants {
+	// Window constant
+	float aspect_ratio;
+
+	// Fractal constants
+	bool render_background;
+	uint distance_estimator_id;
+} runtime;
 
 layout (push_constant) uniform PushConstants {
 	vec4 quaternion;
 	float time;
-	float aspect_ratio;
 	bool rendering_fractal;
 	bool alternate_colors;
 	bool use_third_dimension;
@@ -37,7 +47,7 @@ const float pi = 3.14159265358;
 const float far = 8.0;
 const float near = 0.03125;
 mat4 createPerspective(float aspectRatio) {
-	float focalLength = 1.0 / tan(appConstants.vertical_fov);
+	float focalLength = 1.0 / tan(config.vertical_fov);
 	return mat4(
 		// Column-major declaration
 		vec4(focalLength / aspectRatio, 0.0, 0.0, 0.0),
@@ -53,19 +63,19 @@ vec3 rotateByQuaternion(vec3 v, vec4 q) {
 }
 
 void main() {
-	gl_PointSize = appConstants.point_size;
+	gl_PointSize = config.point_size;
 
 	// Calculate screen position based on desired perspective
 	if(push.use_third_dimension) {
 		vec4 q = push.quaternion;
 		q.w = -q.w;
-		vec4 temp = createPerspective(push.aspect_ratio) * vec4(rotateByQuaternion(pos, q) - vec3(0.0, 0.0, 1.75), 1.0);
+		vec4 temp = createPerspective(runtime.aspect_ratio) * vec4(rotateByQuaternion(pos.xyz, q) - vec3(0.0, 0.0, 1.75), 1.0);
 		gl_Position = temp;
 	} else {
 		gl_Position = vec4(pos.xy, 0.0, 1.0);
 	}
 
-	float t = fract(float(gl_VertexIndex)/appConstants.particle_count + 0.045*push.time);
+	float t = fract(float(gl_VertexIndex)/config.particle_count + 0.045*push.time);
 	vec3 indexColor;
 	{
 		vec3 indexStart;
@@ -95,7 +105,7 @@ void main() {
 		indexColor = mix(indexStart, indexEnd, indexScale);
 	}
 
-	float speed = min(length(vel), appConstants.max_speed);
+	float speed = min(length(vel.xyz), config.max_speed);
 	vec3 speedColor;
 	{
 		vec3 speedStart;
@@ -132,7 +142,7 @@ void main() {
 				speedStart = abs(vec3(1.0) - speedStart);
 				speedEnd = abs(vec3(1.0) - speedEnd);
 			}
-			speedScale = (speed - particleColors.speedConst[2].w)/(appConstants.max_speed - particleColors.speedConst[2].w);
+			speedScale = (speed - particleColors.speedConst[2].w)/(config.max_speed - particleColors.speedConst[2].w);
 		}
 		speedColor = mix(speedStart, speedEnd, speedScale);
 	}

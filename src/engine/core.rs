@@ -19,28 +19,25 @@
 use std::sync::Arc;
 
 use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
-use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo};
+use vulkano::device::{
+    Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
+};
 use vulkano::format::Format;
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::Instance;
 use vulkano::swapchain::{
-    AcquireError, PresentFuture, PresentMode, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo,
+    AcquireError, PresentMode, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo,
     SwapchainCreationError, SwapchainPresentInfo,
 };
 
-use vulkano::sync::{FenceSignalFuture, GpuFuture};
+use vulkano::sync::{self, GpuFuture};
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-// NOTE: Against all odds, this type needs to be wraped in Arc<..> as below
-// in order to not leak memory in Win11 on NVIDIA device(s)
-pub type EngineFrameFuture = Arc<FenceSignalFuture<PresentFuture<Box<dyn GpuFuture>>>>;
-
 pub struct EngineSwapchain {
-    fences: Vec<Option<EngineFrameFuture>>,
+    previous_frame_future: Option<Box<dyn GpuFuture>>,
     images: Vec<Arc<SwapchainImage>>,
     present_index: Option<u32>,
-    previous_fence_index: u32,
     swapchain: Arc<Swapchain>,
 }
 
@@ -86,7 +83,8 @@ fn select_best_physical_device(
                 .position(|(i, q)| {
                     // Find first queue family supporting graphics pipeline and a surface (window).
                     // If no such queue family exists, device will not be considered
-                    q.queue_flags.graphics && p.surface_support(i as u32, surface).unwrap_or(false)
+                    q.queue_flags.contains(QueueFlags::GRAPHICS)
+                        && p.surface_support(i as u32, surface).unwrap_or(false)
                 })
                 .map(|q| (p, q as u32))
         })
@@ -159,7 +157,7 @@ impl EngineSwapchain {
         let dimensions = surface.window().inner_size();
         let composite_alpha = surface_capabilities
             .supported_composite_alpha
-            .iter()
+            .into_iter()
             .next()
             .unwrap();
         let image_format = {
@@ -211,7 +209,7 @@ impl EngineSwapchain {
 
         // Create new swapchain with specified properties
         let (swapchain, images) = Swapchain::new(
-            device,
+            device.clone(),
             surface,
             SwapchainCreateInfo {
                 min_image_count: image_count, // Use one more buffer than the minimum in swapchain
@@ -219,11 +217,7 @@ impl EngineSwapchain {
                 image_extent: dimensions.into(),
                 image_usage: {
                     // Swapchain images are going to be used for color, as well as MSAA destination
-                    ImageUsage {
-                        color_attachment: true,
-                        transfer_dst: true,
-                        ..Default::default()
-                    }
+                    ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST
                 },
                 composite_alpha,
                 present_mode,
@@ -232,17 +226,14 @@ impl EngineSwapchain {
         )
         .unwrap();
 
-        // Create a frame-in-flight fence for each image buffer.
-        // This allows CPU work to continue while GPU is busy with previous frames
-        let fences: Vec<Option<EngineFrameFuture>> =
-            std::iter::repeat_with(|| None).take(images.len()).collect();
+        // Track the previous frame's future to ensure swapchain presentation is coordinated.
+        let previous_frame_future = Some(vulkano::sync::now(device).boxed());
 
         Self {
-            fences,
+            previous_frame_future,
             swapchain,
             images,
             present_index: None,
-            previous_fence_index: 0,
         }
     }
 
@@ -279,27 +270,22 @@ impl EngineSwapchain {
             vulkano::swapchain::acquire_next_image(self.swapchain.clone(), None)?;
         self.present_index = Some(image_index);
 
-        // If this image buffer already has a fence, wait for the fence to be completed, then cleanup.
-        // Usually the fence for this index will have completed by the time we are rendering it again
-        if let Some(image_fence) = &mut self.fences[image_index as usize] {
-            image_fence.wait(None).unwrap();
-            image_fence.cleanup_finished();
-        }
-
-        let future = match self.fences[self.previous_fence_index as usize].clone() {
-            Some(previous_future) => previous_future.join(acquire_future).boxed(),
-            None => acquire_future.boxed(),
-        };
+        let acquire_future = self
+            .previous_frame_future
+            .take()
+            .unwrap()
+            .join(acquire_future)
+            .boxed();
 
         Ok(AcquiredImageData {
             image_index,
             suboptimal,
-            acquire_future: future,
+            acquire_future,
         })
     }
 
     // Present the current swapchain index
-    pub fn present(&mut self, queue: Arc<Queue>, future: Box<dyn GpuFuture>) -> bool {
+    pub fn present(&mut self, queue: &Arc<Queue>, future: Box<dyn GpuFuture>) -> bool {
         let image_index = self
             .present_index
             .take()
@@ -308,7 +294,7 @@ impl EngineSwapchain {
         // Present result to swapchain buffer
         let present_future = future
             .then_swapchain_present(
-                queue,
+                queue.clone(),
                 SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_index),
             )
             // Finish synchronization
@@ -316,22 +302,22 @@ impl EngineSwapchain {
 
         // Update this frame's future with result of current render
         let mut requires_recreate_swapchain = false;
-        self.fences[image_index as usize] = match present_future {
+        self.previous_frame_future = match present_future {
             // Success, store result into vector
-            Ok(future) => Some(Arc::new(future)),
+            Ok(future) => {
+                future.wait(None).unwrap();
+                Some(future.boxed())
+            }
 
             // Swapchain is out-of-date, request its recreation next frame
             Err(vulkano::sync::FlushError::OutOfDate) => {
                 requires_recreate_swapchain = true;
-                None
+                Some(sync::now(queue.device().clone()).boxed())
             }
 
             // Unknown failure
             Err(e) => panic!("Failed to flush future: {e:?}"),
         };
-
-        // Update the last rendered index to be this frame
-        self.previous_fence_index = image_index;
 
         // Return whether a swapchain recreation was deemed necessary
         requires_recreate_swapchain
@@ -346,8 +332,5 @@ impl EngineSwapchain {
     }
     pub fn swapchain(&self) -> &Arc<Swapchain> {
         &self.swapchain
-    }
-    pub fn present_index(&self) -> Option<u32> {
-        self.present_index
     }
 }

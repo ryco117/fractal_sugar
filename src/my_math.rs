@@ -138,23 +138,18 @@ pub struct Vector3 {
     pub x: f32,
     pub y: f32,
     pub z: f32,
-    _unused: f32, // NOTE: This is needed because of how `vec3`s are aligned on the GPU. This float is only to be used to preserve alignment
+    _w: f32,
 }
 impl Vector3 {
     pub const fn new(x: f32, y: f32, z: f32) -> Self {
-        Self {
-            x,
-            y,
-            z,
-            _unused: 0.,
-        }
+        Self { x, y, z, _w: 0. }
     }
     pub fn scale(self, s: f32) -> Self {
         Self {
             x: self.x * s,
             y: self.y * s,
             z: self.z * s,
-            _unused: 0.,
+            _w: 0.,
         }
     }
     pub fn cross(a: Self, b: Self) -> Self {
@@ -162,7 +157,7 @@ impl Vector3 {
             x: a.y * b.z - a.z * b.y,
             y: (-a.x) * b.z + a.z * b.x,
             z: a.x * b.y - a.y * b.x,
-            _unused: 0.,
+            _w: 0.,
         }
     }
     pub fn dot(a: Self, b: Self) -> f32 {
@@ -185,7 +180,7 @@ impl Add for Vector3 {
             x: self.x + v.x,
             y: self.y + v.y,
             z: self.z + v.z,
-            _unused: 0.,
+            _w: 0.,
         }
     }
 }
@@ -203,7 +198,7 @@ impl Sub for Vector3 {
             x: self.x - v.x,
             y: self.y - v.y,
             z: self.z - v.z,
-            _unused: 0.,
+            _w: 0.,
         }
     }
 }

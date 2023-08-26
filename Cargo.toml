@@ -7,32 +7,25 @@ edition = "2021" # Rust Edition used in this package
 build = "build.rs"
 
 [build-dependencies]
-embed-resource = "1.7.4"
+embed-resource = "2.1.1"
 
 [dependencies]
-anyhow = "1.0.66"
-bytemuck = "1.12.2"
-cpal = "0.14.1"
-crossbeam-channel = "0.5.6"
+anyhow = "1.0.75"
+bytemuck = "1.13.1"
+companion_console = { git = "https://github.com/ryco117/companion_console.git" }
+cpal = "0.15.2"
+crossbeam-channel = "0.5.8"
 css-color-parser = "0.1.2"
-egui = "0.20.1"
-egui_winit_vulkano = "0.22.0"
+egui = "0.21.0"
+egui_winit_vulkano = "0.24.0"
 ico = "0.3.0"
-rustfft = "6.0.1"
-serde = { version = "1.0.143", features = ["derive"] }
-toml = "0.7.0"
-vulkano = "0.32.0"
-vulkano-shaders = "0.32.0"
-vulkano-win = "0.32.0"
-winit = "0.27.5"
-
-[dependencies.windows]
-version = "0.44.0"
-features = [
-    "Win32_Foundation",
-    "Win32_System_Console",
-    "Win32_UI_WindowsAndMessaging",
-]
+rustfft = "6.1.0"
+serde = { version = "1.0.188", features = ["derive"] }
+toml = "0.7.6"
+vulkano = "0.33.0"
+vulkano-shaders = "0.33.0"
+vulkano-win = "0.33.0"
+winit = "0.28.6"
 
 [profile.release]
 lto = true

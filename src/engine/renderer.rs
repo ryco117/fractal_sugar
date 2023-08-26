@@ -18,10 +18,10 @@
 
 use std::sync::Arc;
 
-use vulkano::buffer::device_local::DeviceLocalBuffer;
+use vulkano::buffer::Subbuffer;
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, RenderPassBeginInfo,
-    SubpassContents,
+    SecondaryAutoCommandBuffer, SubpassContents,
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::ClearValue;
@@ -29,7 +29,7 @@ use vulkano::image::ImageViewAbstract;
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::Framebuffer;
 
-use super::vertex::Vertex;
+use super::vertex::PointParticle;
 use super::{DrawData, Engine, FractalPushConstants, ParticleVertexPushConstants};
 
 // Helper for initializing the rendering of a frame. Must specify clear value of each subpass
@@ -57,6 +57,7 @@ pub fn create_render_commands(
     engine: &mut Engine,
     framebuffer: &Arc<Framebuffer>,
     draw_data: &DrawData,
+    gui_command_buffer: Option<SecondaryAutoCommandBuffer>,
 ) -> PrimaryAutoCommandBuffer {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
@@ -100,11 +101,12 @@ pub fn create_render_commands(
             engine.particle_descriptor_set().clone(),
         );
     } else {
+        // TODO: Try to refactor this shared call out of the if/else block.
         // Begin the same render pass as with particles, but skip commands to draw particles
         begin_render_pass(&mut builder, framebuffer);
     }
 
-    // Move to next subpass
+    // Move to next subpass, fractal rendering
     builder.next_subpass(SubpassContents::Inline).unwrap();
 
     // Add inline commands to render fractal
@@ -116,6 +118,16 @@ pub fn create_render_commands(
         framebuffer.attachments()[2].clone(),
     );
 
+    // Move to next subpass, GUI rendering
+    builder
+        .next_subpass(SubpassContents::SecondaryCommandBuffers)
+        .unwrap();
+
+    // Add optional GUI command buffer to primary command buffer.
+    if let Some(command_buffer) = gui_command_buffer {
+        builder.execute_commands(command_buffer).unwrap();
+    }
+
     // Mark completion of frame rendering (for this pass)
     builder.end_render_pass().unwrap();
 
@@ -126,11 +138,10 @@ pub fn create_render_commands(
 fn inline_particles_cmds(
     builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     pipeline: Arc<GraphicsPipeline>,
-    vertex_buffer: &Arc<DeviceLocalBuffer<[Vertex]>>,
+    vertex_buffer: &Subbuffer<[PointParticle]>,
     push_constants: ParticleVertexPushConstants,
     descriptor_set: Arc<PersistentDescriptorSet>,
 ) {
-    use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
     let buffer_count = vertex_buffer.len() as u32;
     let layout = pipeline.layout().clone();
 
@@ -152,7 +163,8 @@ fn inline_fractal_cmds(
     particle_input: Arc<dyn ImageViewAbstract>,
     particle_depth: Arc<dyn ImageViewAbstract>,
 ) {
-    let app_constants = engine.app_constants.buffer.clone();
+    let config_constants = engine.app_constants.clone();
+    let runtime_constants = engine.runtime_constants.clone();
 
     let pipeline = engine.fractal_pipeline().clone();
     let layout = pipeline.layout().clone();
@@ -161,15 +173,16 @@ fn inline_fractal_cmds(
         layout
             .set_layouts()
             .get(0) // 0 is the index of the descriptor set layout we want
-            .unwrap()
+            .expect("Failed to get fractal descriptor set layout")
             .clone(),
         [
             WriteDescriptorSet::image_view(0, particle_input),
             WriteDescriptorSet::image_view(1, particle_depth),
-            WriteDescriptorSet::buffer(2, app_constants),
+            WriteDescriptorSet::buffer(2, config_constants),
+            WriteDescriptorSet::buffer(3, runtime_constants),
         ],
     )
-    .unwrap();
+    .expect("Failed to create fractal descriptor set");
 
     // Build render pass commands
     builder

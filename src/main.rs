@@ -24,6 +24,8 @@
 use std::time::SystemTime;
 
 use app_overlay::AppOverlay;
+#[cfg(target_os = "windows")]
+use companion_console::ConsoleState;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{
     ElementState, Event, KeyboardInput, MouseButton, MouseScrollDelta, VirtualKeyCode, WindowEvent,
@@ -78,24 +80,24 @@ struct LocalAudioState {
 }
 
 // Game-state enums
-enum AlternateColors {
+pub enum AlternateColors {
     Normal,
     Inverse,
 }
-enum KaleidoscopeDirection {
+pub enum KaleidoscopeDirection {
     Forward,
     ForwardComplete,
     Backward,
     BackwardComplete,
 }
 #[derive(PartialEq)]
-enum ParticleTension {
+pub enum ParticleTension {
     None,
     Spring,
 }
 
 #[allow(clippy::struct_excessive_bools)]
-struct GameState {
+pub struct GameState {
     pub fix_particles: ParticleTension,
     pub render_particles: bool,
     pub distance_estimator_id: u32,
@@ -120,12 +122,6 @@ struct WindowState {
     pub is_focused: bool,
     pub last_frame_time: SystemTime,
     pub last_mouse_movement: SystemTime,
-}
-
-#[cfg(target_os = "windows")]
-struct ConsoleState {
-    pub handle: windows::Win32::Foundation::HWND,
-    pub visible: bool,
 }
 
 struct FractalSugar {
@@ -161,29 +157,7 @@ impl FractalSugar {
     pub fn new() -> Self {
         // Windows-specific console clean-up. Important that this occurs before print statements for debugging
         #[cfg(target_os = "windows")]
-        let console_state = unsafe {
-            use windows::Win32::{
-                System::Console::{AllocConsole, GetConsoleWindow},
-                UI::WindowsAndMessaging::IsWindowVisible,
-            };
-            const ALLOC_NEW_TERMINAL: bool = true;
-            if ALLOC_NEW_TERMINAL && AllocConsole().into() {
-                let handle = GetConsoleWindow();
-                let mut state = ConsoleState {
-                    handle,
-                    visible: IsWindowVisible(handle).into(),
-                };
-
-                // If console window is hidden by default, do not toggle.
-                if state.visible {
-                    toggle_console_visibility(&mut state);
-                }
-
-                Some(state)
-            } else {
-                None
-            }
-        };
+        let console_state = ConsoleState::new(false);
 
         // Fetch command-line arguments
         let args: Vec<String> = std::env::args().collect();
@@ -198,10 +172,7 @@ impl FractalSugar {
             match app_config::parse_file(filepath) {
                 Ok(config) => config,
                 Err(e) => {
-                    println!(
-                        "Failed to process custom color schemes file `{}`: {:?}",
-                        filepath, e
-                    );
+                    println!("Failed to process custom color schemes file `{filepath}`: {e:?}");
                     AppConfig::default()
                 }
             }
@@ -234,8 +205,11 @@ impl FractalSugar {
         // Create global event loop to manage window events
         let event_loop = EventLoop::new();
 
+        // Initialize game state so that the engine can leverage default values.
+        let game_state = GameState::default();
+
         // Use Engine helper to initialize Vulkan instance
-        let engine = engine::Engine::new(&event_loop, &app_config, icon);
+        let engine = engine::Engine::new(&event_loop, &app_config, &game_state, icon);
 
         // Capture reference to audio stream and use message passing to receive data
         let (tx, rx) = crossbeam_channel::bounded(4);
@@ -252,13 +226,13 @@ impl FractalSugar {
             last_mouse_movement: SystemTime::now(),
         };
         let audio_state = LocalAudioState::default();
-        let game_state = GameState::default();
 
         let config_window = AppOverlay::new(
             engine.surface().clone(),
             engine.swapchain(),
             engine.queue().clone(),
             &event_loop,
+            engine.gui_pass(),
             &app_config,
         );
 
@@ -300,8 +274,6 @@ impl FractalSugar {
                         self.handle_window_event(&event, control_flow);
                     }
                 }
-
-                // Catch-all
                 _ => {}
             })
     }
@@ -359,8 +331,25 @@ impl FractalSugar {
         // Create per-frame data for particle compute-shader
         let draw_data = self.next_shader_data(delta_time, self.engine.window().inner_size());
 
+        // Get an optional command buffer to render the GUI
+        let gui_command_buffer = if self.app_overlay.visible() {
+            // Render the config as an overlay
+            self.app_overlay.draw(
+                &mut self.engine,
+                &self.color_scheme_names,
+                &mut self.color_schemes,
+                &mut self.game_state.color_scheme_index,
+            )
+        } else {
+            None
+        };
+
+        // Update runtime constants
+        self.engine
+            .update_runtime_constants(&self.game_state, dimensions.into());
+
         // Draw frame and return whether a swapchain recreation was deemed necessary
-        let (mut future, suboptimal) = match self.engine.render(&draw_data) {
+        let (future, suboptimal) = match self.engine.render(&draw_data, gui_command_buffer) {
             Ok(pair) => pair,
             Err(vulkano::swapchain::AcquireError::OutOfDate) => {
                 self.window_state.recreate_swapchain = true;
@@ -368,26 +357,6 @@ impl FractalSugar {
             }
             Err(e) => panic!("Failed to acquire next image: {e:?}"),
         };
-
-        if self.app_overlay.visible() {
-            // Render the config as an overlay
-            let frame = self
-                .engine
-                .render_frame()
-                .attachments()
-                .last()
-                .unwrap()
-                .clone();
-
-            future = self.app_overlay.draw(
-                &mut self.engine,
-                &self.color_scheme_names,
-                &mut self.color_schemes,
-                &mut self.game_state.color_scheme_index,
-                frame,
-                future,
-            );
-        }
 
         self.window_state.recreate_swapchain |= self.engine.present(future) || suboptimal;
     }
@@ -574,7 +543,11 @@ impl FractalSugar {
             #[cfg(target_os = "windows")]
             VirtualKeyCode::Return => {
                 if let Some(console_state) = &mut self.console_state {
-                    toggle_console_visibility(console_state);
+                    if console_state.visible {
+                        console_state.hide();
+                    } else {
+                        console_state.show();
+                    };
                 }
             }
 
@@ -784,7 +757,6 @@ impl FractalSugar {
             let vertex = engine::ParticleVertexPushConstants {
                 quaternion: self.game_state.camera_quaternion.into(),
                 time: self.audio_state.play_time,
-                aspect_ratio,
                 rendering_fractal: u32::from(self.game_state.distance_estimator_id != 0),
                 alternate_colors: match self.game_state.alternate_colors {
                     AlternateColors::Inverse => 1,
@@ -811,16 +783,13 @@ impl FractalSugar {
             smooth_high: self.audio_state.local_smooth_high.into(),
 
             time: self.audio_state.play_time,
-            aspect_ratio,
             kaleidoscope: self.game_state.kaleidoscope.powf(0.65),
-            distance_estimator_id: self.game_state.distance_estimator_id,
             orbit_distance: if self.game_state.render_particles && self.game_state.particles_are_3d
             {
                 1.385
             } else {
                 1.
             },
-            render_background: u32::from(!self.game_state.render_particles),
         };
 
         DrawData {
@@ -846,7 +815,13 @@ impl FractalSugar {
         if self.game_state.particles_are_3d && self.game_state.cursor_force != 0. {
             const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
             const PERSPECTIVE_DISTANCE: f32 = 1.35;
-            let fov_y = self.engine.app_constants().vertical_fov.tan();
+            let fov_y = self
+                .engine
+                .app_constants()
+                .read()
+                .unwrap()
+                .vertical_fov
+                .tan();
             let fov_x = fov_y * aspect_ratio;
 
             // Map cursor to 3D world using camera orientation
@@ -861,22 +836,6 @@ impl FractalSugar {
         } else {
             Vector3::new(x_norm, y_norm, 0.)
         }
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn toggle_console_visibility(console_state: &mut ConsoleState) {
-    unsafe {
-        use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOW};
-        ShowWindow(
-            console_state.handle,
-            if console_state.visible {
-                SW_HIDE
-            } else {
-                SW_SHOW
-            },
-        );
-        console_state.visible = !console_state.visible;
     }
 }
 

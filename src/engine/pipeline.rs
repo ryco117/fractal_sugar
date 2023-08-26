@@ -22,13 +22,13 @@ use vulkano::device::Device;
 use vulkano::pipeline::graphics::depth_stencil::DepthStencilState;
 use vulkano::pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology};
 use vulkano::pipeline::graphics::multisample::MultisampleState;
-use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
+use vulkano::pipeline::graphics::vertex_input::Vertex; // Needed for PointParticle::per_vertex()
 use vulkano::pipeline::graphics::viewport::{Viewport, ViewportState};
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::render_pass::Subpass;
 use vulkano::shader::ShaderModule;
 
-use super::vertex::Vertex;
+use super::vertex::PointParticle;
 
 // Create a graphics pipeline for displaying a list of particles
 pub fn create_particle(
@@ -40,7 +40,7 @@ pub fn create_particle(
 ) -> Arc<GraphicsPipeline> {
     match GraphicsPipeline::start()
         // Describes the layout of the vertex input and how should it behave
-        .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+        .vertex_input_state(PointParticle::per_vertex())
         // A Vulkan shader may contain multiple entry points, so we specify which one
         .vertex_shader(vert_shader.entry_point("main").unwrap(), ())
         // Indicate the type of the primitives (the default is a list of triangles)

@@ -18,17 +18,18 @@
 
 use std::sync::Arc;
 
-use bytemuck::{Pod, Zeroable};
-use vulkano::buffer::cpu_pool::CpuBufferPoolSubbuffer;
-use vulkano::buffer::CpuBufferPool;
+use vulkano::buffer::allocator::SubbufferAllocatorCreateInfo;
+use vulkano::buffer::BufferUsage;
+use vulkano::buffer::{allocator::SubbufferAllocator, Subbuffer};
 use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::command_buffer::SecondaryAutoCommandBuffer;
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
 use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, InstanceCreateInfo};
-use vulkano::memory::allocator::StandardMemoryAllocator;
+use vulkano::memory::allocator::{MemoryUsage, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::{ComputePipeline, GraphicsPipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
@@ -47,31 +48,15 @@ mod vertex;
 
 use self::core::{EngineSwapchain, RecreateSwapchainResult, WindowSurface};
 use crate::app_config::{AppConfig, Scheme};
+pub use object::{
+    ConfigConstants, FractalPushConstants, ParticleComputePushConstants,
+    ParticleVertexPushConstants, RuntimeConstants,
+};
 use object::{Fractal, Particles};
-pub use object::{FractalPushConstants, ParticleComputePushConstants, ParticleVertexPushConstants};
 
 const DEFAULT_WIDTH: u32 = 800;
 const DEFAULT_HEIGHT: u32 = 450;
 const DEBUG_VULKAN: bool = false;
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub struct AppConstants {
-    pub max_speed: f32,
-    pub particle_count: f32,
-    pub spring_coefficient: f32,
-    pub point_size: f32,
-    pub friction_scale: f32,
-
-    pub audio_scale: f32,
-
-    pub vertical_fov: f32,
-}
-struct AppConstantsState {
-    pub buffer: Arc<CpuBufferPoolSubbuffer<AppConstants>>,
-    pub constants: AppConstants,
-    pub pool: CpuBufferPool<AppConstants>,
-}
 
 pub struct DrawData {
     pub particle_data: Option<(
@@ -85,11 +70,14 @@ pub struct Allocators {
     memory: Arc<StandardMemoryAllocator>,
     descriptor_set: StandardDescriptorSetAllocator,
     command_buffer: StandardCommandBufferAllocator,
+    uniform_buffer: SubbufferAllocator,
 }
 
 pub struct Engine {
     allocators: Allocators,
-    app_constants: AppConstantsState,
+    app_constants: Subbuffer<ConfigConstants>,
+    runtime_constants: Subbuffer<RuntimeConstants>,
+
     device: Arc<Device>,
     fractal: Fractal,
     framebuffers: Vec<Arc<Framebuffer>>,
@@ -102,7 +90,12 @@ pub struct Engine {
 }
 
 impl Engine {
-    pub fn new(event_loop: &EventLoop<()>, app_config: &AppConfig, icon: Option<Icon>) -> Self {
+    pub fn new(
+        event_loop: &EventLoop<()>,
+        app_config: &AppConfig,
+        game_state: &crate::GameState,
+        icon: Option<Icon>,
+    ) -> Self {
         // Create instance with extensions required for windowing (and optional debugging layer(s))
         let instance = {
             let library =
@@ -153,16 +146,16 @@ impl Engine {
         let image_format = engine_swapchain.swapchain().image_format();
 
         // Before creating descriptor sets and other buffers, allocate app-constants buffer
-        let app_constants = {
-            let pool: CpuBufferPool<AppConstants> =
-                CpuBufferPool::uniform_buffer(allocators.memory.clone());
+        let config_constants = {
             let constants = app_config.into();
-            let buffer = pool.from_data(constants).unwrap();
-            AppConstantsState {
-                buffer,
-                constants,
-                pool,
-            }
+            let buffer = allocators
+                .uniform_buffer
+                .allocate_sized::<ConfigConstants>()
+                .expect("Allocation of config constants buffer failed");
+            *buffer
+                .write()
+                .expect("Initialization of config constants failed") = constants;
+            buffer
         };
 
         let render_pass = create_app_render_pass(&device, image_format);
@@ -175,6 +168,22 @@ impl Engine {
             depth_range: 0.0..1.,
         };
 
+        let runtime_constants = {
+            let constants = RuntimeConstants {
+                aspect_ratio: dimensions.width as f32 / dimensions.height as f32,
+                render_background: u32::from(!game_state.render_particles),
+                distance_estimator_id: game_state.distance_estimator_id,
+            };
+            let buffer = allocators
+                .uniform_buffer
+                .allocate_sized::<RuntimeConstants>()
+                .expect("Allocation of runtime constants buffer failed");
+            *buffer
+                .write()
+                .expect("Initialization of runtime constants failed") = constants;
+            buffer
+        };
+
         // Create our "objects"™️
         let fractal = Fractal::new(&device, &render_pass, viewport.clone());
         let particles = Particles::new(
@@ -184,7 +193,8 @@ impl Engine {
             &render_pass,
             viewport.clone(),
             app_config,
-            &app_constants.buffer,
+            config_constants.clone(),
+            runtime_constants.clone(),
         );
 
         // Create a framebuffer to store results of render pass
@@ -199,12 +209,13 @@ impl Engine {
         // Construct new Engine
         Self {
             allocators,
-            app_constants,
+            app_constants: config_constants,
+            runtime_constants,
+
             device,
             fractal,
             framebuffers,
             particles,
-
             queue,
             render_pass,
             surface,
@@ -275,6 +286,7 @@ impl Engine {
     pub fn render(
         &mut self,
         draw_data: &DrawData,
+        gui_command_buffer: Option<SecondaryAutoCommandBuffer>,
     ) -> Result<(Box<dyn GpuFuture>, bool), AcquireError> {
         // Acquire the index of the next image we should render to in this swapchain
         let core::AcquiredImageData {
@@ -289,7 +301,7 @@ impl Engine {
         // Create a one-time-submit command buffer for this frame
         let colored_sugar_commands = {
             let framebuffer = self.framebuffers[image_index as usize].clone();
-            renderer::create_render_commands(self, &framebuffer, draw_data)
+            renderer::create_render_commands(self, &framebuffer, draw_data, gui_command_buffer)
         };
 
         // Create synchronization future for rendering the current frame
@@ -303,28 +315,42 @@ impl Engine {
     }
 
     pub fn present(&mut self, future: Box<dyn GpuFuture>) -> bool {
-        self.swapchain.present(self.queue.clone(), future)
+        self.swapchain.present(&self.queue, future)
     }
 
     pub fn update_color_scheme(&mut self, scheme: Scheme) {
-        self.particles.update_color_scheme(
-            &self.allocators.descriptor_set,
-            scheme,
-            self.app_constants.buffer.clone(),
-        );
+        self.particles.update_color_scheme(scheme);
     }
-    pub fn update_app_constants(&mut self, app_constants: AppConstants) {
-        self.app_constants.constants = app_constants;
-        self.app_constants.buffer = self.app_constants.pool.from_data(app_constants).unwrap();
-        self.particles.update_app_constants(
-            &self.allocators.descriptor_set,
-            self.app_constants.buffer.clone(),
-        );
+
+    pub fn update_app_constants(&mut self, config_constants: ConfigConstants) {
+        *self
+            .app_constants
+            .write()
+            .expect("Failed to update config constants") = config_constants;
+    }
+
+    pub fn update_runtime_constants(
+        &mut self,
+        game_state: &crate::GameState,
+        dimensions: [f32; 2],
+    ) {
+        // Get runtime constants from game state.
+        let constants = RuntimeConstants {
+            aspect_ratio: dimensions[0] / dimensions[1],
+            render_background: u32::from(!game_state.render_particles),
+            distance_estimator_id: game_state.distance_estimator_id,
+        };
+
+        // Write changes to buffer.
+        *self
+            .runtime_constants
+            .write()
+            .expect("Initialization of runtime constants failed") = constants;
     }
 
     // Engine getters
-    pub fn app_constants(&self) -> &AppConstants {
-        &self.app_constants.constants
+    pub fn app_constants(&self) -> &Subbuffer<ConfigConstants> {
+        &self.app_constants
     }
     pub fn compute_descriptor_set(&self) -> &Arc<PersistentDescriptorSet> {
         &self.particles.compute_descriptor_set
@@ -337,6 +363,9 @@ impl Engine {
     }
     pub fn fractal_pipeline(&self) -> &Arc<GraphicsPipeline> {
         &self.fractal.pipeline
+    }
+    pub fn gui_pass(&self) -> Subpass {
+        Subpass::from(self.render_pass.clone(), 2).unwrap()
     }
     pub fn particle_descriptor_set(&self) -> &Arc<PersistentDescriptorSet> {
         &self.particles.graphics_descriptor_set
@@ -354,11 +383,7 @@ impl Engine {
         self.swapchain.swapchain()
     }
     pub fn particle_count(&self) -> u64 {
-        use vulkano::buffer::TypedBufferAccess; // Trait for accessing buffer length
         self.particles.vertex_buffers.vertex.len()
-    }
-    pub fn render_frame(&self) -> &Arc<Framebuffer> {
-        &self.framebuffers[self.swapchain.present_index().unwrap_or_default() as usize]
     }
     pub fn window(&self) -> &Window {
         self.surface.window()
@@ -370,14 +395,15 @@ fn create_framebuffers(
     memory_allocator: &StandardMemoryAllocator,
     render_pass: &Arc<RenderPass>,
     dimensions: [u32; 2],
-    images: &Vec<Arc<SwapchainImage>>,
+    images: &[Arc<SwapchainImage>],
     image_format: vulkano::format::Format,
 ) -> Vec<Arc<Framebuffer>> {
-    (0..images.len())
-        .map(|i| {
+    images
+        .iter()
+        .map(|image| {
             // To interact with image buffers or framebuffers from shaders we create a view defining how the image will be used.
             // This view, which belongs to the swapchain, will be the destination (i.e. fractal) view
-            let view = ImageView::new_default(images[i].clone()).unwrap();
+            let view = ImageView::new_default(image.clone()).unwrap();
 
             // Create image attachment for MSAA particles.
             // It is transient but cannot be used as an input
@@ -399,12 +425,9 @@ fn create_framebuffers(
                     memory_allocator,
                     dimensions,
                     image_format,
-                    ImageUsage {
-                        transfer_dst: true,
-                        input_attachment: true,
-                        color_attachment: true,
-                        ..ImageUsage::empty()
-                    },
+                    ImageUsage::TRANSFER_DST
+                        | ImageUsage::INPUT_ATTACHMENT
+                        | ImageUsage::COLOR_ATTACHMENT,
                 )
                 .unwrap(),
             )
@@ -492,22 +515,25 @@ fn create_app_render_pass(
                 color: [fractal_color],
                 depth_stencil: {},
                 input: [particle_color, particle_depth]
-            }
+            },
+
+            // GUI pass
+            { color: [fractal_color], depth_stencil: {}, input: [] }
         ]
     )
     .unwrap()
 }
 
-impl From<&AppConfig> for AppConstants {
-    fn from(app_config: &AppConfig) -> Self {
+impl From<&AppConfig> for ConfigConstants {
+    fn from(config: &AppConfig) -> Self {
         Self {
-            max_speed: app_config.max_speed,
-            particle_count: app_config.particle_count as f32,
-            spring_coefficient: app_config.spring_coefficient,
-            friction_scale: app_config.friction_scale,
-            point_size: app_config.point_size,
-            audio_scale: app_config.audio_scale,
-            vertical_fov: app_config.vertical_fov,
+            max_speed: config.max_speed,
+            particle_count: config.particle_count as f32,
+            spring_coefficient: config.spring_coefficient,
+            friction_scale: config.friction_scale,
+            point_size: config.point_size,
+            audio_scale: config.audio_scale,
+            vertical_fov: config.vertical_fov,
         }
     }
 }
@@ -515,10 +541,23 @@ impl From<&AppConfig> for AppConstants {
 impl Allocators {
     #[allow(clippy::default_trait_access)]
     fn new_default(device: &Arc<Device>) -> Self {
+        let memory = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+
+        // Create an allocation pool for uniform buffers
+        let uniform_buffer = SubbufferAllocator::new(
+            memory.clone(),
+            SubbufferAllocatorCreateInfo {
+                buffer_usage: BufferUsage::UNIFORM_BUFFER,
+                memory_usage: MemoryUsage::Upload,
+                ..Default::default()
+            },
+        );
+
         Self {
-            memory: Arc::new(StandardMemoryAllocator::new_default(device.clone())),
+            memory,
             descriptor_set: StandardDescriptorSetAllocator::new(device.clone()),
             command_buffer: StandardCommandBufferAllocator::new(device.clone(), Default::default()),
+            uniform_buffer,
         }
     }
 }

@@ -20,15 +20,15 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use egui::{ComboBox, ScrollArea, Slider, Ui};
-use egui_winit_vulkano::Gui;
+use egui_winit_vulkano::{Gui, GuiConfig};
+use vulkano::command_buffer::SecondaryAutoCommandBuffer;
 use vulkano::device::Queue;
-use vulkano::image::ImageViewAbstract;
+use vulkano::render_pass::Subpass;
 use vulkano::swapchain::{Surface, Swapchain};
-use vulkano::sync::GpuFuture;
 use winit::{event::WindowEvent, event_loop::EventLoop};
 
 use crate::app_config::{AppConfig, Scheme};
-use crate::engine::{AppConstants, Engine};
+use crate::engine::{ConfigConstants, Engine};
 
 #[derive(Clone, Copy)]
 struct ConfigUiScheme {
@@ -42,7 +42,6 @@ pub struct AppOverlay {
     config_window: ConfigWindow,
     gui: Gui,
     help_visible: bool,
-    queue: Arc<Queue>,
 }
 
 struct ConfigWindow {
@@ -50,8 +49,8 @@ struct ConfigWindow {
     init_color_schemes: Vec<ConfigUiScheme>,
     edit_scheme_index: usize,
 
-    state: AppConstants,
-    init_state: AppConstants,
+    config: ConfigConstants,
+    init_config: ConfigConstants,
     visible: bool,
 }
 
@@ -86,7 +85,7 @@ fn add_color_scheme(
     // Helper to enforce the given list is an increasing sequence
     fn enforce_limits(vals: &mut [f32; 4], changed: &mut bool) {
         let mut max = 0.;
-        for v in vals[0..3].iter_mut() {
+        for v in &mut vals[0..3] {
             if *v < max {
                 *v = max;
                 *changed = true;
@@ -170,31 +169,31 @@ fn create_config_ui(
             ui.separator();
             data_changed |= ui
                 .add(
-                    Slider::new(&mut config_window.state.audio_scale, -30.0..=5.)
+                    Slider::new(&mut config_window.config.audio_scale, -30.0..=5.)
                         .text("audio scale (dB)"),
                 )
                 .changed();
             data_changed |= ui
-                .add(Slider::new(&mut config_window.state.max_speed, 0.0..=10.).text("max speed"))
+                .add(Slider::new(&mut config_window.config.max_speed, 0.0..=10.).text("max speed"))
                 .changed();
             data_changed |= ui
-                .add(Slider::new(&mut config_window.state.point_size, 0.0..=8.).text("point size"))
+                .add(Slider::new(&mut config_window.config.point_size, 0.0..=8.).text("point size"))
                 .changed();
             data_changed |= ui
                 .add(
-                    Slider::new(&mut config_window.state.friction_scale, 0.0..=5.)
+                    Slider::new(&mut config_window.config.friction_scale, 0.0..=5.)
                         .text("friction scale"),
                 )
                 .changed();
             data_changed |= ui
                 .add(
-                    Slider::new(&mut config_window.state.spring_coefficient, 0.0..=200.)
+                    Slider::new(&mut config_window.config.spring_coefficient, 0.0..=200.)
                         .text("spring coefficient"),
                 )
                 .changed();
             data_changed |= ui
                 .add(
-                    Slider::new(&mut config_window.state.vertical_fov, 30.0..=105.)
+                    Slider::new(&mut config_window.config.vertical_fov, 30.0..=105.)
                         .text("vertical fov"),
                 )
                 .changed();
@@ -206,12 +205,12 @@ fn create_config_ui(
                     .on_hover_text("Reset displayed values to the constants used at launch.")
                     .clicked()
                 {
-                    config_window.state = config_window.init_state;
+                    config_window.config = config_window.init_config;
                     config_window
                         .color_schemes
                         .copy_from_slice(&config_window.init_color_schemes);
 
-                    let constants = constants_from_presentable(config_window.state);
+                    let constants = constants_from_presentable(config_window.config);
                     engine.update_app_constants(constants);
 
                     let new_colors: Vec<_> = config_window
@@ -225,7 +224,7 @@ fn create_config_ui(
             });
 
             if data_changed {
-                let constants = constants_from_presentable(config_window.state);
+                let constants = constants_from_presentable(config_window.config);
                 engine.update_app_constants(constants);
             }
         });
@@ -298,17 +297,22 @@ impl AppOverlay {
         swapchain: &Arc<Swapchain>,
         queue: Arc<Queue>,
         event_loop: &EventLoop<()>,
+        subpass: Subpass,
         app_config: &AppConfig,
     ) -> Self {
-        let gui = Gui::new(
+        let gui = Gui::new_with_subpass(
             event_loop,
             surface,
-            Some(swapchain.image_format()),
-            queue.clone(),
-            true,
+            queue,
+            subpass,
+            GuiConfig {
+                preferred_format: Some(swapchain.image_format()),
+                is_overlay: true,
+                ..Default::default()
+            },
         );
 
-        let initial_state = constants_to_presentable(app_config.into());
+        let initial_config = constants_to_presentable(app_config.into());
         let initial_colors: Vec<ConfigUiScheme> = app_config
             .color_schemes
             .iter()
@@ -319,8 +323,8 @@ impl AppOverlay {
             color_schemes: initial_colors.clone(),
             init_color_schemes: initial_colors,
             edit_scheme_index: 0,
-            state: initial_state,
-            init_state: initial_state,
+            config: initial_config,
+            init_config: initial_config,
             visible: DEFAULT_VISIBILITY,
         };
 
@@ -328,7 +332,6 @@ impl AppOverlay {
             config_window,
             gui,
             help_visible: app_config.launch_help_visible,
-            queue,
         }
     }
 
@@ -344,12 +347,10 @@ impl AppOverlay {
         color_scheme_names: &[String],
         color_schemes: &mut [Scheme],
         displayed_scheme_index: &mut usize,
-        frame: Arc<dyn ImageViewAbstract>,
-        before_future: Box<dyn GpuFuture>,
-    ) -> Box<dyn GpuFuture> {
+    ) -> Option<SecondaryAutoCommandBuffer> {
         // Quick escape the render if window is not visible
         if !self.visible() {
-            return vulkano::sync::now(self.queue.device().clone()).boxed();
+            return None;
         }
 
         // Setup UI layout
@@ -368,7 +369,10 @@ impl AppOverlay {
             create_help_ui(gui, &mut self.help_visible);
         });
 
-        self.gui.draw_on_image(before_future, frame)
+        Some(
+            self.gui
+                .draw_on_subpass_image(engine.window().inner_size().into()),
+        )
     }
 
     pub fn toggle_help(&mut self) {
@@ -385,44 +389,18 @@ impl AppOverlay {
 const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;
 
 // Helpers for converting between presentation and internal units of measure
-fn constants_to_presentable(app_constants: AppConstants) -> AppConstants {
-    let AppConstants {
-        max_speed,
-        particle_count,
-        spring_coefficient,
-        point_size,
-        friction_scale,
-        audio_scale,
-        vertical_fov,
-    } = app_constants;
-    AppConstants {
-        max_speed,
-        particle_count,
-        spring_coefficient,
-        point_size,
-        friction_scale,
-        audio_scale: audio_scale.ln() / DECIBEL_SCALE,
-        vertical_fov: vertical_fov * 360. / std::f32::consts::PI,
+fn constants_to_presentable(app_constants: ConfigConstants) -> ConfigConstants {
+    ConfigConstants {
+        audio_scale: app_constants.audio_scale.ln() / DECIBEL_SCALE,
+        vertical_fov: app_constants.vertical_fov * 360. / std::f32::consts::PI,
+        ..app_constants
     }
 }
-fn constants_from_presentable(app_constants: AppConstants) -> AppConstants {
-    let AppConstants {
-        max_speed,
-        particle_count,
-        spring_coefficient,
-        point_size,
-        friction_scale,
-        audio_scale,
-        vertical_fov,
-    } = app_constants;
-    AppConstants {
-        max_speed,
-        particle_count,
-        spring_coefficient,
-        point_size,
-        friction_scale,
-        audio_scale: (DECIBEL_SCALE * audio_scale).exp(),
-        vertical_fov: vertical_fov * std::f32::consts::PI / 360.,
+fn constants_from_presentable(app_constants: ConfigConstants) -> ConfigConstants {
+    ConfigConstants {
+        audio_scale: (DECIBEL_SCALE * app_constants.audio_scale).exp(),
+        vertical_fov: app_constants.vertical_fov * std::f32::consts::PI / 360.,
+        ..app_constants
     }
 }
 
@@ -474,23 +452,6 @@ impl From<ConfigUiScheme> for Scheme {
 }
 impl From<&mut ConfigUiScheme> for Scheme {
     fn from(ui_scheme: &mut ConfigUiScheme) -> Self {
-        fn convert(i: u8) -> f32 {
-            f32::from(i) / 255.
-        }
-        fn zip(a: &[[u8; 3]; 4], b: &[f32; 4]) -> [[f32; 4]; 4] {
-            fn append(a: [u8; 3], b: f32) -> [f32; 4] {
-                [convert(a[0]), convert(a[1]), convert(a[2]), b]
-            }
-            [
-                append(a[0], b[0]),
-                append(a[1], b[1]),
-                append(a[2], b[2]),
-                append(a[3], b[3]),
-            ]
-        }
-
-        let index = zip(&ui_scheme.index_rgb, &ui_scheme.index_val);
-        let speed = zip(&ui_scheme.speed_rgb, &ui_scheme.speed_val);
-        Self { index, speed }
+        Self::from(*ui_scheme)
     }
 }

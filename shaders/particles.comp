@@ -3,8 +3,8 @@
 layout (local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
 
 struct VertexData {
-	vec3 pos;
-	vec3 vel;
+	vec4 pos;
+	vec4 vel;
 };
 
 layout (binding = 0) buffer VertexBuffer {
@@ -19,17 +19,19 @@ layout (binding = 2) buffer readonly FixedCubePosBuffer {
 	vec3 fixed_cube_positions[];
 };
 
-layout (binding = 3) uniform AppConstants {
-	float max_speed;
+layout (binding = 3) uniform ConfigConstants {
+	// Particle constants
 	float particle_count;
+	float max_speed;
 	float spring_coefficient;
 	float point_size;
 	float friction_scale;
 
 	float audio_scale;
 
+	// Window constants
 	float vertical_fov;
-} appConstants;
+} config;
 
 layout (push_constant) uniform PushConstants {
 	vec4 big_boomer;
@@ -67,8 +69,8 @@ void main(void) {
 	VertexData vert = verticies[index];
 
 	// Read the current position and velocity from the buffers
-	vec3 pos = vert.pos;
-	vec3 vel = vert.vel;
+	vec3 pos = vert.pos.xyz;
+	vec3 vel = vert.vel.xyz;
 
 	vec3 g = vec3(0.0);
 	float friction;
@@ -94,9 +96,9 @@ void main(void) {
 				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 34.0;
 			}
 
-			g *= appConstants.audio_scale;
+			g *= config.audio_scale;
 
-			g += appConstants.spring_coefficient * (fixed_cube_positions[index] - pos);
+			g += config.spring_coefficient * (fixed_cube_positions[index] - pos);
 		} else {
 			friction = -2.0;
 
@@ -118,13 +120,13 @@ void main(void) {
 				g += push.attractors[i].w * safe_normalize(t) / (r*r) * 17.5;
 			}
 
-			g *= appConstants.audio_scale;
+			g *= config.audio_scale;
 		}
 
 		vel += push.delta_time * g;
 
-		if(length(vel) > appConstants.max_speed) {
-			vel = appConstants.max_speed*normalize(vel);
+		if(length(vel) > config.max_speed) {
+			vel = config.max_speed*normalize(vel);
 		}
 
 		pos += vel * push.delta_time;
@@ -163,9 +165,9 @@ void main(void) {
 				g.xy += push.attractors[i].w * safe_normalize(t) / (r*r) * 5.25;
 			}
 
-			g *= appConstants.audio_scale;
+			g *= config.audio_scale;
 
-			g.xy += appConstants.spring_coefficient * (aspect * (fixed_square_positions[index] - pos.xy));
+			g.xy += config.spring_coefficient * (aspect * (fixed_square_positions[index] - pos.xy));
 		} else {
 			friction = -1.85;
 
@@ -190,20 +192,20 @@ void main(void) {
 				g.xy += push.attractors[i].w * safe_normalize(t) / (r*r) * 8.75;
 			}
 
-			g *= appConstants.audio_scale;
+			g *= config.audio_scale;
 		}
 
 		vel.xy += push.delta_time * g.xy;
 
-		if(length(vel) > appConstants.max_speed) {
-			vel = appConstants.max_speed*normalize(vel);
+		if(length(vel) > config.max_speed) {
+			vel = config.max_speed*normalize(vel);
 		}
 
 		pos.xy += push.delta_time * (invaspect * vel.xy);
 	} // End 2D block
 
 	// Allow scaling of friction force applied
-	friction *= appConstants.friction_scale;
+	friction *= config.friction_scale;
 
 	if(abs(pos.x) > 1.0) {
 		vel.x = sign(pos.x) * (-0.95 * abs(vel.x) - 0.0001);
@@ -224,6 +226,6 @@ void main(void) {
 		}
 	}
 
-	verticies[index].pos = pos;
-	verticies[index].vel = vel * exp(friction * push.delta_time);
+	verticies[index].pos.xyz = pos;
+	verticies[index].vel.xyz = vel * exp(friction * push.delta_time);
 }

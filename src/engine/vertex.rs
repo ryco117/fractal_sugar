@@ -17,22 +17,15 @@
 */
 
 use bytemuck::{Pod, Zeroable};
-use vulkano::pipeline::graphics::vertex_input::{VertexMember, VertexMemberTy};
+use vulkano::pipeline::graphics::vertex_input::Vertex;
 
 use crate::my_math::Vector3;
 
 #[repr(C)]
-#[derive(Default, Copy, Clone, Zeroable, Pod)]
-pub struct Vertex {
+#[derive(Default, Copy, Clone, Zeroable, Pod, Vertex)]
+pub struct PointParticle {
+    #[format(R32G32B32A32_SFLOAT)]
     pub pos: Vector3,
+    #[format(R32G32B32A32_SFLOAT)]
     pub vel: Vector3,
 }
-
-// Allow us to use Vector3 as vec3 type
-unsafe impl VertexMember for Vector3 {
-    fn format() -> (VertexMemberTy, usize) {
-        (VertexMemberTy::F32, 3) // Each member is a vec3
-    }
-}
-
-vulkano::impl_vertex!(Vertex, pos, vel);

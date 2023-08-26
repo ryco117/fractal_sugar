@@ -7,17 +7,28 @@ layout (location = 0) out vec4 fragColor;
 layout (input_attachment_index = 0, set = 0, binding = 0) uniform subpassInput particle_color;
 layout (input_attachment_index = 1, set = 0, binding = 1) uniform subpassInputMS particle_depth;
 
-layout (set = 0, binding = 2) uniform AppConstants {
-	float max_speed;
+layout (set = 0, binding = 2) uniform ConfigConstants {
+	// Particle constants
 	float particle_count;
+	float max_speed;
 	float spring_coefficient;
 	float point_size;
 	float friction_scale;
 
 	float audio_scale;
 
+	// Window constants
 	float vertical_fov;
-} appConstants;
+} config;
+
+layout (set = 0, binding = 3) uniform RuntimeConstants {
+	// Window constant
+	float aspect_ratio;
+
+	// Fractal constants
+	bool render_background;
+	uint distance_estimator_id;
+} runtime;
 
 layout (push_constant) uniform PushConstants {
 	vec4 quaternion;
@@ -31,11 +42,9 @@ layout (push_constant) uniform PushConstants {
     vec4 smooth_high;
 
 	float time;
-	float aspect_ratio;
+	
 	float kaleidoscope;
-	uint distance_estimator_id;
 	float orbit_distance;
-	bool render_background;
 } push;
 
 const float pi = 3.14159265358;
@@ -104,7 +113,7 @@ float distanceEstimator(vec3 t) {
 	orbitTrap = vec4(1.0, 1.0, 1.0, 1.0);
 
 	// Mandelbox
-	if(push.distance_estimator_id == 1) {
+	if(runtime.distance_estimator_id == 1) {
 		const int maxIterations = 5;
 		const float reScale = 4.8;
 		t *= reScale;
@@ -140,7 +149,7 @@ float distanceEstimator(vec3 t) {
 		return (length(s)-BVR)/abs(DEfactor) / reScale;
 	}
 	// Mandelbulb
-	else if(push.distance_estimator_id == 2) {
+	else if(runtime.distance_estimator_id == 2) {
 		const int maxIterations = 3;
 		const float reScale = 1.85;
 		t *= reScale;
@@ -171,7 +180,7 @@ float distanceEstimator(vec3 t) {
 		}
 		return min(0.5*log(r)*r/dr, 3.5) / reScale;
 	}
-	else if(push.distance_estimator_id == 3) {
+	else if(runtime.distance_estimator_id == 3) {
 		const int maxIterations = 3;
 		const float reScale = 0.8;
 		t = reScale*t;
@@ -204,7 +213,7 @@ float distanceEstimator(vec3 t) {
 	
 		return max((0.25*abs(s.z)/scale)/reScale, length(t/reScale)-0.62);
 	}
-	else if(push.distance_estimator_id == 4) {
+	else if(runtime.distance_estimator_id == 4) {
 		const int maxIterations = 4;
 
 		const float reScale = 1.32;
@@ -243,7 +252,7 @@ float distanceEstimator(vec3 t) {
 		}
 		return d/reScale;
 	}
-	else if(push.distance_estimator_id == 5) {
+	else if(runtime.distance_estimator_id == 5) {
 		const int maxIterations = 8;
 		const float scale = 2.0;
 		const float reScale = 1.4;
@@ -299,7 +308,7 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 	const float maxDistance = 32.0;
 	const float hitDistance = epsilon;
 	float minTravel = 0.3;
-	if(push.distance_estimator_id == 1) {
+	if(runtime.distance_estimator_id == 1) {
 		minTravel = minTravel + max(0.0, -0.75*cos(0.03 * push.time));
 	}
 
@@ -320,13 +329,13 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 		position += dist*direction;
 		travel += dist;
 		if(travel >= maxDistance) {
-			if(push.render_background) {
+			if(runtime.render_background) {
 				vec3 unmodDirection = normalize(vec3(coord.x*fovX, coord.y*fovY, 1.0));
 				unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
 
 				vec3 sinDir = sin(100.0*unmodDirection);
 				vec3 base = vec3(exp(-2.9*length(sin(pi * push.reactive_bass.xyz + 1.0) - sinDir)), exp(-2.9*length(sin(e * push.reactive_mids.xyz + 1.3) - sinDir)), exp(-2.9*length(sin(9.6*push.reactive_high.xyz + 117.69420) - sinDir)));
-				return (push.distance_estimator_id == 0 ? 0.8 : 0.575) * base;
+				return (runtime.distance_estimator_id == 0 ? 0.8 : 0.575) * base;
 			}
 			break;
 		}
@@ -336,8 +345,8 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 
 void main(void) {
 	//const float verticalFov = (pi/2.5) / 2.0;	// Roughly 70 degress vertical FOV
-	const float fovY = tan(appConstants.vertical_fov);
-	float fovX = push.aspect_ratio * fovY;
+	const float fovY = tan(config.vertical_fov);
+	float fovX = runtime.aspect_ratio * fovY;
 
 	float kaleidoTheta = boundReflect(getAngle(coord), push.kaleidoscope*(pi/6.0 - tau) + tau);
 	vec2 newCoord = length(coord) * vec2(cos(kaleidoTheta), sin(kaleidoTheta));
