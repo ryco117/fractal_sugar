@@ -35,8 +35,10 @@ use vulkano::sync::GpuFuture;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
+const MAX_EXPECTED_FRAMES_IN_FLIGHT: usize = 3;
+
 pub struct EngineSwapchain {
-    fences: SmallVec<[Option<Box<dyn GpuFuture>>; 3]>,
+    fences: SmallVec<[Option<Box<dyn GpuFuture>>; MAX_EXPECTED_FRAMES_IN_FLIGHT]>,
     images: Vec<Arc<SwapchainImage>>,
     present_index: Option<u32>,
     swapchain: Arc<Swapchain>,
@@ -149,12 +151,12 @@ impl EngineSwapchain {
         surface: Arc<Surface>,
         desired_present_mode: PresentMode,
     ) -> Self {
-        // Determine what features our surface can support
+        // Determine what features our surface can support.
         let surface_capabilities = physical_device
             .surface_capabilities(&surface, SurfaceInfo::default())
             .expect("Failed to get surface capabilities");
 
-        // Determine properties of surface (on this physical device)
+        // Determine the properties of surface (on this physical device).
         let dimensions = surface.window().inner_size();
         let composite_alpha = surface_capabilities
             .supported_composite_alpha
@@ -192,12 +194,13 @@ impl EngineSwapchain {
             {
                 desired_present_mode
             } else {
-                println!("Fallback to default present mode FIFO");
+                // The Vulkano spec requires FIFO to be supported.
+                println!("Fallback to default present mode, FIFO");
                 PresentMode::Fifo
             }
         };
 
-        // Attempt to create one more image buffer than the minimum required, but constrained by optional maximum count
+        // Attempt to create one more image buffer than the minimum required, but constrained by the optional maximum count.
         let image_count = {
             let desired_count = surface_capabilities.min_image_count + 1;
             let max_count = surface_capabilities.max_image_count.unwrap_or(0);
@@ -207,7 +210,6 @@ impl EngineSwapchain {
                 desired_count
             }
         };
-        println!("Swapchain image count: {image_count}");
 
         // Create a new swapchain with the specified properties.
         let (swapchain, images) = Swapchain::new(

@@ -22,6 +22,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SupportedStreamConfig};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use rustfft::{num_complex::Complex, FftPlanner};
+use smallvec::SmallVec;
 
 use crate::my_math::{Vector2, Vector3, Vector4};
 use crate::space_filling_curves;
@@ -29,7 +30,7 @@ use crate::space_filling_curves::{cube::curve_to_cube_n, square::curve_to_square
 
 const PRINT_SPECTRUM: bool = true;
 
-// Set some constants for scaling frequencies to sound/appear more linear
+// Set some constants for scaling frequencies to sound/appear more linear.
 pub const BASS_POW: f32 = 0.84;
 pub const MIDS_POW: f32 = 0.75;
 pub const HIGH_POW: f32 = 0.445;
@@ -37,7 +38,10 @@ pub const HIGH_POW: f32 = 0.445;
 const BASS_KICK: f32 = 0.05;
 const PREVIOUS_BASS_COUNT: usize = 16;
 
-// Simple type to store a single note with normalized frequency and strength
+// Experimentally determined to be the maximum number of bass frequency buckets.
+const MAX_BASS_BUCKET_COUNT: usize = 11;
+
+// Simple type to represent a single note with a normalized frequency and a strength.
 #[derive(Clone, Copy, Default)]
 pub struct Note {
     pub freq: f32,
@@ -69,14 +73,14 @@ pub struct State {
 
 // Type to retrieve results from `analyze_frequency_range` helper
 struct FrequencyAnalysis {
-    pub loudest: Vec<Note>,
+    pub loudest: SmallVec<[Note; 2]>,
     pub total_volume: f32,
 }
 
 // Type to retrieve results from `analyze_audio_frequencies` helper
 struct SpectrumAnalysis {
     pub bass_analysis: FrequencyAnalysis,
-    pub current_bass: Vec<f32>,
+    pub current_bass: SmallVec<[f32; MAX_BASS_BUCKET_COUNT]>,
     pub mids_analysis: FrequencyAnalysis,
     pub high_analysis: FrequencyAnalysis,
 }
@@ -86,7 +90,7 @@ struct BassHistoryAndState {
     pub kick_angular_velocity: Option<Vector4>,
     pub last_kick: SystemTime,
     pub previous_bass_index: usize,
-    pub previous_bass: [Option<Vec<f32>>; PREVIOUS_BASS_COUNT],
+    pub previous_bass: [Option<SmallVec<[f32; MAX_BASS_BUCKET_COUNT]>>; PREVIOUS_BASS_COUNT],
 }
 
 // Type to help with passing re-used information in `analyze_audio_frequencies` helper
@@ -97,7 +101,7 @@ struct AudioChunkHelper<'a> {
     frequency_resolution: f32,
 }
 
-// Convert note analysis to 4D vector containing position and note strength
+// Convert note analysis to 4D vector containing position and note strength.
 pub fn map_note_to_square(note: Note, pow: f32) -> Vector4 {
     let Vector2 { x, y } = 0.95 * curve_to_square_n(note.freq.powf(pow), 5);
     Vector4::new(x, y, 0., note.mag)
@@ -107,7 +111,7 @@ pub fn map_note_to_cube(note: Note, pow: f32) -> Vector4 {
     Vector4::new(x, y, z, note.mag)
 }
 
-// Create a new thread for retrieving and processing audio chunks. Results are send over channel
+// Create a new thread for retrieving and processing audio chunks. Results are sent over channel.
 fn spawn_audio_processing_thread(
     sample_rate: f32,
     tx: Sender<State>,
@@ -382,7 +386,7 @@ fn analyze_frequency_range(
         })
         .collect();
 
-    let mut loudest: Vec<Note> = Vec::with_capacity(count);
+    let mut loudest = SmallVec::with_capacity(count);
     while !sorted.is_empty() && loudest.len() < count {
         sorted.sort_unstable_by(|x, y| {
             y.mag
@@ -428,8 +432,8 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
             audio_chunk,
         );
 
-        // Do extra analysis for bass notes
-        let current_bass: Vec<f32> = {
+        // Do extra analysis for bass notes.
+        let current_bass = {
             let start_index = hertz_to_index(
                 frequency_range.start,
                 audio_chunk.size,
@@ -440,9 +444,12 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
                 audio_chunk.size,
                 audio_chunk.frequency_resolution,
             );
+
+            // Get number of frequency buckets in the bass range.
             let len = end_index - start_index;
             let len_f32 = len as f32;
 
+            // Get the volume of each frequency bin.
             (0..len)
                 .map(|i| {
                     let frac = i as f32 / len_f32;
@@ -495,7 +502,7 @@ fn analyze_audio_frequencies(audio_chunk: &AudioChunkHelper) -> SpectrumAnalysis
 fn update_bass_history(
     bass_state: &mut BassHistoryAndState,
     bass_analysis: &FrequencyAnalysis,
-    current_bass: Vec<f32>,
+    current_bass: SmallVec<[f32; MAX_BASS_BUCKET_COUNT]>,
 ) {
     // Use analysis of bass notes to determine if a kick should occur
     let kick_elapsed = match bass_state.last_kick.elapsed() {
