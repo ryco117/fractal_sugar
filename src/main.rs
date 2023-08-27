@@ -17,14 +17,14 @@
 */
 
 // Ensure Windows builds are not console apps
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 use std::time::SystemTime;
 
 use app_overlay::AppOverlay;
-#[cfg(target_os = "windows")]
+#[cfg(all(not(debug_assertions), target_os = "windows"))]
 use companion_console::ConsoleState;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{
@@ -133,7 +133,7 @@ struct FractalSugar {
     event_loop: Option<EventLoop<()>>,
     audio_receiver: crossbeam_channel::Receiver<audio::State>,
 
-    #[cfg(target_os = "windows")]
+    #[cfg(all(not(debug_assertions), target_os = "windows"))]
     console_state: Option<ConsoleState>,
 
     // This field keeps the audio stream alive for the duration of the app
@@ -156,7 +156,7 @@ fn main() {
 impl FractalSugar {
     pub fn new() -> Self {
         // Windows-specific console clean-up. Important that this occurs before print statements for debugging
-        #[cfg(target_os = "windows")]
+        #[cfg(all(not(debug_assertions), target_os = "windows"))]
         let console_state = ConsoleState::new(false);
 
         // Fetch command-line arguments
@@ -248,7 +248,7 @@ impl FractalSugar {
             game_state,
             window_state,
 
-            #[cfg(target_os = "windows")]
+            #[cfg(all(not(debug_assertions), target_os = "windows"))]
             console_state,
         }
     }
@@ -540,7 +540,7 @@ impl FractalSugar {
 
             // Handle toggling the debug-console.
             // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
-            #[cfg(target_os = "windows")]
+            #[cfg(all(not(debug_assertions), target_os = "windows"))]
             VirtualKeyCode::Return => {
                 if let Some(console_state) = &mut self.console_state {
                     if console_state.visible {

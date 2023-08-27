@@ -12,7 +12,7 @@ embed-resource = "2.1.1"
 [dependencies]
 anyhow = "1.0.75"
 bytemuck = "1.13.1"
-companion_console = { git = "https://github.com/ryco117/companion_console.git" }
+companion_console = { git = "https://github.com/ryco117/companion_console.git", rev = "7c329f7" }
 cpal = "0.15.2"
 crossbeam-channel = "0.5.8"
 css-color-parser = "0.1.2"

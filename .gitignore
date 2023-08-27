@@ -1,4 +1,5 @@
-/target
-/.cargo
-/.vscode
+.cargo/
+.vscode/
+target/
 .gitignore
+Cargo.lock
