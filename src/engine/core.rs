@@ -18,6 +18,7 @@
 
 use std::sync::Arc;
 
+use smallvec::SmallVec;
 use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
 use vulkano::device::{
     Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
@@ -30,12 +31,12 @@ use vulkano::swapchain::{
     SwapchainCreationError, SwapchainPresentInfo,
 };
 
-use vulkano::sync::{self, GpuFuture};
+use vulkano::sync::GpuFuture;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
 pub struct EngineSwapchain {
-    previous_frame_future: Option<Box<dyn GpuFuture>>,
+    fences: SmallVec<[Option<Box<dyn GpuFuture>>; 3]>,
     images: Vec<Arc<SwapchainImage>>,
     present_index: Option<u32>,
     swapchain: Arc<Swapchain>,
@@ -114,7 +115,7 @@ pub fn select_hardware(
 
     // Pretty-print which GPU was selected
     println!(
-        "Using device: {} (type: {:?})",
+        "Device: {} (Type: {:?})",
         physical_device.properties().device_name,
         physical_device.properties().device_type
     );
@@ -144,7 +145,7 @@ pub fn select_hardware(
 impl EngineSwapchain {
     pub fn new(
         physical_device: &Arc<PhysicalDevice>,
-        device: Arc<Device>,
+        device: &Arc<Device>,
         surface: Arc<Surface>,
         desired_present_mode: PresentMode,
     ) -> Self {
@@ -180,7 +181,7 @@ impl EngineSwapchain {
                 })
                 .expect("Failed to find suitable surface format")
         };
-        println!("Using image color-format {image_format:?}");
+        println!("Image color-format {image_format:?}");
 
         // Get preferred present mode with fallback to FIFO (which any Vulkan instance must support)
         let present_mode = {
@@ -206,17 +207,18 @@ impl EngineSwapchain {
                 desired_count
             }
         };
+        println!("Swapchain image count: {image_count}");
 
-        // Create new swapchain with specified properties
+        // Create a new swapchain with the specified properties.
         let (swapchain, images) = Swapchain::new(
             device.clone(),
             surface,
             SwapchainCreateInfo {
-                min_image_count: image_count, // Use one more buffer than the minimum in swapchain
+                min_image_count: image_count, // Use one more buffer than the minimum in swapchain.
                 image_format: Some(image_format),
                 image_extent: dimensions.into(),
                 image_usage: {
-                    // Swapchain images are going to be used for color, as well as MSAA destination
+                    // Swapchain images are going to be used for color as well as MSAA destination.
                     ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSFER_DST
                 },
                 composite_alpha,
@@ -226,11 +228,12 @@ impl EngineSwapchain {
         )
         .unwrap();
 
-        // Track the previous frame's future to ensure swapchain presentation is coordinated.
-        let previous_frame_future = Some(vulkano::sync::now(device).boxed());
+        // Create a frame-in-flight fence for each image/frame buffer.
+        // This maximum work to be done before needing to wait for a framebuffer's resources to become free again.
+        let fences = std::iter::repeat_with(|| None).take(images.len()).collect();
 
         Self {
-            previous_frame_future,
+            fences,
             swapchain,
             images,
             present_index: None,
@@ -270,12 +273,10 @@ impl EngineSwapchain {
             vulkano::swapchain::acquire_next_image(self.swapchain.clone(), None)?;
         self.present_index = Some(image_index);
 
-        let acquire_future = self
-            .previous_frame_future
-            .take()
-            .unwrap()
-            .join(acquire_future)
-            .boxed();
+        let acquire_future = match self.fences[image_index as usize].take() {
+            Some(f) => f.join(acquire_future).boxed(),
+            None => acquire_future.boxed(),
+        };
 
         Ok(AcquiredImageData {
             image_index,
@@ -284,7 +285,7 @@ impl EngineSwapchain {
         })
     }
 
-    // Present the current swapchain index
+    // Present the current swapchain index.
     pub fn present(&mut self, queue: &Arc<Queue>, future: Box<dyn GpuFuture>) -> bool {
         let image_index = self
             .present_index
@@ -297,29 +298,29 @@ impl EngineSwapchain {
                 queue.clone(),
                 SwapchainPresentInfo::swapchain_image_index(self.swapchain.clone(), image_index),
             )
-            // Finish synchronization
+            // Finish synchronization.
             .then_signal_fence_and_flush();
 
-        // Update this frame's future with result of current render
+        // Update this frame's future with the result of the current render.
         let mut requires_recreate_swapchain = false;
-        self.previous_frame_future = match present_future {
+        self.fences[image_index as usize] = match present_future {
             // Success, store result into vector
             Ok(future) => {
                 future.wait(None).unwrap();
                 Some(future.boxed())
             }
 
-            // Swapchain is out-of-date, request its recreation next frame
+            // Swapchain is out-of-date, request its recreation next frame.
             Err(vulkano::sync::FlushError::OutOfDate) => {
                 requires_recreate_swapchain = true;
-                Some(sync::now(queue.device().clone()).boxed())
+                None
             }
 
             // Unknown failure
             Err(e) => panic!("Failed to flush future: {e:?}"),
         };
 
-        // Return whether a swapchain recreation was deemed necessary
+        // Return whether a swapchain recreation was deemed necessary.
         requires_recreate_swapchain
     }
 

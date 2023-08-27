@@ -96,7 +96,7 @@ impl Engine {
         runtime_constants: crate::RuntimeConstants,
         icon: Option<Icon>,
     ) -> Self {
-        // Create instance with extensions required for windowing (and optional debugging layer(s))
+        // Create instance with extensions required for windowing (and optional debugging layers).
         let instance = {
             let library =
                 vulkano::VulkanLibrary::new().expect("Could not determine Vulkan library to use.");
@@ -139,7 +139,7 @@ impl Engine {
         // Create swapchain and associated image buffers from the relevant parameters
         let engine_swapchain = EngineSwapchain::new(
             &physical_device,
-            device.clone(),
+            &device,
             surface.clone(),
             PresentMode::Fifo,
         );

@@ -598,7 +598,7 @@ impl FractalSugar {
                 ..
             } => self.handle_keyboard_input(keycode, control_flow),
 
-            // Track window focus in a state var
+            // Track window focus in a state var.
             WindowEvent::Focused(focused) => {
                 if !focused {
                     // Force cursor visibility when focus is lost
@@ -608,7 +608,7 @@ impl FractalSugar {
                 self.window_state.is_focused = focused;
             }
 
-            // Handle mouse movement
+            // Handle mouse movement.
             WindowEvent::CursorMoved { position, .. } => {
                 self.window_state.last_mouse_movement = SystemTime::now();
                 self.engine.window().set_cursor_visible(true);
@@ -617,7 +617,7 @@ impl FractalSugar {
                 self.game_state.cursor_position = position;
             }
 
-            // Handle mouse buttons to allow cursor-applied forces
+            // Handle mouse buttons to allow for cursor-applied forces.
             WindowEvent::MouseInput { state, button, .. } => {
                 let pressed = match state {
                     ElementState::Pressed => 1.,
@@ -630,14 +630,14 @@ impl FractalSugar {
                         _ => 0.,
                     };
 
-                // Allow users to fix cursor state issues bly clicking the respective button
+                // Allow users to fix any cursor-state issues by normalizing the magnitude when non-zero.
                 let m = self.game_state.cursor_force.abs();
                 if m > 1. {
                     self.game_state.cursor_force /= m;
                 }
             }
 
-            // Handle mouse scroll wheel to change strength of cursor-applied forces
+            // Handle mouse scroll wheel to change strength of cursor-applied forces.
             WindowEvent::MouseWheel { delta, .. } => {
                 let delta = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
@@ -650,26 +650,35 @@ impl FractalSugar {
         }
     }
 
-    // Helper for interpolating data on a per-frame basis
+    // Helper for interpolating data on a per-frame basis.
     fn interpolate_frames(&mut self, delta_time: f32) {
+        // Interpolate the volume towards the latest.
         interpolate_floats(
             &mut self.audio.state.local_volume,
             self.audio.state.latest_volume,
             delta_time * -1.8,
         );
+
+        // Use a volume-scaled delta-time to allow volume to control the speed of some actions.
         let audio_scaled_delta_time = delta_time * self.audio.state.local_volume.sqrt();
         self.audio.state.play_time += audio_scaled_delta_time;
+
+        // Rotate the camera according to its angular velocity.
         self.game_state
             .camera_quaternion
             .rotate_by(Quaternion::build(
                 self.audio.state.local_angular_velocity.xyz(),
                 delta_time * self.audio.state.local_angular_velocity.w,
             ));
+
+        // Interpolate the magnitude of the angular velocity towards the base value.
         interpolate_floats(
             &mut self.audio.state.local_angular_velocity.w,
             BASE_ANGULAR_VELOCITY,
             delta_time * -0.375,
         );
+
+        // Interpolate the reactive vectors towards the latest.
         interpolate_vec3(
             &mut self.audio.state.local_reactive_bass,
             &self.audio.state.reactive_bass,
@@ -685,6 +694,8 @@ impl FractalSugar {
             &self.audio.state.reactive_high,
             delta_time * (0.8 * self.audio.state.attractors[0].w.sqrt()).min(1.) * -0.36,
         );
+
+        // Interpolate the smooth vectors towards the reactive vectors.
         interpolate_vec3(
             &mut self.audio.state.local_smooth_bass,
             &self.audio.state.local_reactive_bass,
@@ -873,7 +884,7 @@ impl Default for LocalAudioState {
             curl_attractors: [Vector4::default(); 2],
             attractors: [Vector4::default(); 2],
 
-            // 3D (Fractals)
+            // 3D (Fractals).
             reactive_bass: Vector3::default(),
             reactive_mids: Vector3::default(),
             reactive_high: Vector3::default(),
