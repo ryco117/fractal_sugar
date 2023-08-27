@@ -26,7 +26,7 @@ layout (set = 0, binding = 3) uniform RuntimeConstants {
 	float aspect_ratio;
 
 	// Fractal constants
-	bool render_background;
+	bool render_particles;
 	uint distance_estimator_id;
 } runtime;
 
@@ -329,7 +329,7 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 		position += dist*direction;
 		travel += dist;
 		if(travel >= maxDistance) {
-			if(runtime.render_background) {
+			if(!runtime.render_particles) {
 				vec3 unmodDirection = normalize(vec3(coord.x*fovX, coord.y*fovY, 1.0));
 				unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
 

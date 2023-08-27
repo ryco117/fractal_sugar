@@ -197,7 +197,6 @@ fn create_particle_buffers(
 impl Particles {
     pub fn new(
         allocators: &Allocators,
-        device: &Arc<Device>,
         queue: &Arc<Queue>,
         render_pass: &Arc<RenderPass>,
         viewport: Viewport,
@@ -206,6 +205,7 @@ impl Particles {
         runtime_constants: Subbuffer<RuntimeConstants>,
     ) -> Self {
         // Load particle shaders
+        let device = queue.device();
         let frag_shader = particle_shaders::fs::load(device.clone())
             .expect("Failed to load particle fragment shader");
         let vert_shader = particle_shaders::vs::load(device.clone())

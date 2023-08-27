@@ -293,7 +293,7 @@ pub mod helpers {
         let smooth = 1. - (scale).exp();
         *source += smooth * (target - *source);
     }
-    pub fn interpolate_vec3(source: &mut super::Vector3, target: &super::Vector3, scale: f32) {
+    pub fn interpolate_vec3(source: &mut crate::Vector3, target: &crate::Vector3, scale: f32) {
         let smooth = 1. - (scale).exp();
         *source += smooth * (*target - *source);
     }

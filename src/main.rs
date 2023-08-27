@@ -80,27 +80,31 @@ struct LocalAudioState {
 }
 
 // Game-state enums
-pub enum AlternateColors {
+enum AlternateColors {
     Normal,
     Inverse,
 }
-pub enum KaleidoscopeDirection {
+enum KaleidoscopeDirection {
     Forward,
     ForwardComplete,
     Backward,
     BackwardComplete,
 }
 #[derive(PartialEq)]
-pub enum ParticleTension {
+enum ParticleTension {
     None,
     Spring,
 }
 
-#[allow(clippy::struct_excessive_bools)]
-pub struct GameState {
-    pub fix_particles: ParticleTension,
-    pub render_particles: bool,
+#[derive(Clone, Copy)]
+pub struct RuntimeConstants {
     pub distance_estimator_id: u32,
+    pub render_particles: bool,
+}
+
+#[allow(clippy::struct_excessive_bools)]
+struct GameState {
+    pub fix_particles: ParticleTension,
     pub camera_quaternion: Quaternion,
     pub is_cursor_visible: bool,
     pub cursor_position: PhysicalPosition<f64>,
@@ -112,6 +116,7 @@ pub struct GameState {
     pub particles_are_3d: bool,
     pub color_scheme_index: usize,
     pub audio_responsive: bool,
+    pub runtime_constants: RuntimeConstants,
 }
 
 #[allow(clippy::struct_excessive_bools)]
@@ -124,6 +129,13 @@ struct WindowState {
     pub last_mouse_movement: SystemTime,
 }
 
+// A helper for managing the audio input stream and the resulting audio-based state.
+struct AudioManager {
+    pub receiver: crossbeam_channel::Receiver<audio::State>,
+    pub capture_stream: cpal::Stream,
+    pub state: LocalAudioState,
+}
+
 struct FractalSugar {
     color_schemes: Vec<Scheme>,
     color_scheme_names: Vec<String>,
@@ -131,16 +143,11 @@ struct FractalSugar {
     app_overlay: AppOverlay,
     engine: Engine,
     event_loop: Option<EventLoop<()>>,
-    audio_receiver: crossbeam_channel::Receiver<audio::State>,
 
     #[cfg(all(not(debug_assertions), target_os = "windows"))]
     console_state: Option<ConsoleState>,
 
-    // This field keeps the audio stream alive for the duration of the app
-    #[allow(dead_code)]
-    capture_stream: cpal::Stream,
-
-    audio_state: LocalAudioState,
+    audio: AudioManager,
     game_state: GameState,
     window_state: WindowState,
 }
@@ -209,11 +216,8 @@ impl FractalSugar {
         let game_state = GameState::default();
 
         // Use Engine helper to initialize Vulkan instance
-        let engine = engine::Engine::new(&event_loop, &app_config, &game_state, icon);
-
-        // Capture reference to audio stream and use message passing to receive data
-        let (tx, rx) = crossbeam_channel::bounded(4);
-        let capture_stream = audio::process_loopback_audio_and_send(tx);
+        let engine =
+            engine::Engine::new(&event_loop, &app_config, game_state.runtime_constants, icon);
 
         // State vars
         engine.window().focus_window();
@@ -225,7 +229,6 @@ impl FractalSugar {
             last_frame_time: SystemTime::now(),
             last_mouse_movement: SystemTime::now(),
         };
-        let audio_state = LocalAudioState::default();
 
         let config_window = AppOverlay::new(
             engine.surface().clone(),
@@ -242,9 +245,7 @@ impl FractalSugar {
             app_overlay: config_window,
             engine,
             event_loop: Some(event_loop),
-            audio_receiver: rx,
-            capture_stream,
-            audio_state,
+            audio: AudioManager::default(),
             game_state,
             window_state,
 
@@ -260,13 +261,13 @@ impl FractalSugar {
             .take()
             .unwrap()
             .run(move |event, _, control_flow| match event {
-                // All UI events have been handled (ie., executes once per frame)
+                // All UI events have been handled (i.e., executes once per frame).
                 Event::MainEventsCleared => self.tock_frame(),
 
                 Event::WindowEvent { event, .. } => {
                     let mut handle_event = true;
                     if self.app_overlay.visible() {
-                        // Handle overlay inputs
+                        // Determine if this event should be handled by the config window.
                         handle_event = !self.app_overlay.handle_input(&event);
                     }
 
@@ -344,10 +345,6 @@ impl FractalSugar {
             None
         };
 
-        // Update runtime constants
-        self.engine
-            .update_runtime_constants(&self.game_state, dimensions.into());
-
         // Draw frame and return whether a swapchain recreation was deemed necessary
         let (future, suboptimal) = match self.engine.render(&draw_data, gui_command_buffer) {
             Ok(pair) => pair,
@@ -365,7 +362,7 @@ impl FractalSugar {
     fn update_audio_state_from_stream(&mut self, delta_time: f32) {
         // Allow user to toggle audio-responsiveness
         if !self.game_state.audio_responsive {
-            match self.audio_receiver.try_recv() {
+            match self.audio.receiver.try_recv() {
                 Ok(_) | Err(crossbeam_channel::TryRecvError::Empty) => {}
 
                 // Unexpected error, bail
@@ -375,7 +372,7 @@ impl FractalSugar {
         }
 
         // Handle any changes to audio state
-        match self.audio_receiver.try_recv() {
+        match self.audio.receiver.try_recv() {
             // Update audio state vars
             Ok(audio::State {
                 volume,
@@ -391,7 +388,7 @@ impl FractalSugar {
                 kick_angular_velocity,
             }) => {
                 // Update volume
-                self.audio_state.latest_volume = volume;
+                self.audio.state.latest_volume = volume;
 
                 let (big_boomer, curl_attractors, attractors) = if self.game_state.particles_are_3d
                 {
@@ -412,31 +409,31 @@ impl FractalSugar {
                 match self.game_state.fix_particles {
                     ParticleTension::Spring => {
                         let smooth = 1. - (-7.25 * big_boomer.w * delta_time).exp();
-                        self.audio_state.big_boomer.x +=
-                            smooth * (big_boomer.x - self.audio_state.big_boomer.x);
-                        self.audio_state.big_boomer.y +=
-                            smooth * (big_boomer.y - self.audio_state.big_boomer.y);
-                        self.audio_state.big_boomer.z +=
-                            smooth * (big_boomer.z - self.audio_state.big_boomer.z);
-                        self.audio_state.big_boomer.w = big_boomer.w;
+                        self.audio.state.big_boomer.x +=
+                            smooth * (big_boomer.x - self.audio.state.big_boomer.x);
+                        self.audio.state.big_boomer.y +=
+                            smooth * (big_boomer.y - self.audio.state.big_boomer.y);
+                        self.audio.state.big_boomer.z +=
+                            smooth * (big_boomer.z - self.audio.state.big_boomer.z);
+                        self.audio.state.big_boomer.w = big_boomer.w;
                     }
-                    ParticleTension::None => self.audio_state.big_boomer = big_boomer,
+                    ParticleTension::None => self.audio.state.big_boomer = big_boomer,
                 }
 
                 // Update 2D (curl)attractors
                 let c_len = curl_attractors.len();
                 let a_len = attractors.len();
-                self.audio_state.curl_attractors[..c_len]
+                self.audio.state.curl_attractors[..c_len]
                     .copy_from_slice(&curl_attractors[..c_len]);
-                self.audio_state.attractors[..a_len].copy_from_slice(&attractors[..a_len]);
+                self.audio.state.attractors[..a_len].copy_from_slice(&attractors[..a_len]);
 
                 // Update fractal state
                 if let Some(omega) = kick_angular_velocity {
-                    self.audio_state.local_angular_velocity = omega;
+                    self.audio.state.local_angular_velocity = omega;
                 }
-                self.audio_state.reactive_bass = reactive_bass;
-                self.audio_state.reactive_mids = reactive_mids;
-                self.audio_state.reactive_high = reactive_high;
+                self.audio.state.reactive_bass = reactive_bass;
+                self.audio.state.reactive_mids = reactive_mids;
+                self.audio.state.reactive_high = reactive_high;
             }
 
             // No new data, continue on
@@ -495,7 +492,17 @@ impl FractalSugar {
 
             // Handle toggling of particle rendering
             VirtualKeyCode::P => {
-                self.game_state.render_particles = !self.game_state.render_particles;
+                // Toggle value stored in CPU memory.
+                self.game_state.runtime_constants.render_particles =
+                    !self.game_state.runtime_constants.render_particles;
+
+                // Update value stored in GPU memory.
+                self.engine
+                    .runtime_constants_mut()
+                    .write()
+                    .unwrap()
+                    .render_particles =
+                    u32::from(self.game_state.runtime_constants.render_particles);
             }
 
             // Handle toggling of alternate colors
@@ -527,19 +534,24 @@ impl FractalSugar {
 
             // Toggle audio-responsiveness
             VirtualKeyCode::R => {
+                use cpal::traits::StreamTrait;
                 self.game_state.audio_responsive = !self.game_state.audio_responsive;
 
-                if !self.game_state.audio_responsive {
+                if self.game_state.audio_responsive {
+                    self.audio.recreate_stream();
+                } else {
                     // Ensure audio-state comes to a rest
-                    self.audio_state.latest_volume = 0.;
-                    self.audio_state.big_boomer = Vector4::default();
-                    self.audio_state.curl_attractors = [Vector4::default(); 2];
-                    self.audio_state.attractors = [Vector4::default(); 2];
+                    self.audio.state.latest_volume = 0.;
+                    self.audio.state.big_boomer = Vector4::default();
+                    self.audio.state.curl_attractors = [Vector4::default(); 2];
+                    self.audio.state.attractors = [Vector4::default(); 2];
+
+                    // Pause audio stream
+                    self.audio.capture_stream.pause().unwrap();
                 }
             }
 
-            // Handle toggling the debug-console.
-            // NOTE: Does not successfully hide `Windows Terminal` based CMD prompts
+            // Handle toggling the companion-console.
             #[cfg(all(not(debug_assertions), target_os = "windows"))]
             VirtualKeyCode::Return => {
                 if let Some(console_state) = &mut self.console_state {
@@ -552,12 +564,12 @@ impl FractalSugar {
             }
 
             // Set different fractal types
-            VirtualKeyCode::Key0 => self.game_state.distance_estimator_id = 0,
-            VirtualKeyCode::Key1 => self.game_state.distance_estimator_id = 1,
-            VirtualKeyCode::Key2 => self.game_state.distance_estimator_id = 2,
-            VirtualKeyCode::Key3 => self.game_state.distance_estimator_id = 3,
-            VirtualKeyCode::Key4 => self.game_state.distance_estimator_id = 4,
-            VirtualKeyCode::Key5 => self.game_state.distance_estimator_id = 5,
+            VirtualKeyCode::Key0 => self.set_distance_estimate_id(0),
+            VirtualKeyCode::Key1 => self.set_distance_estimate_id(1),
+            VirtualKeyCode::Key2 => self.set_distance_estimate_id(2),
+            VirtualKeyCode::Key3 => self.set_distance_estimate_id(3),
+            VirtualKeyCode::Key4 => self.set_distance_estimate_id(4),
+            VirtualKeyCode::Key5 => self.set_distance_estimate_id(5),
 
             // No-op
             _ => {}
@@ -641,55 +653,55 @@ impl FractalSugar {
     // Helper for interpolating data on a per-frame basis
     fn interpolate_frames(&mut self, delta_time: f32) {
         interpolate_floats(
-            &mut self.audio_state.local_volume,
-            self.audio_state.latest_volume,
+            &mut self.audio.state.local_volume,
+            self.audio.state.latest_volume,
             delta_time * -1.8,
         );
-        let audio_scaled_delta_time = delta_time * self.audio_state.local_volume.sqrt();
-        self.audio_state.play_time += audio_scaled_delta_time;
+        let audio_scaled_delta_time = delta_time * self.audio.state.local_volume.sqrt();
+        self.audio.state.play_time += audio_scaled_delta_time;
         self.game_state
             .camera_quaternion
             .rotate_by(Quaternion::build(
-                self.audio_state.local_angular_velocity.xyz(),
-                delta_time * self.audio_state.local_angular_velocity.w,
+                self.audio.state.local_angular_velocity.xyz(),
+                delta_time * self.audio.state.local_angular_velocity.w,
             ));
         interpolate_floats(
-            &mut self.audio_state.local_angular_velocity.w,
+            &mut self.audio.state.local_angular_velocity.w,
             BASE_ANGULAR_VELOCITY,
             delta_time * -0.375,
         );
         interpolate_vec3(
-            &mut self.audio_state.local_reactive_bass,
-            &self.audio_state.reactive_bass,
-            delta_time * (0.8 * self.audio_state.big_boomer.w.sqrt()).min(1.) * -0.36,
+            &mut self.audio.state.local_reactive_bass,
+            &self.audio.state.reactive_bass,
+            delta_time * (0.8 * self.audio.state.big_boomer.w.sqrt()).min(1.) * -0.36,
         );
         interpolate_vec3(
-            &mut self.audio_state.local_reactive_mids,
-            &self.audio_state.reactive_mids,
-            delta_time * (0.8 * self.audio_state.curl_attractors[0].w.sqrt()).min(1.) * -0.36,
+            &mut self.audio.state.local_reactive_mids,
+            &self.audio.state.reactive_mids,
+            delta_time * (0.8 * self.audio.state.curl_attractors[0].w.sqrt()).min(1.) * -0.36,
         );
         interpolate_vec3(
-            &mut self.audio_state.local_reactive_high,
-            &self.audio_state.reactive_high,
-            delta_time * (0.8 * self.audio_state.attractors[0].w.sqrt()).min(1.) * -0.36,
+            &mut self.audio.state.local_reactive_high,
+            &self.audio.state.reactive_high,
+            delta_time * (0.8 * self.audio.state.attractors[0].w.sqrt()).min(1.) * -0.36,
         );
         interpolate_vec3(
-            &mut self.audio_state.local_smooth_bass,
-            &self.audio_state.local_reactive_bass,
+            &mut self.audio.state.local_smooth_bass,
+            &self.audio.state.local_reactive_bass,
             delta_time * -0.15,
         );
         interpolate_vec3(
-            &mut self.audio_state.local_smooth_mids,
-            &self.audio_state.local_reactive_mids,
+            &mut self.audio.state.local_smooth_mids,
+            &self.audio.state.local_reactive_mids,
             delta_time * -0.15,
         );
         interpolate_vec3(
-            &mut self.audio_state.local_smooth_high,
-            &self.audio_state.local_reactive_high,
+            &mut self.audio.state.local_smooth_high,
+            &self.audio.state.local_reactive_high,
             delta_time * -0.15,
         );
 
-        // Check and possibly update kaleidoscope animation state
+        // Check, and possibly update, the kaleidoscope animation state.
         match self.game_state.kaleidoscope_dir {
             KaleidoscopeDirection::Forward => {
                 self.game_state.kaleidoscope += KALEIDOSCOPE_SPEED * audio_scaled_delta_time;
@@ -709,16 +721,16 @@ impl FractalSugar {
         };
     }
 
-    // Create the push-constant data for the respective shaders from the current game state
+    // Create the push-constant data for the respective shaders from the current game state.
     #[allow(clippy::cast_precision_loss)]
     fn next_shader_data(&self, delta_time: f32, dimensions: PhysicalSize<u32>) -> DrawData {
         let width = dimensions.width as f32;
         let height = dimensions.height as f32;
         let aspect_ratio = width / height;
 
-        // Create per-frame data for particle compute-shader
-        let particle_data = if self.game_state.render_particles {
-            // Create a unique attractor based on mouse position
+        // Create per-frame data for the particle compute-shader.
+        let particle_data = if self.game_state.runtime_constants.render_particles {
+            // Create a unique attractor based on the mouse position.
             let cursor_attractor = {
                 let strength = if self.game_state.fix_particles == ParticleTension::Spring {
                     CURSOR_FIXED_STRENGTH
@@ -733,20 +745,21 @@ impl FractalSugar {
             };
 
             let compute = engine::ParticleComputePushConstants {
-                big_boomer: self.audio_state.big_boomer.into(),
+                big_boomer: self.audio.state.big_boomer.into(),
 
                 curl_attractors: self
-                    .audio_state
+                    .audio
+                    .state
                     .curl_attractors
                     .map(std::convert::Into::into),
 
                 attractors: [
-                    self.audio_state.attractors[0].into(),
-                    self.audio_state.attractors[1].into(),
+                    self.audio.state.attractors[0].into(),
+                    self.audio.state.attractors[1].into(),
                     cursor_attractor,
                 ],
 
-                time: self.audio_state.play_time,
+                time: self.audio.state.play_time,
                 delta_time,
                 width,
                 height,
@@ -756,8 +769,7 @@ impl FractalSugar {
 
             let vertex = engine::ParticleVertexPushConstants {
                 quaternion: self.game_state.camera_quaternion.into(),
-                time: self.audio_state.play_time,
-                rendering_fractal: u32::from(self.game_state.distance_estimator_id != 0),
+                time: self.audio.state.play_time,
                 alternate_colors: match self.game_state.alternate_colors {
                     AlternateColors::Inverse => 1,
                     AlternateColors::Normal => 0,
@@ -770,21 +782,22 @@ impl FractalSugar {
             None
         };
 
-        // Create fractal data
+        // Create fractal data.
         let fractal_data = engine::FractalPushConstants {
             quaternion: self.game_state.camera_quaternion.into(),
 
-            reactive_bass: self.audio_state.local_reactive_bass.into(),
-            reactive_mids: self.audio_state.local_reactive_mids.into(),
-            reactive_high: self.audio_state.local_reactive_high.into(),
+            reactive_bass: self.audio.state.local_reactive_bass.into(),
+            reactive_mids: self.audio.state.local_reactive_mids.into(),
+            reactive_high: self.audio.state.local_reactive_high.into(),
 
-            smooth_bass: self.audio_state.local_smooth_bass.into(),
-            smooth_mids: self.audio_state.local_smooth_mids.into(),
-            smooth_high: self.audio_state.local_smooth_high.into(),
+            smooth_bass: self.audio.state.local_smooth_bass.into(),
+            smooth_mids: self.audio.state.local_smooth_mids.into(),
+            smooth_high: self.audio.state.local_smooth_high.into(),
 
-            time: self.audio_state.play_time,
+            time: self.audio.state.play_time,
             kaleidoscope: self.game_state.kaleidoscope.powf(0.65),
-            orbit_distance: if self.game_state.render_particles && self.game_state.particles_are_3d
+            orbit_distance: if self.game_state.runtime_constants.render_particles
+                && self.game_state.particles_are_3d
             {
                 1.385
             } else {
@@ -798,7 +811,7 @@ impl FractalSugar {
         }
     }
 
-    // Use game state to correctly map positions from screen space to world
+    // Use game state to correctly map positions from screen space to world.
     fn screen_position_to_world(
         &self,
         dimensions: PhysicalSize<u32>,
@@ -813,7 +826,7 @@ impl FractalSugar {
         let y_norm = normalize_cursor(self.game_state.cursor_position.y, dimensions.height);
 
         if self.game_state.particles_are_3d && self.game_state.cursor_force != 0. {
-            const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`
+            const PARTICLE_CAMERA_ORBIT: Vector3 = Vector3::new(0., 0., 1.75); // Keep in sync with orbit of `particles.vert`.
             const PERSPECTIVE_DISTANCE: f32 = 1.35;
             let fov_y = self
                 .engine
@@ -824,7 +837,7 @@ impl FractalSugar {
                 .tan();
             let fov_x = fov_y * aspect_ratio;
 
-            // Map cursor to 3D world using camera orientation
+            // Map cursor to 3D world using camera orientation.
             let mut v = self.game_state.camera_quaternion.rotate_point(
                 PERSPECTIVE_DISTANCE * Vector3::new(x_norm * fov_x, y_norm * fov_y, -1.),
             );
@@ -837,9 +850,20 @@ impl FractalSugar {
             Vector3::new(x_norm, y_norm, 0.)
         }
     }
+
+    // Helper to set a new distance estimator ID on CPU and GPU memory.
+    fn set_distance_estimate_id(&mut self, id: u32) {
+        self.game_state.runtime_constants.distance_estimator_id = id;
+        self.engine
+            .runtime_constants_mut()
+            .write()
+            .unwrap()
+            .distance_estimator_id = id;
+    }
 }
 
 impl Default for LocalAudioState {
+    // Provide default audio state values.
     fn default() -> Self {
         Self {
             play_time: 0.,
@@ -867,11 +891,10 @@ impl Default for LocalAudioState {
 }
 
 impl Default for GameState {
+    // Provide default game state values.
     fn default() -> Self {
         Self {
             fix_particles: ParticleTension::Spring,
-            render_particles: true,
-            distance_estimator_id: 4,
             camera_quaternion: Quaternion::default(),
             is_cursor_visible: true,
             cursor_position: PhysicalPosition::<f64>::default(),
@@ -883,6 +906,49 @@ impl Default for GameState {
             particles_are_3d: false,
             color_scheme_index: 0,
             audio_responsive: true,
+            runtime_constants: RuntimeConstants::default(),
         }
+    }
+}
+
+impl Default for RuntimeConstants {
+    // Provide default values for runtime constants.
+    fn default() -> Self {
+        Self {
+            render_particles: true,
+            distance_estimator_id: 4,
+        }
+    }
+}
+
+impl RuntimeConstants {
+    // Convert from CPU-side runtime constants to GPU-side runtime constants.
+    #[must_use]
+    pub fn to_engine_constants(&self, aspect_ratio: f32) -> engine::RuntimeConstants {
+        engine::RuntimeConstants {
+            aspect_ratio,
+            render_particles: u32::from(self.render_particles),
+            distance_estimator_id: self.distance_estimator_id,
+        }
+    }
+}
+
+const MAX_MESSAGE_BUFFER_COUNT: usize = 4;
+impl AudioManager {
+    // Create a default audio input stream and begin processing.
+    pub fn default() -> Self {
+        let (tx, receiver) = crossbeam_channel::bounded(MAX_MESSAGE_BUFFER_COUNT);
+        Self {
+            receiver,
+            capture_stream: audio::process_loopback_audio_and_send(tx),
+            state: LocalAudioState::default(),
+        }
+    }
+
+    // Recreate the audio input stream.
+    pub fn recreate_stream(&mut self) {
+        let (tx, receiver) = crossbeam_channel::bounded(MAX_MESSAGE_BUFFER_COUNT);
+        self.receiver = receiver;
+        self.capture_stream = audio::process_loopback_audio_and_send(tx);
     }
 }

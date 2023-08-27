@@ -29,14 +29,13 @@ layout (binding = 2) uniform RuntimeConstants {
 	float aspect_ratio;
 
 	// Fractal constants
-	bool render_background;
+	bool render_particles;
 	uint distance_estimator_id;
 } runtime;
 
 layout (push_constant) uniform PushConstants {
 	vec4 quaternion;
 	float time;
-	bool rendering_fractal;
 	bool alternate_colors;
 	bool use_third_dimension;
 } push;
@@ -112,7 +111,7 @@ void main() {
 		vec3 speedEnd;
 		float speedScale;
 		if(speed < particleColors.speedConst[0].w) {
-			vec3 basesColor = (push.use_third_dimension ? 0.55 : (push.rendering_fractal ? 0.7 : 1.0)) * indexColor;
+			vec3 basesColor = (push.use_third_dimension ? 0.55 : (runtime.distance_estimator_id > 0 ? 0.7 : 1.0)) * indexColor;
 			speedStart = basesColor;
 			speedEnd = vec3(particleColors.speedConst[0].x, particleColors.speedConst[0].y * speed/particleColors.speedConst[0].w, particleColors.speedConst[0].z);
 			if(push.alternate_colors) {

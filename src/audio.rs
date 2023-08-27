@@ -133,10 +133,7 @@ fn spawn_audio_processing_thread(
         loop {
             // Append incoming audio data until we have sufficient samples
             while audio_storage_buffer.len() < size {
-                let mut d = match rx_acc.recv() {
-                    Ok(data) => data, // Update audio state vars
-                    Err(e) => panic!("Failed to receive data from audio accumulator thread: {e:?}"),
-                };
+                let Ok(mut d) = rx_acc.recv() else { return };
                 audio_storage_buffer.append(&mut d);
             }
             let complex = &mut audio_storage_buffer[0..size];

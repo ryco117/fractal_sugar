@@ -93,7 +93,7 @@ impl Engine {
     pub fn new(
         event_loop: &EventLoop<()>,
         app_config: &AppConfig,
-        game_state: &crate::GameState,
+        runtime_constants: crate::RuntimeConstants,
         icon: Option<Icon>,
     ) -> Self {
         // Create instance with extensions required for windowing (and optional debugging layer(s))
@@ -169,18 +169,14 @@ impl Engine {
         };
 
         let runtime_constants = {
-            let constants = RuntimeConstants {
-                aspect_ratio: dimensions.width as f32 / dimensions.height as f32,
-                render_background: u32::from(!game_state.render_particles),
-                distance_estimator_id: game_state.distance_estimator_id,
-            };
             let buffer = allocators
                 .uniform_buffer
                 .allocate_sized::<RuntimeConstants>()
                 .expect("Allocation of runtime constants buffer failed");
             *buffer
                 .write()
-                .expect("Initialization of runtime constants failed") = constants;
+                .expect("Initialization of runtime constants failed") = runtime_constants
+                .to_engine_constants(dimensions.width as f32 / dimensions.height as f32);
             buffer
         };
 
@@ -188,7 +184,6 @@ impl Engine {
         let fractal = Fractal::new(&device, &render_pass, viewport.clone());
         let particles = Particles::new(
             &allocators,
-            &device,
             &queue,
             &render_pass,
             viewport.clone(),
@@ -275,6 +270,10 @@ impl Engine {
                 Subpass::from(self.render_pass.clone(), 1).unwrap(),
                 self.viewport.clone(),
             );
+
+            // Update runtime constants to reflect new aspect ratio
+            self.runtime_constants.write().unwrap().aspect_ratio =
+                self.viewport.dimensions[0] / self.viewport.dimensions[1];
         }
 
         // Recreated swapchain and necessary follow-up structures without error
@@ -329,25 +328,6 @@ impl Engine {
             .expect("Failed to update config constants") = config_constants;
     }
 
-    pub fn update_runtime_constants(
-        &mut self,
-        game_state: &crate::GameState,
-        dimensions: [f32; 2],
-    ) {
-        // Get runtime constants from game state.
-        let constants = RuntimeConstants {
-            aspect_ratio: dimensions[0] / dimensions[1],
-            render_background: u32::from(!game_state.render_particles),
-            distance_estimator_id: game_state.distance_estimator_id,
-        };
-
-        // Write changes to buffer.
-        *self
-            .runtime_constants
-            .write()
-            .expect("Initialization of runtime constants failed") = constants;
-    }
-
     // Engine getters
     pub fn app_constants(&self) -> &Subbuffer<ConfigConstants> {
         &self.app_constants
@@ -375,6 +355,9 @@ impl Engine {
     }
     pub fn queue(&self) -> &Arc<Queue> {
         &self.queue
+    }
+    pub fn runtime_constants_mut(&mut self) -> &mut Subbuffer<RuntimeConstants> {
+        &mut self.runtime_constants
     }
     pub fn surface(&self) -> &Arc<Surface> {
         &self.surface
