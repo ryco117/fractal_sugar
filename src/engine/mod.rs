@@ -1,6 +1,6 @@
 /*
     fractal_sugar - An experimental audio visualizer combining fractals and particle simulations.
-    Copyright (C) 2022  Ryan Andersen
+    Copyright (C) 2022,2023  Ryan Andersen
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -231,7 +231,7 @@ impl Engine {
             return RecreateSwapchainResult::ExtentNotSupported;
         }
 
-        // Create new swapchain from the previous, specifying new window size
+        // Create new swapchain from the previous, specifying the new window size.
         match self.swapchain.recreate(dimensions) {
             // Continue logic
             RecreateSwapchainResult::Ok => {}
