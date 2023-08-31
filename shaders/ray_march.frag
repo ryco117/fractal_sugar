@@ -72,6 +72,10 @@ vec3 rotateByQuaternion(vec3 v, vec4 q) {
 	return v + temp+temp;
 }
 
+vec4 multiplyQuaternions(vec4 q, vec4 r) {
+	return vec4(cross(q.xyz, r.xyz) + q.xyz*r.w + q.w*r.xyz, q.w*r.w - dot(q.xyz, r.xyz));
+}
+
 vec3 safe_normalize(vec3 t) {
 	if(length(t) < 0.000001) {
 		return vec3(1.0, 0.0, 0.0);
@@ -213,6 +217,7 @@ float distanceEstimator(vec3 t) {
 	
 		return max((0.25*abs(s.z)/scale)/reScale, length(t/reScale)-0.62);
 	}
+	// Menger Sponge.
 	else if(runtime.distance_estimator_id == 4) {
 		const int maxIterations = 4;
 
@@ -288,7 +293,43 @@ float distanceEstimator(vec3 t) {
 		}
 		return (sqrt(r2) - 2.0) / DEfactor / reScale;
 	}
+	// Quaternion Julia.
+	else if(runtime.distance_estimator_id == 6) {
+		const int maxIterations = 6;
+		const float reScale = 2.25;
+		t *= reScale;
+		float power = 3.0;
+		// Store the running derivative as a quaternion.
+		float dr = 1.0;
+		float r = 0.0;
 
+		mat3 colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.325*push.time);
+
+		// Create a quaternion from the position.
+		//vec4 s = vec4(t, 0.25*sqrt(dot(push.smooth_bass, push.smooth_mids) + dot(push.smooth_bass, push.smooth_high) + dot(push.smooth_mids, push.smooth_high)));
+		vec4 s = vec4(0.0, t);
+		vec4 q = normalize(multiplyQuaternions(multiplyQuaternions(push.smooth_bass, push.smooth_mids), push.smooth_high));
+		vec4 c = 0.75*q;
+
+		for(int i = 0; i < maxIterations; i++) {
+			r = length(s);
+			const float b = 1.5;
+			if (r > b) break;
+
+			// Get the derivative, 2*s*ds.
+			dr = length(q)*power*pow(r, power-1.0)*dr;
+
+			// s = s*s + c; using quaternion algebra.
+			s = multiplyQuaternions(s, vec4(2.0*s.xyz*s.w, s.w*s.w - dot(s.xyz, s.xyz)));
+			s = multiplyQuaternions(q, s) + c;
+
+			orbitTrap.xyz = min(orbitTrap.xyz, abs((s.xyz - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato)/1.25);
+		}
+		orbitTrap = 0.95*sqrt(orbitTrap);
+		return min(log(r)*r/dr, 3.5) / reScale;
+	}
+
+	// If no fractal is selected, then escape to infinity.
 	return 1024.0;
 }
 
@@ -344,16 +385,15 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 }
 
 void main(void) {
-	//const float verticalFov = (pi/2.5) / 2.0;	// Roughly 70 degress vertical FOV
 	const float fovY = tan(config.vertical_fov);
 	float fovX = runtime.aspect_ratio * fovY;
 
 	float kaleidoTheta = boundReflect(getAngle(coord), push.kaleidoscope*(pi/6.0 - tau) + tau);
 	vec2 newCoord = length(coord) * vec2(cos(kaleidoTheta), sin(kaleidoTheta));
-	vec3 direction = normalize(vec3(newCoord.x*fovX, newCoord.y*fovY, 1.0));
+	vec3 direction = normalize(vec3(newCoord.x*fovX, newCoord.y*fovY, -1.0));
 	direction = rotateByQuaternion(direction, push.quaternion);
 	
-	vec3 position = rotateByQuaternion(vec3(0.0, 0.0, -push.orbit_distance), push.quaternion);
+	vec3 position = rotateByQuaternion(vec3(0.0, 0.0, push.orbit_distance), push.quaternion);
 
 	float travel;
 	vec3 tFragColor = castRay(position, direction, fovX, fovY, travel);

@@ -267,7 +267,7 @@ fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
                     Item("D", "Toggle between 2D and 3D projections of the particles"),
                     Item("TAB", "Cycle through particle color schemes. *Requires that all overlay windows are closed*"),
                     Item("0", "Select the 'empty' fractal"),
-                    Item("1-5", "Select the fractal corresponding to the respective key"),
+                    Item("1-6", "Select the fractal corresponding to the respective key"),
                     Item("MOUSE-BTTN", "Holding the primary or secondary mouse button applies a repulsive or attractive force, respectively, at the cursor's position"),
                     Item("MOUSE-SCRL", "Scrolling up or down changes the strength of the cursor's applied force"),
                 ];

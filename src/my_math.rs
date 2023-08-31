@@ -97,6 +97,13 @@ impl Quaternion {
             v: Vector4::new(sin * norm.x, sin * norm.y, sin * norm.z, cos),
         }
     }
+
+    // Construct a new quaternion which is the conjugational inverse of this one.
+    pub fn inv(&self) -> Self {
+        Self {
+            v: Vector4::new(self.v.x, self.v.y, self.v.z, -self.v.w),
+        }
+    }
     pub fn rotate_by(&mut self, q: Self) {
         let p_prime = Vector3::new(self.v.x, self.v.y, self.v.z);
         let q_prime = Vector3::new(q.v.x, q.v.y, q.v.z);

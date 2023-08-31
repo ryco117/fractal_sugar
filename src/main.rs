@@ -570,6 +570,7 @@ impl FractalSugar {
             VirtualKeyCode::Key3 => self.set_distance_estimate_id(3),
             VirtualKeyCode::Key4 => self.set_distance_estimate_id(4),
             VirtualKeyCode::Key5 => self.set_distance_estimate_id(5),
+            VirtualKeyCode::Key6 => self.set_distance_estimate_id(6),
 
             // No-op
             _ => {}
@@ -779,7 +780,7 @@ impl FractalSugar {
             };
 
             let vertex = engine::ParticleVertexPushConstants {
-                quaternion: self.game_state.camera_quaternion.into(),
+                quaternion: self.game_state.camera_quaternion.inv().into(),
                 time: self.audio.state.play_time,
                 alternate_colors: match self.game_state.alternate_colors {
                     AlternateColors::Inverse => 1,

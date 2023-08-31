@@ -64,11 +64,9 @@ vec3 rotateByQuaternion(vec3 v, vec4 q) {
 void main() {
 	gl_PointSize = config.point_size;
 
-	// Calculate screen position based on desired perspective
+	// Calculate screen position based on desired perspective.
 	if(push.use_third_dimension) {
-		vec4 q = push.quaternion;
-		q.w = -q.w;
-		vec4 temp = createPerspective(runtime.aspect_ratio) * vec4(rotateByQuaternion(pos.xyz, q) - vec3(0.0, 0.0, 1.75), 1.0);
+		vec4 temp = createPerspective(runtime.aspect_ratio) * vec4(rotateByQuaternion(pos.xyz, push.quaternion) - vec3(0.0, 0.0, 1.75), 1.0);
 		gl_Position = temp;
 	} else {
 		gl_Position = vec4(pos.xy, 0.0, 1.0);
