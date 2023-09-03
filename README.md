@@ -16,3 +16,27 @@ The open source library [CPAL](https://github.com/rustaudio/cpal) is used to ret
 ### Demo
 ##### deadmau5 Demo
 [![deadmau5 Demo](https://img.youtube.com/vi/UiJ_785hC60/0.jpg)](https://www.youtube.com/watch?v=UiJ_785hC60 "deadmau5 Demo")
+
+### Controls
+| Key | Action |
+|:-:|----------|
+| **App-Window** | - |
+| F11 | Toggle window fullscreen |
+| ESC | If fullscreen, then enter windowed mode. Else, close the application |
+| ENTER | *Only Windows release builds:* Toggle the visibility of the output command prompt |
+| **Overlay-Window** | - |
+| F1 | Toggle visibility of this Help window |
+| C | Toggle visibility of the App Config window |
+| **Audio** | - |
+| R | Toggle the application's responsiveness to system audio |
+| **Visuals** | - |
+| SPACE | Toggle kaleidoscope effect on fractals |
+| J | Toggle 'jello' effect on particles (i.e., the fixing of particles to a position with spring tension) |
+| P | Toggle the rendering and updating of particles |
+| CAPS | Toggle negative-color effect for particles |
+| D | Toggle between 2D and 3D projections of the particles |
+| TAB | Cycle through particle color schemes. *Requires that all overlay windows are closed* |
+| 0 | Select the 'empty' fractal |
+| 1-6 | Select the fractal corresponding to the respective key |
+| MOUSE-BTTN | Holding the primary or secondary mouse button applies a repulsive or attractive force, respectively, at the cursor's position |
+| MOUSE-SCRL | Scrolling up or down changes the strength of the cursor's applied force |

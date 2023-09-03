@@ -82,6 +82,12 @@ vec3 safe_normalize(vec3 t) {
 	}
 	return normalize(t);
 }
+vec4 safe_normalize(vec4 t) {
+	if(length(t) < 0.000001) {
+		return vec4(0.0, 0.0, 0.0, 1.0);
+	}
+	return normalize(t);
+}
 
 float getAngle(vec2 s) {
 	float theta = 0.0;
@@ -112,11 +118,17 @@ float boundReflect(float x, float b) {
 	}
 }
 
+mat3 frame_constant_mandelbulb_colorRotato;
+mat3 frame_constant_klein_colorRotato;
+mat3 frame_constant_quaternion_colorRotato;
+vec4 frame_constant_quaternion_q;
+vec4 frame_constant_quaternion_c;
+
 vec4 orbitTrap;
 float distanceEstimator(vec3 t) {
 	orbitTrap = vec4(1.0, 1.0, 1.0, 1.0);
 
-	// Mandelbox
+	// Mandelbox.
 	if(runtime.distance_estimator_id == 1) {
 		const int maxIterations = 5;
 		const float reScale = 4.8;
@@ -152,7 +164,7 @@ float distanceEstimator(vec3 t) {
 		}
 		return (length(s)-BVR)/abs(DEfactor) / reScale;
 	}
-	// Mandelbulb
+	// Mandelbulb.
 	else if(runtime.distance_estimator_id == 2) {
 		const int maxIterations = 3;
 		const float reScale = 1.85;
@@ -161,8 +173,6 @@ float distanceEstimator(vec3 t) {
 		float power = 9. + 2.0*boundReflect(0.0375*push.time + 1.0, 1.0);
 		float dr = 1.0;
 		float r = 0.0;
-
-		mat3 colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.325*push.time);
 
 		for(int i = 0; i < maxIterations; i++) {
 			r = length(s);
@@ -180,10 +190,11 @@ float distanceEstimator(vec3 t) {
 			s = r*vec3(sin(theta)*cos(phi), sin(theta)*sin(phi), cos(theta));
 			s += t;
 
-			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato)/1.25);
+			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * frame_constant_mandelbulb_colorRotato)/1.25);
 		}
 		return min(0.5*log(r)*r/dr, 3.5) / reScale;
 	}
+	// Klein-inspired.
 	else if(runtime.distance_estimator_id == 3) {
 		const int maxIterations = 3;
 		const float reScale = 0.8;
@@ -196,8 +207,6 @@ float distanceEstimator(vec3 t) {
 		float ct = cos(theta);
 		float st = sin(theta);
 		mat2 rotato = mat2(ct, st, -st, ct);
-
-		mat3 colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.15*push.time);
 
 		for(int i = 0; i < maxIterations; i++) {
 			if (i == 2) {
@@ -212,7 +221,7 @@ float distanceEstimator(vec3 t) {
 			s *= k;
 			scale *= k;
 
-			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato));
+			orbitTrap.xyz = min(orbitTrap.xyz, abs((s - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * frame_constant_klein_colorRotato));
 		}
 	
 		return max((0.25*abs(s.z)/scale)/reScale, length(t/reScale)-0.62);
@@ -257,10 +266,11 @@ float distanceEstimator(vec3 t) {
 		}
 		return d/reScale;
 	}
+	// Sierpiński-inspired.
 	else if(runtime.distance_estimator_id == 5) {
 		const int maxIterations = 8;
 		const float scale = 2.0;
-		const float reScale = 1.4;
+		const float reScale = 1.375;
 
 		t *= reScale;
 		vec3 s = t;
@@ -296,36 +306,33 @@ float distanceEstimator(vec3 t) {
 	// Quaternion Julia.
 	else if(runtime.distance_estimator_id == 6) {
 		const int maxIterations = 6;
-		const float reScale = 2.25;
+		const float reScale = 1.85;
 		t *= reScale;
-		float power = 3.0;
+		float power = 4.0 + sin(0.025*push.time);
+
 		// Store the running derivative as a quaternion.
 		float dr = 1.0;
 		float r = 0.0;
 
-		mat3 colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.325*push.time);
-
 		// Create a quaternion from the position.
-		//vec4 s = vec4(t, 0.25*sqrt(dot(push.smooth_bass, push.smooth_mids) + dot(push.smooth_bass, push.smooth_high) + dot(push.smooth_mids, push.smooth_high)));
 		vec4 s = vec4(0.0, t);
-		vec4 q = normalize(multiplyQuaternions(multiplyQuaternions(push.smooth_bass, push.smooth_mids), push.smooth_high));
-		vec4 c = 0.75*q;
 
 		for(int i = 0; i < maxIterations; i++) {
 			r = length(s);
 			const float b = 1.5;
 			if (r > b) break;
 
-			// Get the derivative, 2*s*ds.
-			dr = length(q)*power*pow(r, power-1.0)*dr;
+			// Get the derivative.
+			dr = power*pow(r, power-1.0)*dr;
 
-			// s = s*s + c; using quaternion algebra.
-			s = multiplyQuaternions(s, vec4(2.0*s.xyz*s.w, s.w*s.w - dot(s.xyz, s.xyz)));
-			s = multiplyQuaternions(q, s) + c;
+			// s = q*s^p + c; using quaternion algebra.
+			float phi = acos(s.w/r);
+			s = pow(r, power)*vec4(cos(power*phi), sin(power*phi)*s.xyz/length(s.xyz));
+			s = multiplyQuaternions(frame_constant_quaternion_q, s) + frame_constant_quaternion_c;
 
-			orbitTrap.xyz = min(orbitTrap.xyz, abs((s.xyz - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * colorRotato)/1.25);
+			orbitTrap.xyz = min(orbitTrap.xyz, abs((s.xyz - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * frame_constant_quaternion_colorRotato)/3.5);
 		}
-		orbitTrap = 0.95*sqrt(orbitTrap);
+		orbitTrap.xyz = sqrt(sqrt(orbitTrap.xyz));
 		return min(log(r)*r/dr, 3.5) / reScale;
 	}
 
@@ -333,10 +340,27 @@ float distanceEstimator(vec3 t) {
 	return 1024.0;
 }
 
+void setFrameConstants() {
+	// Mandelbulb.
+	if(runtime.distance_estimator_id == 2) {
+		frame_constant_mandelbulb_colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.325*push.time);
+	}
+	// Klein-inspired.
+	else if (runtime.distance_estimator_id == 3) {
+		frame_constant_klein_colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.15*push.time);
+	}
+	// Quaternion Julia.
+	else if (runtime.distance_estimator_id == 6) {
+		frame_constant_quaternion_colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.1*push.time);
+		frame_constant_quaternion_q = safe_normalize(multiplyQuaternions(multiplyQuaternions(push.smooth_high, push.smooth_bass), push.smooth_mids));
+		frame_constant_quaternion_c = 0.615*multiplyQuaternions(frame_constant_quaternion_q, safe_normalize(multiplyQuaternions(multiplyQuaternions(push.smooth_bass, push.smooth_mids), push.smooth_high)));
+	}
+}
+
 const float maxBrightness = 1.6;
 const float maxBrightnessR2 = maxBrightness*maxBrightness;
 vec3 scaleColor(float distanceRatio, float iterationRatio, vec3 col) {
-	col *= pow(1.0 - distanceRatio, 1.2) * pow(1.0 - iterationRatio, 2.75);
+	col *= pow(1.0 - distanceRatio, 1.2) * pow(1.0 - iterationRatio, runtime.distance_estimator_id != 6 ? 2.75 : 1.75);
 	if(dot(col, col) > maxBrightnessR2) {
 		col = maxBrightness*normalize(col);
 	}
@@ -349,8 +373,12 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 	const float maxDistance = 32.0;
 	const float hitDistance = epsilon;
 	float minTravel = 0.3;
+
+	// Set the values that will be constant for this frame between distance estimator calls.
+	setFrameConstants();
+
 	if(runtime.distance_estimator_id == 1) {
-		minTravel = minTravel + max(0.0, -0.75*cos(0.03 * push.time));
+		minTravel += max(0.0, -0.75*cos(0.03 * push.time));
 	}
 
 	float lastDistance = maxDistance;
@@ -371,12 +399,12 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 		travel += dist;
 		if(travel >= maxDistance) {
 			if(!runtime.render_particles) {
-				vec3 unmodDirection = normalize(vec3(coord.x*fovX, coord.y*fovY, 1.0));
+				vec3 unmodDirection = normalize(vec3(coord.x*fovX, coord.y*fovY, -1.0));
 				unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
 
 				vec3 sinDir = sin(100.0*unmodDirection);
 				vec3 base = vec3(exp(-2.9*length(sin(pi * push.reactive_bass.xyz + 1.0) - sinDir)), exp(-2.9*length(sin(e * push.reactive_mids.xyz + 1.3) - sinDir)), exp(-2.9*length(sin(9.6*push.reactive_high.xyz + 117.69420) - sinDir)));
-				return (runtime.distance_estimator_id == 0 ? 0.8 : 0.575) * base;
+				return (runtime.distance_estimator_id == 0 ? 0.8 : 0.55) * base;
 			}
 			break;
 		}

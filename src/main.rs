@@ -563,7 +563,7 @@ impl FractalSugar {
                 }
             }
 
-            // Set different fractal types
+            // Set different fractal types.
             VirtualKeyCode::Key0 => self.set_distance_estimate_id(0),
             VirtualKeyCode::Key1 => self.set_distance_estimate_id(1),
             VirtualKeyCode::Key2 => self.set_distance_estimate_id(2),
