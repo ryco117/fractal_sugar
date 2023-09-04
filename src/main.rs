@@ -21,7 +21,7 @@
 // TODO: Remove file-wide allow statements
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
-use std::time::SystemTime;
+use std::time::Instant;
 
 use app_overlay::AppOverlay;
 #[cfg(all(not(debug_assertions), target_os = "windows"))]
@@ -125,8 +125,8 @@ struct WindowState {
     pub recreate_swapchain: bool,
     pub is_fullscreen: bool,
     pub is_focused: bool,
-    pub last_frame_time: SystemTime,
-    pub last_mouse_movement: SystemTime,
+    pub last_frame_time: Instant,
+    pub last_mouse_movement: Instant,
 }
 
 // A helper for managing the audio input stream and the resulting audio-based state.
@@ -226,8 +226,8 @@ impl FractalSugar {
             resized: false,
             recreate_swapchain: false,
             is_focused: true,
-            last_frame_time: SystemTime::now(),
-            last_mouse_movement: SystemTime::now(),
+            last_frame_time: Instant::now(),
+            last_mouse_movement: Instant::now(),
         };
 
         let config_window = AppOverlay::new(
@@ -282,10 +282,9 @@ impl FractalSugar {
     // Update per-frame state and draw to window
     fn tock_frame(&mut self) {
         // Handle per-frame timing
-        let now = SystemTime::now();
+        let now = Instant::now();
         let delta_time = now
             .duration_since(self.window_state.last_frame_time)
-            .unwrap_or_default()
             .as_secs_f32();
         self.window_state.last_frame_time = now;
 
@@ -306,7 +305,6 @@ impl FractalSugar {
                 .window_state
                 .last_mouse_movement
                 .elapsed()
-                .unwrap_or_default()
                 .as_secs_f32()
                 > 2.
         {
@@ -611,7 +609,7 @@ impl FractalSugar {
 
             // Handle mouse movement.
             WindowEvent::CursorMoved { position, .. } => {
-                self.window_state.last_mouse_movement = SystemTime::now();
+                self.window_state.last_mouse_movement = Instant::now();
                 self.engine.window().set_cursor_visible(true);
                 self.game_state.is_cursor_visible = true;
 

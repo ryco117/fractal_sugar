@@ -16,7 +16,7 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-use std::time::SystemTime;
+use std::time::Instant;
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, SupportedStreamConfig};
@@ -88,7 +88,7 @@ struct SpectrumAnalysis {
 // Type for storing state and history of bass notes
 struct BassHistoryAndState {
     pub kick_angular_velocity: Option<Vector4>,
-    pub last_kick: SystemTime,
+    pub last_kick: Instant,
     pub previous_bass_index: usize,
     pub previous_bass: [Option<SmallVec<[f32; MAX_BASS_BUCKET_COUNT]>>; PREVIOUS_BASS_COUNT],
 }
@@ -505,10 +505,7 @@ fn update_bass_history(
     current_bass: SmallVec<[f32; MAX_BASS_BUCKET_COUNT]>,
 ) {
     // Use analysis of bass notes to determine if a kick should occur
-    let kick_elapsed = match bass_state.last_kick.elapsed() {
-        Ok(d) => d.as_secs_f32(),
-        _ => 0.,
-    };
+    let kick_elapsed = bass_state.last_kick.elapsed().as_secs_f32();
     let avg_prev_bass: f32 = bass_state.previous_bass.iter().fold(0., |acc, x| {
         acc + match x {
             Some(v) => {
@@ -538,7 +535,7 @@ fn update_bass_history(
             v.z,
             BASS_KICK * bass_analysis.total_volume.sqrt(),
         ));
-        bass_state.last_kick = SystemTime::now();
+        bass_state.last_kick = Instant::now();
     }
 
     // Update bass history
@@ -551,7 +548,7 @@ impl Default for BassHistoryAndState {
     fn default() -> Self {
         Self {
             kick_angular_velocity: None,
-            last_kick: SystemTime::now(),
+            last_kick: Instant::now(),
             previous_bass_index: 0,
             previous_bass: Default::default(),
         }

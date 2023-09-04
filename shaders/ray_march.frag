@@ -416,12 +416,13 @@ void main(void) {
 	const float fovY = tan(config.vertical_fov);
 	float fovX = runtime.aspect_ratio * fovY;
 
+	// Adjust the screen-coordinates by the kaleidoscope angle.
 	float kaleidoTheta = boundReflect(getAngle(coord), push.kaleidoscope*(pi/6.0 - tau) + tau);
-	vec2 newCoord = length(coord) * vec2(cos(kaleidoTheta), sin(kaleidoTheta));
-	vec3 direction = normalize(vec3(newCoord.x*fovX, newCoord.y*fovY, -1.0));
-	direction = rotateByQuaternion(direction, push.quaternion);
-	
+	vec2 newCoord = length(coord)*vec2(cos(kaleidoTheta), sin(kaleidoTheta));
+
+	// Calculate the camera position and view direction given the camera quaternion and screen coordinates.
 	vec3 position = rotateByQuaternion(vec3(0.0, 0.0, push.orbit_distance), push.quaternion);
+	vec3 direction = rotateByQuaternion(normalize(vec3(newCoord.x*fovX, newCoord.y*fovY, -1.0)), push.quaternion);
 
 	float travel;
 	vec3 tFragColor = castRay(position, direction, fovX, fovY, travel);
@@ -442,12 +443,15 @@ void main(void) {
 
 	minDepth = minDepth*sqrt(1.0 + newCoord.x*fovX*newCoord.x*fovX + newCoord.y*fovY*newCoord.y*fovY); // Use screen space to determine 3D distance
 
+	// Scale the distance to match the distance used by the particle subpass.
 	travel *= 1.75/push.orbit_distance;
-	if(travel >= minDepth) {
+
+	const float particleHighlightDistance = 0.012;
+	if(travel > minDepth - particleHighlightDistance) {
 		tFragColor = abs(tFragColor - particle);
 
-		// If particle and fractal are nearly touching in world-space then highlight
-		if(abs(travel - minDepth) < 0.016) {
+		// If particle and fractal are nearly touching in world-space then highlight.
+		if(abs(travel - minDepth) < particleHighlightDistance) {
 			tFragColor = vec3(1.0) - vec3(pow(tFragColor.x, 0.386), pow(tFragColor.y, 0.386), pow(tFragColor.z, 0.386));
 		}
 	}

@@ -151,7 +151,7 @@ fn create_config_ui(
         .resizable(true)
         .show(&ctx, |ui| {
             let mut data_changed = false;
-            ComboBox::from_label("Active Color Scheme")
+            ComboBox::from_label("Selected Color Scheme")
                 .selected_text(color_scheme_names[config_window.edit_scheme_index].clone())
                 .show_ui(ui, |ui| {
                     for (i, name) in color_scheme_names.iter().enumerate() {
@@ -274,9 +274,9 @@ fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
                 egui::Grid::new("scheme_index_grid").show(ui, |ui| {
                     for entry in controls_list {
                         match entry {
-                            Empty() => {},
+                            Empty() => {}
                             Item(key, desc) => {
-                                ui.vertical_centered(|ui| ui.label(egui::RichText::new(key).monospace()));
+                                ui.vertical_centered(|ui| ui.label(egui::RichText::new(key).monospace().strong()));
                                 ui.label(desc);
                             }
                             Title(title) => {
