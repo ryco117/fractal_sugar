@@ -11,7 +11,7 @@ embed-resource = "2.3.0"
 
 [dependencies]
 anyhow = "1.0.75"
-bytemuck = "1.13.1"
+bytemuck = "1.14.0"
 companion_console = { git = "https://github.com/ryco117/companion_console.git", rev = "7c329f7" }
 cpal = "0.15.2"
 crossbeam-channel = "0.5.8"
@@ -22,7 +22,7 @@ ico = "0.3.0"
 rustfft = "6.1.0"
 serde = { version = "1.0.188", features = ["derive"] }
 smallvec = "1.11.0"
-toml = "0.7.6"
+toml = "0.7.8"
 vulkano = "0.33.0"
 vulkano-shaders = "0.33.0"
 vulkano-win = "0.33.0"

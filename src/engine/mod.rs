@@ -515,6 +515,7 @@ impl From<&AppConfig> for ConfigConstants {
             spring_coefficient: config.spring_coefficient,
             friction_scale: config.friction_scale,
             point_size: config.point_size,
+            hide_stationary_particles: u32::from(config.hide_stationary_particles),
             audio_scale: config.audio_scale,
             vertical_fov: config.vertical_fov,
         }

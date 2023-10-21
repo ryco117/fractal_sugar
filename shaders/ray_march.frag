@@ -14,6 +14,7 @@ layout (set = 0, binding = 2) uniform ConfigConstants {
 	float spring_coefficient;
 	float point_size;
 	float friction_scale;
+	bool hide_stationary_particles;
 
 	float audio_scale;
 
@@ -120,6 +121,8 @@ float boundReflect(float x, float b) {
 
 mat3 frame_constant_mandelbulb_colorRotato;
 mat3 frame_constant_klein_colorRotato;
+mat3 frame_constant_sierpinski_rotato1;
+mat3 frame_constant_sierpinski_rotato2;
 mat3 frame_constant_quaternion_colorRotato;
 vec4 frame_constant_quaternion_q;
 vec4 frame_constant_quaternion_c;
@@ -278,19 +281,14 @@ float distanceEstimator(vec3 t) {
 		float r2 = dot(s, s);
 		float DEfactor = 1.0;
 
-		float theta = 0.08*push.time;
-		mat3 rotato1 = buildRot3(safe_normalize(push.smooth_high.xyz), theta);
-		theta = 0.22*sin(0.25*push.time);
-		mat3 rotato2 = buildRot3(safe_normalize(push.smooth_mids.xyz), theta);
-
 		for(int i = 0; i < maxIterations && r2 < 1000.0; i++) {
-			s *= rotato1;
+			s *= frame_constant_sierpinski_rotato1;
 
 			if(s.x+s.y<0.0){float x1=-s.y;s.y=-s.x;s.x=x1;}
 			if(s.x+s.z<0.0){float x1=-s.z;s.z=-s.x;s.x=x1;}
 			if(s.y+s.z<0.0){float y1=-s.z;s.z=-s.y;s.y=y1;}
 
-			s *= rotato2;
+			s *= frame_constant_sierpinski_rotato2;
 
 			s = scale*s - (scale - 1.0)*center;
 			r2 = dot(s, s);
@@ -316,24 +314,31 @@ float distanceEstimator(vec3 t) {
 
 		// Create a quaternion from the position.
 		vec4 s = vec4(0.0, t);
+		vec4 s_0 = s;
 
 		for(int i = 0; i < maxIterations; i++) {
 			r = length(s);
 			const float b = 1.5;
 			if (r > b) break;
 
+			//*/ Julia-style.
 			// Get the derivative.
 			dr = power*pow(r, power-1.0)*dr;
-
 			// s = q*s^p + c; using quaternion algebra.
 			float phi = acos(s.w/r);
-			s = pow(r, power)*vec4(cos(power*phi), sin(power*phi)*s.xyz/length(s.xyz));
+			s = pow(r, power)*vec4(sin(power*phi)*s.xyz/r, cos(power*phi));
 			s = multiplyQuaternions(frame_constant_quaternion_q, s) + frame_constant_quaternion_c;
+			/*/
+			// Mandelbrot-style.
+			// Get the derivative.
+			dr = 2*r*dr;
+			// s = s^2 + s_0; using quaternion algebra.
+			s = multiplyQuaternions(s, s) + s_0; //*/
 
 			orbitTrap.xyz = min(orbitTrap.xyz, abs((s.xyz - (push.reactive_high.xyz + push.reactive_bass.xyz)/2.0) * frame_constant_quaternion_colorRotato)/3.5);
 		}
 		orbitTrap.xyz = sqrt(sqrt(orbitTrap.xyz));
-		return min(log(r)*r/dr, 3.5) / reScale;
+		return 0.6 * min(log(r)*r/dr, 3.5) / reScale;
 	}
 
 	// If no fractal is selected, then escape to infinity.
@@ -348,6 +353,13 @@ void setFrameConstants() {
 	// Klein-inspired.
 	else if (runtime.distance_estimator_id == 3) {
 		frame_constant_klein_colorRotato = buildRot3(safe_normalize(push.smooth_mids.xyz), 0.15*push.time);
+	}
+	// Sierpiński-inspired.
+	else if (runtime.distance_estimator_id == 5) {
+		float theta = 0.08*push.time;
+		frame_constant_sierpinski_rotato1 = buildRot3(safe_normalize(push.smooth_high.xyz), theta);
+		theta = 0.22*sin(0.25*push.time);
+		frame_constant_sierpinski_rotato2 = buildRot3(safe_normalize(push.smooth_mids.xyz), theta);
 	}
 	// Quaternion Julia.
 	else if (runtime.distance_estimator_id == 6) {
@@ -398,13 +410,13 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 		position += dist*direction;
 		travel += dist;
 		if(travel >= maxDistance) {
-			if(!runtime.render_particles) {
+			if(!runtime.render_particles || config.hide_stationary_particles) {
 				vec3 unmodDirection = normalize(vec3(coord.x*fovX, coord.y*fovY, -1.0));
 				unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
 
 				vec3 sinDir = sin(100.0*unmodDirection);
 				vec3 base = vec3(exp(-2.9*length(sin(pi * push.reactive_bass.xyz + 1.0) - sinDir)), exp(-2.9*length(sin(e * push.reactive_mids.xyz + 1.3) - sinDir)), exp(-2.9*length(sin(9.6*push.reactive_high.xyz + 117.69420) - sinDir)));
-				return (runtime.distance_estimator_id == 0 ? 0.8 : 0.55) * base;
+				return (runtime.distance_estimator_id == 0 && !config.hide_stationary_particles ? 0.8 : 0.55) * base;
 			}
 			break;
 		}

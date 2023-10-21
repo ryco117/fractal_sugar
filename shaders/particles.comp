@@ -26,6 +26,7 @@ layout (binding = 3) uniform ConfigConstants {
 	float spring_coefficient;
 	float point_size;
 	float friction_scale;
+	bool hide_stationary_particles;
 
 	float audio_scale;
 

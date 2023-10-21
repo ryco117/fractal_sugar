@@ -16,9 +16,9 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// Ensure Windows builds are not console apps
+// Ensure Windows release builds are not console apps.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-// TODO: Remove file-wide allow statements
+// TODO: Remove file-wide allow statements.
 #![allow(clippy::cast_possible_truncation)]
 #![allow(clippy::cast_precision_loss)]
 use std::time::Instant;
@@ -488,7 +488,7 @@ impl FractalSugar {
                 }
             }
 
-            // Handle toggling of particle rendering
+            // Handle toggling of particle rendering.
             VirtualKeyCode::P => {
                 // Toggle value stored in CPU memory.
                 self.game_state.runtime_constants.render_particles =
@@ -501,6 +501,13 @@ impl FractalSugar {
                     .unwrap()
                     .render_particles =
                     u32::from(self.game_state.runtime_constants.render_particles);
+            }
+
+            // Handle toggling of stationary particle visibility.
+            VirtualKeyCode::H => {
+                // Tell overlay to update the state.
+                self.app_overlay
+                    .toggle_hide_stationary_particles(&mut self.engine);
             }
 
             // Handle toggling of alternate colors

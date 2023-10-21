@@ -5,19 +5,22 @@
 launch_fullscreen = true
 
 # Toggles whether to launch with the Help overlay-window visible. Default is `true`.
-launch_help_visible = true
+launch_help_visible = false
 
 # The maximum particle speed. Default value is 7.0.
 max_speed = 6
 
 # The number of particles to simulate. Default value is 1_250_000.
-particle_count = 2_500_000
+particle_count = 3_000_000
 
 # The diameter in pixels of each particle. Larger values may appear better on high resolution/DPI devices. Default is 2.0.
-point_size = 2.5
+point_size = 3.0
 
 # The spring coefficient `k` in Hooke's Law `F_s = -kx` used for particle spring-tension. Default value is 75.0.
 spring_coefficient = 60
+
+# Toggles whether to hide stationary particles. Default value is `false`.
+hide_stationary_particles = false
 
 # The vertical field-of-view in degrees. Default value is 72.0.
 vertical_fov = 75

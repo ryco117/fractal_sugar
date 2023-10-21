@@ -17,6 +17,7 @@ layout (binding = 1) uniform ConfigConstants {
 	float spring_coefficient;
 	float point_size;
 	float friction_scale;
+	bool hide_stationary_particles;
 
 	float audio_scale;
 
@@ -29,6 +30,7 @@ layout (binding = 2) uniform RuntimeConstants {
 	float aspect_ratio;
 
 	// Fractal constants
+	// TODO: Move this to ConfigConstants
 	bool render_particles;
 	uint distance_estimator_id;
 } runtime;
@@ -62,7 +64,15 @@ vec3 rotateByQuaternion(vec3 v, vec4 q) {
 }
 
 void main() {
-	gl_PointSize = config.point_size;
+	float speed = min(length(vel.xyz), config.max_speed);
+
+	if (config.hide_stationary_particles) {
+		const float minSpeedVisible = 0.025;
+		const float normalizeSpeedVisibility = 1.0 / (1.0 - minSpeedVisible);
+		gl_PointSize = config.point_size * pow(max(speed/config.max_speed - minSpeedVisible, 0.0) * normalizeSpeedVisibility, 0.04);
+	} else {
+		gl_PointSize = config.point_size;
+	}
 
 	// Calculate screen position based on desired perspective.
 	if(push.use_third_dimension) {
@@ -102,7 +112,6 @@ void main() {
 		indexColor = mix(indexStart, indexEnd, indexScale);
 	}
 
-	float speed = min(length(vel.xyz), config.max_speed);
 	vec3 speedColor;
 	{
 		vec3 speedStart;

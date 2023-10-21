@@ -56,6 +56,7 @@ struct ConfigWindow {
 
 const DEFAULT_VISIBILITY: bool = false;
 
+// Helper for viewing color schemes in the config UI.
 fn add_color_scheme(
     ui: &mut Ui,
     config_scheme: &mut ConfigUiScheme,
@@ -64,7 +65,7 @@ fn add_color_scheme(
     edit_scheme_index: usize,
     engine: &mut Engine,
 ) {
-    // Helper to add rgb widgets and sliders associated with part of a color-scheme
+    // Helper to add rgb widgets and sliders associated with part of a color-scheme.
     fn add_scheme_element(
         ui: &mut Ui,
         rgb: &mut [[u8; 3]; 4],
@@ -82,7 +83,7 @@ fn add_color_scheme(
         ui.end_row();
     }
 
-    // Helper to enforce the given list is an increasing sequence
+    // Helper to enforce the given list is an increasing sequence.
     fn enforce_limits(vals: &mut [f32; 4], changed: &mut bool) {
         let mut max = 0.;
         for v in &mut vals[0..3] {
@@ -136,7 +137,12 @@ fn add_color_scheme(
     });
 }
 
-// Define the layout and behavior of the config UI
+fn update_app_constants(engine: &mut Engine, config: ConfigConstants) {
+    let constants = constants_from_presentable(config);
+    engine.update_app_constants(constants);
+}
+
+// Define the layout and behavior of the config UI.
 fn create_config_ui(
     gui: &mut Gui,
     config_window: &mut ConfigWindow,
@@ -197,9 +203,23 @@ fn create_config_ui(
                         .text("vertical fov"),
                 )
                 .changed();
+
+            // Allow a checkbox to toggle the hiding of stationary particles.
+            let mut hide_stationary_particles = config_window.config.hide_stationary_particles > 0;
+            if ui
+                .checkbox(&mut hide_stationary_particles, "Hide stationary particles")
+                .changed()
+            {
+                data_changed = true;
+                config_window.config.hide_stationary_particles =
+                    u32::from(hide_stationary_particles);
+            }
+
+            // Separate between the `Reset` button and setting configuration values.
             ui.separator();
+
             ui.horizontal(|ui| {
-                // Allow user to reset back to values currently applied
+                // Allow user to reset back to values currently applied.
                 if ui
                     .button("Reset")
                     .on_hover_text("Reset displayed values to the constants used at launch.")
@@ -210,8 +230,7 @@ fn create_config_ui(
                         .color_schemes
                         .copy_from_slice(&config_window.init_color_schemes);
 
-                    let constants = constants_from_presentable(config_window.config);
-                    engine.update_app_constants(constants);
+                    update_app_constants(engine, config_window.config);
 
                     let new_colors: Vec<_> = config_window
                         .color_schemes
@@ -224,8 +243,7 @@ fn create_config_ui(
             });
 
             if data_changed {
-                let constants = constants_from_presentable(config_window.config);
-                engine.update_app_constants(constants);
+                update_app_constants(engine, config_window.config);
             }
         });
 }
@@ -236,7 +254,7 @@ enum HelpWindowEntry {
     Empty(),
 }
 
-// Define the layout and behavior of the config UI
+// Define the layout and behavior of the config UI.
 fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
     use HelpWindowEntry::{Empty, Item, Title};
     let ctx = gui.context();
@@ -249,7 +267,7 @@ fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
                     Title("App-Window Management"),
                     Item("F11", "Toggle window fullscreen"),
                     Item("ESC", "If fullscreen, then enter windowed mode. Else, close the application"),
-                    #[cfg(target_os = "windows")]
+                    #[cfg(all(not(debug_assertions), target_os = "windows"))]
                     Item("ENTER", "Toggle the visibility of the output command prompt"),
                     Empty(),
                     Title("Overlay-Window Management"),
@@ -263,6 +281,7 @@ fn create_help_ui(gui: &mut Gui, visible: &mut bool) {
                     Item("SPACE", "Toggle kaleidoscope effect on fractals"),
                     Item("J", "Toggle 'jello' effect on particles (i.e., the fixing of particles to a position with spring tension)"),
                     Item("P", "Toggle the rendering and updating of particles"),
+                    Item("H", "Toggles whether to hide stationary particles"),
                     Item("CAPS", "Toggle negative-color effect for particles"),
                     Item("D", "Toggle between 2D and 3D projections of the particles"),
                     Item("TAB", "Cycle through particle color schemes. *Requires that all overlay windows are closed*"),
@@ -336,11 +355,11 @@ impl AppOverlay {
     }
 
     pub fn handle_input(&mut self, event: &WindowEvent) -> bool {
-        // Handle UI events
+        // Handle UI events.
         self.gui.update(event)
     }
 
-    // Draw config UI to window
+    // Draw config UI to window.
     pub fn draw(
         &mut self,
         engine: &mut Engine,
@@ -348,14 +367,14 @@ impl AppOverlay {
         color_schemes: &mut [Scheme],
         displayed_scheme_index: &mut usize,
     ) -> Option<SecondaryAutoCommandBuffer> {
-        // Quick escape the render if window is not visible
+        // Quick escape the render if window is not visible.
         if !self.visible() {
             return None;
         }
 
-        // Setup UI layout
+        // Setup UI layout.
         self.gui.immediate_ui(|gui| {
-            // Draw config window
+            // Draw config window.
             create_config_ui(
                 gui,
                 &mut self.config_window,
@@ -365,7 +384,7 @@ impl AppOverlay {
                 displayed_scheme_index,
             );
 
-            // Draw help window
+            // Draw help window.
             create_help_ui(gui, &mut self.help_visible);
         });
 
@@ -381,6 +400,11 @@ impl AppOverlay {
     pub fn toggle_config(&mut self) {
         self.config_window.visible = !self.config_window.visible;
     }
+    pub fn toggle_hide_stationary_particles(&mut self, engine: &mut Engine) {
+        self.config_window.config.hide_stationary_particles =
+            1 - self.config_window.config.hide_stationary_particles;
+        update_app_constants(engine, self.config_window.config);
+    }
     pub fn visible(&self) -> bool {
         self.help_visible || self.config_window.visible
     }
@@ -388,7 +412,7 @@ impl AppOverlay {
 
 const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;
 
-// Helpers for converting between presentation and internal units of measure
+// Helpers for converting between presentation and internal units of measure.
 fn constants_to_presentable(app_constants: ConfigConstants) -> ConfigConstants {
     ConfigConstants {
         audio_scale: app_constants.audio_scale.ln() / DECIBEL_SCALE,

@@ -33,6 +33,7 @@ The open source library [CPAL](https://github.com/rustaudio/cpal) is used to ret
 | SPACE | Toggle kaleidoscope effect on fractals |
 | J | Toggle 'jello' effect on particles (i.e., the fixing of particles to a position with spring tension) |
 | P | Toggle the rendering and updating of particles |
+| H | Toggles whether to hide stationary particles |
 | CAPS | Toggle negative-color effect for particles |
 | D | Toggle between 2D and 3D projections of the particles |
 | TAB | Cycle through particle color schemes. *Requires that all overlay windows are closed* |

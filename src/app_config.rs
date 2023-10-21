@@ -55,6 +55,7 @@ struct TomlData {
     pub particle_count: Option<NonZeroUsize>,
     pub point_size: Option<f32>,
     pub friction_scale: Option<f32>,
+    pub hide_stationary_particles: Option<bool>,
 
     pub audio_scale: Option<f32>,
 
@@ -70,6 +71,8 @@ const DEFAULT_MAX_SPEED: f32 = 7.;
 const DEFAULT_PARTICLE_COUNT: usize = 1_250_000;
 const DEFAULT_SPRING_COEFFICIENT: f32 = 75.;
 const DEFAULT_PARTICLE_POINT_SIZE: f32 = 2.;
+const DEAFULT_FRICTION_SCALE: f32 = 1.;
+const DEFAULT_HIDE_STATIONARY_PARTICLES: bool = false;
 const DEFAULT_AUDIO_SCALE: f32 = -20.;
 const DEFAULT_VERTICAL_FOV: f32 = 72.; // 72 degrees of vertical FOV
 
@@ -83,6 +86,7 @@ pub struct AppConfig {
     pub particle_count: usize,
     pub point_size: f32,
     pub friction_scale: f32,
+    pub hide_stationary_particles: bool,
 
     pub audio_scale: f32,
 
@@ -101,7 +105,8 @@ impl Default for AppConfig {
             spring_coefficient: DEFAULT_SPRING_COEFFICIENT,
             particle_count: DEFAULT_PARTICLE_COUNT,
             point_size: DEFAULT_PARTICLE_POINT_SIZE,
-            friction_scale: 1.,
+            friction_scale: DEAFULT_FRICTION_SCALE,
+            hide_stationary_particles: DEFAULT_HIDE_STATIONARY_PARTICLES,
 
             audio_scale: DEFAULT_AUDIO_SCALE,
 
@@ -217,7 +222,7 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
         .unwrap_or(DEFAULT_PARTICLE_POINT_SIZE)
         .clamp(0., 16.);
 
-    let friction_scale = config.friction_scale.unwrap_or(1.);
+    let friction_scale = config.friction_scale.unwrap_or(DEAFULT_FRICTION_SCALE);
 
     let audio_scale = {
         const DECIBEL_SCALE: f32 = std::f32::consts::LN_10 / 10.;
@@ -240,6 +245,9 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
         spring_coefficient,
         point_size,
         friction_scale,
+        hide_stationary_particles: config
+            .hide_stationary_particles
+            .unwrap_or(DEFAULT_HIDE_STATIONARY_PARTICLES),
 
         audio_scale,
 
