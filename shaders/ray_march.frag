@@ -416,7 +416,7 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 
 				vec3 sinDir = sin(100.0*unmodDirection);
 				vec3 base = vec3(exp(-2.9*length(sin(pi * push.reactive_bass.xyz + 1.0) - sinDir)), exp(-2.9*length(sin(e * push.reactive_mids.xyz + 1.3) - sinDir)), exp(-2.9*length(sin(9.6*push.reactive_high.xyz + 117.69420) - sinDir)));
-				return (runtime.distance_estimator_id == 0 && !config.hide_stationary_particles ? 0.8 : 0.55) * base;
+				return (runtime.distance_estimator_id == 0 && !runtime.render_particles ? 0.8 : 0.54) * base;
 			}
 			break;
 		}

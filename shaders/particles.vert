@@ -67,9 +67,9 @@ void main() {
 	float speed = min(length(vel.xyz), config.max_speed);
 
 	if (config.hide_stationary_particles) {
-		const float minSpeedVisible = 0.025;
+		const float minSpeedVisible = 0.021;
 		const float normalizeSpeedVisibility = 1.0 / (1.0 - minSpeedVisible);
-		gl_PointSize = config.point_size * pow(max(speed/config.max_speed - minSpeedVisible, 0.0) * normalizeSpeedVisibility, 0.04);
+		gl_PointSize = config.point_size * pow(max(speed/config.max_speed - minSpeedVisible, 0.0) * normalizeSpeedVisibility, 0.045);
 	} else {
 		gl_PointSize = config.point_size;
 	}
