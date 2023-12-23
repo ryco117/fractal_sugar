@@ -18,6 +18,7 @@ layout (binding = 1) uniform ConfigConstants {
 	float point_size;
 	float friction_scale;
 	bool hide_stationary_particles;
+	bool disable_background;
 
 	float audio_scale;
 
@@ -66,10 +67,18 @@ vec3 rotateByQuaternion(vec3 v, vec4 q) {
 void main() {
 	float speed = min(length(vel.xyz), config.max_speed);
 
-	if (config.hide_stationary_particles) {
-		const float minSpeedVisible = 0.021;
-		const float normalizeSpeedVisibility = 1.0 / (1.0 - minSpeedVisible);
-		gl_PointSize = config.point_size * pow(max(speed/config.max_speed - minSpeedVisible, 0.0) * normalizeSpeedVisibility, 0.045);
+	if(config.hide_stationary_particles) {
+		const float minSpeedRatioVisible = 0.021;
+		const float normalizeSpeedVisibility = 1.0 / (1.0 - minSpeedRatioVisible);
+		float visibility = (speed/config.max_speed - minSpeedRatioVisible) * normalizeSpeedVisibility;
+		if(visibility > 0) {
+			gl_PointSize = config.point_size * pow(visibility, 0.15);
+		} else {
+			gl_PointSize = 0.0;
+			gl_Position = vec4(1.0);
+			outColor = vec4(0.0);
+			return;
+		}
 	} else {
 		gl_PointSize = config.point_size;
 	}

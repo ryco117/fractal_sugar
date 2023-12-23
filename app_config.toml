@@ -22,6 +22,9 @@ spring_coefficient = 60
 # Toggles whether to hide stationary particles. Default value is `false`.
 hide_stationary_particles = false
 
+# Toggles whether to render a colored background or simply black (disabled). Default value is `false`.
+disable_background = false
+
 # The vertical field-of-view in degrees. Default value is 72.0.
 vertical_fov = 75
 
@@ -29,7 +32,7 @@ vertical_fov = 75
 friction_scale = 1.8
 
 # The decibel adjustment to apply to the incoming audio. Default value is -20.0.
-audio_scale = -20
+audio_scale = -19
 
 # This file can define a series of color schemes that may be applied to each particle.
 # Each color scheme requires a title, 4 speed-dependent color values, and 4 index-dependent color values.

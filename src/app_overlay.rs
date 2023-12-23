@@ -204,7 +204,7 @@ fn create_config_ui(
                 )
                 .changed();
 
-            // Allow a checkbox to toggle the hiding of stationary particles.
+            // Checkbox to toggle the hiding of stationary particles.
             let mut hide_stationary_particles = config_window.config.hide_stationary_particles > 0;
             if ui
                 .checkbox(&mut hide_stationary_particles, "Hide stationary particles")
@@ -213,6 +213,16 @@ fn create_config_ui(
                 data_changed = true;
                 config_window.config.hide_stationary_particles =
                     u32::from(hide_stationary_particles);
+            }
+
+            // Allow a checkbox to toggle disabling the background.
+            let mut disable_background = config_window.config.disable_background > 0;
+            if ui
+                .checkbox(&mut disable_background, "Ensure black background")
+                .changed()
+            {
+                data_changed = true;
+                config_window.config.disable_background = u32::from(disable_background);
             }
 
             // Separate between the `Reset` button and setting configuration values.
@@ -324,8 +334,8 @@ impl AppOverlay {
             surface,
             queue,
             subpass,
+            swapchain.image_format(),
             GuiConfig {
-                preferred_format: Some(swapchain.image_format()),
                 is_overlay: true,
                 ..Default::default()
             },
@@ -366,7 +376,7 @@ impl AppOverlay {
         color_scheme_names: &[String],
         color_schemes: &mut [Scheme],
         displayed_scheme_index: &mut usize,
-    ) -> Option<SecondaryAutoCommandBuffer> {
+    ) -> Option<Arc<SecondaryAutoCommandBuffer>> {
         // Quick escape the render if window is not visible.
         if !self.visible() {
             return None;

@@ -18,9 +18,6 @@
 
 // Ensure Windows release builds are not console apps.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-// TODO: Remove file-wide allow statements.
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::cast_precision_loss)]
 use std::time::Instant;
 
 use app_overlay::AppOverlay;
@@ -346,10 +343,10 @@ impl FractalSugar {
         // Draw frame and return whether a swapchain recreation was deemed necessary
         let (future, suboptimal) = match self.engine.render(&draw_data, gui_command_buffer) {
             Ok(pair) => pair,
-            Err(vulkano::swapchain::AcquireError::OutOfDate) => {
-                self.window_state.recreate_swapchain = true;
-                return;
-            }
+            // Err(vulkano::swapchain::AcquireError::OutOfDate) => {
+            //     self.window_state.recreate_swapchain = true;
+            //     return;
+            // }
             Err(e) => panic!("Failed to acquire next image: {e:?}"),
         };
 

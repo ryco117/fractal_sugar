@@ -21,21 +21,25 @@ use std::sync::Arc;
 use vulkano::buffer::allocator::SubbufferAllocatorCreateInfo;
 use vulkano::buffer::BufferUsage;
 use vulkano::buffer::{allocator::SubbufferAllocator, Subbuffer};
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::command_buffer::allocator::{
+    StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo,
+};
 use vulkano::command_buffer::SecondaryAutoCommandBuffer;
-use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
+use vulkano::descriptor_set::allocator::{
+    StandardDescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo,
+};
 use vulkano::descriptor_set::PersistentDescriptorSet;
 use vulkano::device::{Device, Queue};
 use vulkano::image::view::ImageView;
-use vulkano::image::{AttachmentImage, ImageUsage, SwapchainImage};
+use vulkano::image::{Image, ImageCreateInfo, ImageUsage};
 use vulkano::instance::{Instance, InstanceCreateInfo};
-use vulkano::memory::allocator::{MemoryUsage, StandardMemoryAllocator};
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator};
 use vulkano::pipeline::graphics::viewport::Viewport;
 use vulkano::pipeline::{ComputePipeline, GraphicsPipeline};
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass};
-use vulkano::swapchain::{AcquireError, PresentMode, Surface, Swapchain};
+use vulkano::swapchain::{PresentMode, Surface, Swapchain};
 use vulkano::sync::GpuFuture;
-use vulkano_win::VkSurfaceBuild;
+use vulkano::{Validated, VulkanError};
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event_loop::EventLoop;
 use winit::window::{Fullscreen, Icon, Window, WindowBuilder};
@@ -96,11 +100,24 @@ impl Engine {
         runtime_constants: crate::RuntimeConstants,
         icon: Option<Icon>,
     ) -> Self {
+        // Create the window! Set some basic properties and construct the result.
+        let window = WindowBuilder::new()
+            .with_inner_size(LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))
+            .with_title("fractal_sugar")
+            .with_window_icon(icon)
+            .with_fullscreen(if app_config.launch_fullscreen {
+                Some(Fullscreen::Borderless(None))
+            } else {
+                None
+            })
+            .build(event_loop)
+            .expect("Failed to create window");
+
         // Create instance with extensions required for windowing (and optional debugging layers).
         let instance = {
             let library =
                 vulkano::VulkanLibrary::new().expect("Could not determine Vulkan library to use.");
-            let enabled_extensions = vulkano_win::required_extensions(&library);
+            let enabled_extensions = Surface::required_extensions(event_loop);
             Instance::new(
                 library,
                 InstanceCreateInfo {
@@ -110,25 +127,13 @@ impl Engine {
                     } else {
                         vec![]
                     },
-                    enumerate_portability: true, // Allows for non-conformant devices to be considered when searching for the best graphics device
                     ..Default::default()
                 },
             )
             .expect("Failed to create Vulkan instance")
         };
 
-        // Create a window! Set some basic window properties and get a vulkan surface
-        let surface = WindowBuilder::new()
-            .with_inner_size(LogicalSize::new(DEFAULT_WIDTH, DEFAULT_HEIGHT))
-            .with_title("fractal_sugar")
-            .with_window_icon(icon)
-            .with_fullscreen(if app_config.launch_fullscreen {
-                Some(Fullscreen::Borderless(None))
-            } else {
-                None
-            })
-            .build_vk_surface(event_loop, instance.clone())
-            .unwrap();
+        let surface = Surface::from_window(instance.clone(), window.into()).unwrap();
 
         // Fetch device resources based on what is available to the system
         let (physical_device, device, queue) = core::select_hardware(&instance, &surface);
@@ -163,9 +168,9 @@ impl Engine {
         // Define our 2D viewspace (with normalized depth)
         let dimensions = surface.window().inner_size();
         let viewport = Viewport {
-            origin: [0., 0.],
-            dimensions: dimensions.into(),
-            depth_range: 0.0..1.,
+            offset: [0., 0.],
+            extent: dimensions.into(),
+            depth_range: 0.0..=1.,
         };
 
         let runtime_constants = {
@@ -253,7 +258,7 @@ impl Engine {
 
         // If caller indicates a resize has prompted this call then adjust viewport and fixed-view pipeline
         if window_resized {
-            self.viewport.dimensions = dimensions.into();
+            self.viewport.extent = dimensions.into();
 
             // Since pipeline specifies viewport is fixed, entire pipeline needs to be reconstructed to account for size change
             self.particles.graphics_pipeline = pipeline::create_particle(
@@ -273,7 +278,7 @@ impl Engine {
 
             // Update runtime constants to reflect new aspect ratio
             self.runtime_constants.write().unwrap().aspect_ratio =
-                self.viewport.dimensions[0] / self.viewport.dimensions[1];
+                self.viewport.extent[0] / self.viewport.extent[1];
         }
 
         // Recreated swapchain and necessary follow-up structures without error
@@ -285,8 +290,8 @@ impl Engine {
     pub fn render(
         &mut self,
         draw_data: &DrawData,
-        gui_command_buffer: Option<SecondaryAutoCommandBuffer>,
-    ) -> Result<(Box<dyn GpuFuture>, bool), AcquireError> {
+        gui_command_buffer: Option<Arc<SecondaryAutoCommandBuffer>>,
+    ) -> Result<(Box<dyn GpuFuture>, bool), Validated<VulkanError>> {
         // Acquire the index of the next image we should render to in this swapchain
         let core::AcquiredImageData {
             image_index,
@@ -375,12 +380,13 @@ impl Engine {
 
 // Helper for (re)creating framebuffers
 fn create_framebuffers(
-    memory_allocator: &StandardMemoryAllocator,
+    memory_allocator: &Arc<StandardMemoryAllocator>,
     render_pass: &Arc<RenderPass>,
     dimensions: [u32; 2],
-    images: &[Arc<SwapchainImage>],
+    images: &[Arc<Image>],
     image_format: vulkano::format::Format,
 ) -> Vec<Arc<Framebuffer>> {
+    let dimensions = [dimensions[0], dimensions[1], 1];
     images
         .iter()
         .map(|image| {
@@ -391,11 +397,16 @@ fn create_framebuffers(
             // Create image attachment for MSAA particles.
             // It is transient but cannot be used as an input
             let msaa_view = ImageView::new_default(
-                AttachmentImage::transient_multisampled(
-                    memory_allocator,
-                    dimensions,
-                    vulkano::image::SampleCount::Sample8,
-                    image_format,
+                Image::new(
+                    memory_allocator.clone(),
+                    ImageCreateInfo {
+                        format: image_format,
+                        extent: dimensions,
+                        samples: vulkano::image::SampleCount::Sample8,
+                        usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo::default(),
                 )
                 .unwrap(),
             )
@@ -404,13 +415,17 @@ fn create_framebuffers(
             // Create image attachment for resolved particles.
             // It is transient and will be used as an input to a later pass
             let particle_view = ImageView::new_default(
-                AttachmentImage::with_usage(
-                    memory_allocator,
-                    dimensions,
-                    image_format,
-                    ImageUsage::TRANSFER_DST
-                        | ImageUsage::INPUT_ATTACHMENT
-                        | ImageUsage::COLOR_ATTACHMENT,
+                Image::new(
+                    memory_allocator.clone(),
+                    ImageCreateInfo {
+                        format: image_format,
+                        extent: dimensions,
+                        usage: ImageUsage::COLOR_ATTACHMENT
+                            | ImageUsage::INPUT_ATTACHMENT
+                            | ImageUsage::TRANSFER_DST,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo::default(),
                 )
                 .unwrap(),
             )
@@ -418,11 +433,18 @@ fn create_framebuffers(
 
             // Create an attachement for the particle's depth buffer
             let particle_depth = ImageView::new_default(
-                AttachmentImage::transient_multisampled_input_attachment(
-                    memory_allocator,
-                    dimensions,
-                    vulkano::image::SampleCount::Sample8,
-                    vulkano::format::Format::D16_UNORM,
+                Image::new(
+                    memory_allocator.clone(),
+                    ImageCreateInfo {
+                        format: vulkano::format::Format::D16_UNORM,
+                        extent: dimensions,
+                        samples: vulkano::image::SampleCount::Sample8,
+                        usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT
+                            | ImageUsage::INPUT_ATTACHMENT
+                            | ImageUsage::TRANSIENT_ATTACHMENT,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo::default(),
                 )
                 .unwrap(),
             )
@@ -451,46 +473,45 @@ fn create_app_render_pass(
         attachments: {
             // The first framebuffer attachment is the intermediary image
             intermediary: {
-                load: Clear,
-                store: DontCare,
                 format: image_format,
                 samples: 8, // MSAA for smooth particles. Must be resolved to non-sampled image for presentation
+                load_op: Clear,
+                store_op: DontCare,
             },
 
             particle_color: {
-                load: DontCare, // Resolve does not need destination image to be cleared
-                store: DontCare,
                 format: image_format, // Use swapchain's format since we are writing to its buffers
                 samples: 1,
+                load_op: DontCare, // Resolve does not need destination image to be cleared
+                store_op: DontCare,
             },
 
             particle_depth: {
-                load: Clear,
-                store: DontCare,
                 format: vulkano::format::Format::D16_UNORM,
                 samples: 8, // Must match sample count of color
+                load_op: Clear,
+                store_op: DontCare,
             },
 
             fractal_color: {
-                load: DontCare,
-                store: Store,
                 format: image_format, // Use swapchain's format since we are writing to its buffers
                 samples: 1, // No MSAA necessary when rendering a single quad with shaders ;)
+                load_op: DontCare,
+                store_op: Store,
             }
         },
         passes: [
             // Particles pass
             {
                 color: [intermediary],
-                depth_stencil: {particle_depth},
-                input: [],
-
                 // The `resolve` array here must contain either zero entries (if you don't use
                 // multisampling), or one entry per color attachment. At the end of the pass, each
                 // color attachment will be *resolved* into the given image. In other words, here, at
                 // the end of the pass, the `intermediary` attachment will be copied to the attachment
                 // named `particle_color`.
-                resolve: [particle_color],
+                color_resolve: [particle_color],
+                depth_stencil: {particle_depth},
+                input: [],
             },
 
             // Fractal pass
@@ -516,6 +537,7 @@ impl From<&AppConfig> for ConfigConstants {
             friction_scale: config.friction_scale,
             point_size: config.point_size,
             hide_stationary_particles: u32::from(config.hide_stationary_particles),
+            disable_background: u32::from(config.disable_background),
             audio_scale: config.audio_scale,
             vertical_fov: config.vertical_fov,
         }
@@ -532,15 +554,21 @@ impl Allocators {
             memory.clone(),
             SubbufferAllocatorCreateInfo {
                 buffer_usage: BufferUsage::UNIFORM_BUFFER,
-                memory_usage: MemoryUsage::Upload,
+                memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
                 ..Default::default()
             },
         );
 
         Self {
             memory,
-            descriptor_set: StandardDescriptorSetAllocator::new(device.clone()),
-            command_buffer: StandardCommandBufferAllocator::new(device.clone(), Default::default()),
+            descriptor_set: StandardDescriptorSetAllocator::new(
+                device.clone(),
+                StandardDescriptorSetAllocatorCreateInfo::default(),
+            ),
+            command_buffer: StandardCommandBufferAllocator::new(
+                device.clone(),
+                StandardCommandBufferAllocatorCreateInfo::default(),
+            ),
             uniform_buffer,
         }
     }

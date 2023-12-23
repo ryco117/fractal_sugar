@@ -56,6 +56,7 @@ struct TomlData {
     pub point_size: Option<f32>,
     pub friction_scale: Option<f32>,
     pub hide_stationary_particles: Option<bool>,
+    pub disable_background: Option<bool>,
 
     pub audio_scale: Option<f32>,
 
@@ -87,6 +88,7 @@ pub struct AppConfig {
     pub point_size: f32,
     pub friction_scale: f32,
     pub hide_stationary_particles: bool,
+    pub disable_background: bool,
 
     pub audio_scale: f32,
 
@@ -107,6 +109,7 @@ impl Default for AppConfig {
             point_size: DEFAULT_PARTICLE_POINT_SIZE,
             friction_scale: DEAFULT_FRICTION_SCALE,
             hide_stationary_particles: DEFAULT_HIDE_STATIONARY_PARTICLES,
+            disable_background: bool::default(),
 
             audio_scale: DEFAULT_AUDIO_SCALE,
 
@@ -248,6 +251,7 @@ pub fn parse_file(filepath: &str) -> anyhow::Result<AppConfig> {
         hide_stationary_particles: config
             .hide_stationary_particles
             .unwrap_or(DEFAULT_HIDE_STATIONARY_PARTICLES),
+        disable_background: config.disable_background.unwrap_or_default(),
 
         audio_scale,
 

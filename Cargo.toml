@@ -1,6 +1,6 @@
 [package]
 name = "fractal_sugar"
-version = "0.1.10"
+version = "0.1.11"
 authors = ["Ryan Andersen <ryco117@gmail.com>"]
 license = "GPL-3.0-or-later"
 edition = "2021" # Rust Edition used in this package
@@ -12,21 +12,21 @@ embed-resource = "2.3.0"
 [dependencies]
 anyhow = "1.0.75"
 bytemuck = "1.14.0"
-companion_console = { git = "https://github.com/ryco117/companion_console.git", rev = "7c329f7" }
+companion_console = { git = "https://github.com/ryco117/companion_console.git", rev = "3797176" }
 cpal = "0.15.2"
 crossbeam-channel = "0.5.8"
 css-color-parser = "0.1.2"
-egui = "0.21.0"
-egui_winit_vulkano = "0.24.0"
+egui = "0.24.1"
+egui_winit_vulkano = "0.27.0"
 ico = "0.3.0"
 rustfft = "6.1.0"
-serde = { version = "1.0.188", features = ["derive"] }
-smallvec = "1.11.0"
-toml = "0.7.8"
-vulkano = "0.33.0"
-vulkano-shaders = "0.33.0"
-vulkano-win = "0.33.0"
-winit = "0.28.6"
+serde = { version = "1.0.193", features = ["derive"] }
+smallvec = "1.11.2"
+toml = "0.8.8"
+vulkano = "0.34.1"
+vulkano-shaders = "0.34.0"
+vulkano-win = "0.34.0"
+winit = "0.28.7"
 
 [profile.release]
 lto = true

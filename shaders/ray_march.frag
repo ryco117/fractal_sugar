@@ -15,6 +15,7 @@ layout (set = 0, binding = 2) uniform ConfigConstants {
 	float point_size;
 	float friction_scale;
 	bool hide_stationary_particles;
+	bool disable_background;
 
 	float audio_scale;
 
@@ -410,7 +411,7 @@ vec3 castRay(vec3 position, vec3 direction, float fovX, float fovY, out float tr
 		position += dist*direction;
 		travel += dist;
 		if(travel >= maxDistance) {
-			if(!runtime.render_particles || config.hide_stationary_particles) {
+			if(!config.disable_background && (!runtime.render_particles || config.hide_stationary_particles)) {
 				vec3 unmodDirection = normalize(vec3(coord.x*fovX, coord.y*fovY, -1.0));
 				unmodDirection = rotateByQuaternion(unmodDirection, push.quaternion);
 

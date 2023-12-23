@@ -27,6 +27,7 @@ layout (binding = 3) uniform ConfigConstants {
 	float point_size;
 	float friction_scale;
 	bool hide_stationary_particles;
+	bool disable_background;
 
 	float audio_scale;
 

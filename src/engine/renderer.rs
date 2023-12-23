@@ -21,11 +21,11 @@ use std::sync::Arc;
 use vulkano::buffer::Subbuffer;
 use vulkano::command_buffer::{
     AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer, RenderPassBeginInfo,
-    SecondaryAutoCommandBuffer, SubpassContents,
+    SecondaryAutoCommandBuffer, SubpassBeginInfo, SubpassContents, SubpassEndInfo,
 };
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::format::ClearValue;
-use vulkano::image::ImageViewAbstract;
+use vulkano::image::view::ImageView;
 use vulkano::pipeline::{GraphicsPipeline, Pipeline, PipelineBindPoint};
 use vulkano::render_pass::Framebuffer;
 
@@ -48,7 +48,10 @@ fn begin_render_pass(
                 ], // Clear values for attachments
                 ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
             },
-            SubpassContents::Inline, // Use secondary command buffers to specify later passses
+            SubpassBeginInfo {
+                contents: SubpassContents::Inline, // Use secondary command buffers to specify later passses
+                ..SubpassBeginInfo::default()
+            },
         )
         .unwrap();
 }
@@ -57,8 +60,8 @@ pub fn create_render_commands(
     engine: &mut Engine,
     framebuffer: &Arc<Framebuffer>,
     draw_data: &DrawData,
-    gui_command_buffer: Option<SecondaryAutoCommandBuffer>,
-) -> PrimaryAutoCommandBuffer {
+    gui_command_buffer: Option<Arc<SecondaryAutoCommandBuffer>>,
+) -> Arc<PrimaryAutoCommandBuffer> {
     // Regular ol' single submit buffer
     let mut builder = AutoCommandBufferBuilder::primary(
         &engine.allocators.command_buffer,
@@ -78,14 +81,17 @@ pub fn create_render_commands(
         builder
             // Push constants for compute shader
             .push_constants(compute_pipeline.layout().clone(), 0, compute_push_constants)
+            .unwrap()
             // Perform compute operation to update particle positions
             .bind_pipeline_compute(compute_pipeline.clone())
+            .unwrap()
             .bind_descriptor_sets(
                 PipelineBindPoint::Compute,
                 compute_pipeline.layout().clone(),
                 0, // Start binding descriptor sets at index 0
                 descriptor_set,
             )
+            .unwrap()
             .dispatch([buffer_count / 128, 1, 1])
             .unwrap();
 
@@ -101,13 +107,20 @@ pub fn create_render_commands(
             engine.particle_descriptor_set().clone(),
         );
     } else {
-        // TODO: Try to refactor this shared call out of the if/else block.
         // Begin the same render pass as with particles, but skip commands to draw particles
         begin_render_pass(&mut builder, framebuffer);
     }
 
     // Move to next subpass, fractal rendering
-    builder.next_subpass(SubpassContents::Inline).unwrap();
+    builder
+        .next_subpass(
+            SubpassEndInfo::default(),
+            SubpassBeginInfo {
+                contents: SubpassContents::Inline,
+                ..Default::default()
+            },
+        )
+        .unwrap();
 
     // Add inline commands to render fractal
     inline_fractal_cmds(
@@ -120,7 +133,13 @@ pub fn create_render_commands(
 
     // Move to next subpass, GUI rendering
     builder
-        .next_subpass(SubpassContents::SecondaryCommandBuffers)
+        .next_subpass(
+            SubpassEndInfo::default(),
+            SubpassBeginInfo {
+                contents: SubpassContents::SecondaryCommandBuffers,
+                ..Default::default()
+            },
+        )
         .unwrap();
 
     // Add optional GUI command buffer to primary command buffer.
@@ -129,7 +148,7 @@ pub fn create_render_commands(
     }
 
     // Mark completion of frame rendering (for this pass)
-    builder.end_render_pass().unwrap();
+    builder.end_render_pass(SubpassEndInfo::default()).unwrap();
 
     // Return new command buffer for this framebuffer
     builder.build().unwrap()
@@ -149,9 +168,13 @@ fn inline_particles_cmds(
     builder
         // Draw particles
         .bind_pipeline_graphics(pipeline)
+        .unwrap()
         .push_constants(layout.clone(), 0, push_constants)
+        .unwrap()
         .bind_vertex_buffers(0, vertex_buffer.clone())
+        .unwrap()
         .bind_descriptor_sets(PipelineBindPoint::Graphics, layout, 0, descriptor_set)
+        .unwrap()
         .draw(buffer_count, 1, 0, 0)
         .expect("Failed to draw particle subpass");
 }
@@ -160,8 +183,8 @@ fn inline_fractal_cmds(
     builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
     engine: &mut Engine,
     push_constants: FractalPushConstants,
-    particle_input: Arc<dyn ImageViewAbstract>,
-    particle_depth: Arc<dyn ImageViewAbstract>,
+    particle_input: Arc<ImageView>,
+    particle_depth: Arc<ImageView>,
 ) {
     let config_constants = engine.app_constants.clone();
     let runtime_constants = engine.runtime_constants.clone();
@@ -181,15 +204,19 @@ fn inline_fractal_cmds(
             WriteDescriptorSet::buffer(2, config_constants),
             WriteDescriptorSet::buffer(3, runtime_constants),
         ],
+        [],
     )
     .expect("Failed to create fractal descriptor set");
 
     // Build render pass commands
     builder
         .bind_pipeline_graphics(pipeline)
+        .unwrap()
         // Push constants
         .push_constants(layout.clone(), 0, push_constants)
+        .unwrap()
         .bind_descriptor_sets(PipelineBindPoint::Graphics, layout, 0, descriptor_set)
+        .unwrap()
         // Draw 4 static vertices (entire view quad)
         .draw(4, 1, 0, 0)
         .expect("Failed to draw fractal subpass");

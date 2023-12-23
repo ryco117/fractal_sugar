@@ -19,14 +19,22 @@
 use std::sync::Arc;
 
 use vulkano::buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer};
+use vulkano::command_buffer::{
+    AutoCommandBufferBuilder, CommandBufferUsage, CopyBufferInfo, PrimaryCommandBufferAbstract,
+};
 use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::device::{Device, Queue};
-use vulkano::memory::allocator::{AllocationCreateInfo, MemoryUsage};
+use vulkano::memory::allocator::{AllocationCreateInfo, MemoryTypeFilter};
+use vulkano::pipeline::compute::ComputePipelineCreateInfo;
 use vulkano::pipeline::graphics::viewport::Viewport;
-use vulkano::pipeline::{ComputePipeline, GraphicsPipeline, Pipeline};
+use vulkano::pipeline::layout::PipelineDescriptorSetLayoutCreateInfo;
+use vulkano::pipeline::{
+    ComputePipeline, GraphicsPipeline, Pipeline, PipelineLayout, PipelineShaderStageCreateInfo,
+};
 use vulkano::render_pass::{RenderPass, Subpass};
 use vulkano::shader::ShaderModule;
+use vulkano::sync::GpuFuture;
 
 use super::vertex::PointParticle;
 use super::{pipeline, Allocators};
@@ -115,19 +123,85 @@ pub struct Particles {
 
 fn create_particle_buffers(
     allocators: &Allocators,
-    _queue: &Arc<Queue>,
+    queue: &Arc<Queue>,
     app_config: &AppConfig,
 ) -> ParticleBuffersTriplet {
     let particle_count_f32 = app_config.particle_count as f32;
 
+    // Buffer usage for device-local storage buffers.
     let storage_usage = BufferCreateInfo {
-        usage: BufferUsage::STORAGE_BUFFER,
+        usage: BufferUsage::STORAGE_BUFFER | BufferUsage::TRANSFER_DST | BufferUsage::VERTEX_BUFFER,
         ..Default::default()
     };
-    let upload_usage = AllocationCreateInfo {
-        usage: MemoryUsage::Upload,
-        ..Default::default()
-    };
+
+    // A helper for creating device-local buffers from iterators.
+    fn device_local_buffer<T: bytemuck::Pod + std::marker::Send + std::marker::Sync>(
+        allocators: &Allocators,
+        queue: &Arc<Queue>,
+        storage_usage: BufferCreateInfo,
+        iter: impl ExactSizeIterator<Item = T>,
+    ) -> Option<Subbuffer<[T]>> {
+        // Buffer usage for temporary transfer buffers into device-local memory.
+        let temp_usage = BufferCreateInfo {
+            usage: BufferUsage::TRANSFER_SRC,
+            ..Default::default()
+        };
+        // Memory type filter for temporary transfer buffers.
+        let temp_memory = AllocationCreateInfo {
+            memory_type_filter: MemoryTypeFilter::HOST_SEQUENTIAL_WRITE
+                | MemoryTypeFilter::PREFER_HOST,
+            ..Default::default()
+        };
+
+        // Memory type filter for device-local storage buffers.
+        let device_memory = AllocationCreateInfo {
+            // Specify this buffer will only be used by the device.
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+            ..Default::default()
+        };
+
+        // Create temporary buffer from the input iterator.
+        let temporary_accessible_buffer =
+            Buffer::from_iter(allocators.memory.clone(), temp_usage, temp_memory, iter)
+                .map_err(|err| println!("Failed to create temporary buffer: {err:?}"))
+                .ok()?;
+
+        // Create a buffer in device-local memory with enough space.
+        let device_local_buffer = Buffer::new_slice::<T>(
+            allocators.memory.clone(),
+            storage_usage,
+            device_memory,
+            temporary_accessible_buffer.len() as vulkano::DeviceSize,
+        )
+        .map_err(|err| println!("Failed to create device-local buffer: {err:?}"))
+        .ok()?;
+
+        // Create one-time command to copy between the buffers.
+        let mut cbb = AutoCommandBufferBuilder::primary(
+            &allocators.command_buffer,
+            queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )
+        .unwrap();
+        cbb.copy_buffer(CopyBufferInfo::buffers(
+            temporary_accessible_buffer,
+            device_local_buffer.clone(),
+        ))
+        .map_err(|err| println!("Failed to create buffer-copy command: {err:?}"))
+        .ok()?;
+        let cb = cbb.build().unwrap();
+
+        // Execute copy and wait for copy to complete before proceeding.
+        cb.execute(queue.clone())
+            .map_err(|err| println!("Failed to execute buffer-copy command: {err:?}"))
+            .ok()?
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None /* timeout */)
+            .unwrap();
+
+        Some(device_local_buffer)
+    }
 
     // Create position data by mapping particle index to screen using a space filling curve
     let square_position_iter = (0..app_config.particle_count).map(|i| {
@@ -138,10 +212,10 @@ fn create_particle_buffers(
     });
 
     // Create immutable fixed-position buffer for 2D perspective
-    let fixed_square = Buffer::from_iter(
-        &allocators.memory,
+    let fixed_square = device_local_buffer(
+        &allocators,
+        queue,
         storage_usage.clone(),
-        upload_usage.clone(),
         square_position_iter,
     )
     .expect("Failed to create 2D-fixed-position buffer");
@@ -155,10 +229,10 @@ fn create_particle_buffers(
     });
 
     // Create immutable fixed-position buffer for 3D perspective
-    let fixed_cube = Buffer::from_iter(
-        &allocators.memory,
-        storage_usage,
-        upload_usage.clone(),
+    let fixed_cube = device_local_buffer(
+        &allocators,
+        queue,
+        storage_usage.clone(),
         cube_position_iter,
     )
     .expect("Failed to create 3D-fixed-position buffer");
@@ -176,16 +250,8 @@ fn create_particle_buffers(
     });
 
     // Create position buffer
-    let vertex = Buffer::from_iter(
-        &allocators.memory,
-        BufferCreateInfo {
-            usage: BufferUsage::STORAGE_BUFFER | BufferUsage::VERTEX_BUFFER,
-            ..Default::default()
-        },
-        upload_usage,
-        vertex_iter,
-    )
-    .expect("Failed to create 3D-fixed-position buffer");
+    let vertex = device_local_buffer(&allocators, queue, storage_usage.clone(), vertex_iter)
+        .expect("Failed to create 3D-fixed-position buffer");
 
     ParticleBuffersTriplet {
         vertex,
@@ -211,15 +277,23 @@ impl Particles {
         let vert_shader = particle_shaders::vs::load(device.clone())
             .expect("Failed to load particle vertex shader");
         let comp_shader = particle_shaders::cs::load(device.clone())
-            .expect("Failed to load particle compute shader");
+            .expect("Failed to load particle compute shader")
+            .entry_point("main")
+            .unwrap();
 
         // Create compute pipeline for particles
+        let compute_stage = PipelineShaderStageCreateInfo::new(comp_shader);
+        let compute_layout = PipelineLayout::new(
+            device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages([&compute_stage])
+                .into_pipeline_layout_create_info(device.clone())
+                .unwrap(),
+        )
+        .unwrap();
         let compute_pipeline = ComputePipeline::new(
             device.clone(),
-            comp_shader.entry_point("main").unwrap(),
-            &(),
-            None,
-            |_| {},
+            None, // comp_shader.entry_point("main").unwrap()
+            ComputePipelineCreateInfo::stage_layout(compute_stage, compute_layout),
         )
         .expect("Failed to create compute shader");
 
@@ -293,6 +367,7 @@ impl Particles {
                 WriteDescriptorSet::buffer(1, config_constants),
                 WriteDescriptorSet::buffer(2, runtime_constants),
             ],
+            [],
         )
         .expect("Failed to create particle graphics descriptor set")
     }
@@ -316,6 +391,7 @@ impl Particles {
                 WriteDescriptorSet::buffer(2, vertex_buffers.fixed_cube.clone()),
                 WriteDescriptorSet::buffer(3, config_constants),
             ],
+            [],
         )
         .expect("Failed to create particle compute descriptor set")
     }

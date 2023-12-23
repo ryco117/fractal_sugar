@@ -24,12 +24,12 @@ use vulkano::device::{
     Device, DeviceCreateInfo, DeviceExtensions, Queue, QueueCreateInfo, QueueFlags,
 };
 use vulkano::format::Format;
-use vulkano::image::{ImageUsage, SwapchainImage};
+use vulkano::image::{Image, ImageUsage};
 use vulkano::instance::Instance;
 use vulkano::swapchain::{
-    AcquireError, PresentMode, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo,
-    SwapchainCreationError, SwapchainPresentInfo,
+    PresentMode, Surface, SurfaceInfo, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo,
 };
+use vulkano::{Validated, VulkanError};
 
 use vulkano::sync::GpuFuture;
 use winit::dpi::PhysicalSize;
@@ -39,7 +39,7 @@ const MAX_EXPECTED_FRAMES_IN_FLIGHT: usize = 3;
 
 pub struct EngineSwapchain {
     fences: SmallVec<[Option<Box<dyn GpuFuture>>; MAX_EXPECTED_FRAMES_IN_FLIGHT]>,
-    images: Vec<Arc<SwapchainImage>>,
+    images: Vec<Arc<Image>>,
     present_index: Option<u32>,
     swapchain: Arc<Swapchain>,
 }
@@ -188,7 +188,7 @@ impl EngineSwapchain {
         // Get preferred present mode with fallback to FIFO (which any Vulkan instance must support)
         let present_mode = {
             if physical_device
-                .surface_present_modes(&surface)
+                .surface_present_modes(&surface, SurfaceInfo::default())
                 .unwrap()
                 .any(|p| p == desired_present_mode)
             {
@@ -217,7 +217,7 @@ impl EngineSwapchain {
             surface,
             SwapchainCreateInfo {
                 min_image_count: image_count, // Use one more buffer than the minimum in swapchain.
-                image_format: Some(image_format),
+                image_format,
                 image_extent: dimensions.into(),
                 image_usage: {
                     // Swapchain images are going to be used for color as well as MSAA destination.
@@ -260,9 +260,9 @@ impl EngineSwapchain {
 
             // This error tends to happen when the user is manually resizing the window.
             // Simply restarting the loop is the easiest way to fix this issue.
-            Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => {
-                RecreateSwapchainResult::ExtentNotSupported
-            }
+            // Err(a: Validated<VulkanError>) => {
+            //     RecreateSwapchainResult::ExtentNotSupported
+            // }
 
             // Unexpected error
             Err(e) => panic!("Failed to recreate swapchian: {e:?}"),
@@ -270,7 +270,7 @@ impl EngineSwapchain {
     }
 
     // Retrieve the index of the next render destination
-    pub fn acquire_next_image(&mut self) -> Result<AcquiredImageData, AcquireError> {
+    pub fn acquire_next_image(&mut self) -> Result<AcquiredImageData, Validated<VulkanError>> {
         let (image_index, suboptimal, acquire_future) =
             vulkano::swapchain::acquire_next_image(self.swapchain.clone(), None)?;
         self.present_index = Some(image_index);
@@ -304,7 +304,7 @@ impl EngineSwapchain {
             .then_signal_fence_and_flush();
 
         // Update this frame's future with the result of the current render.
-        let mut requires_recreate_swapchain = false;
+        let requires_recreate_swapchain = false;
         self.fences[image_index as usize] = match present_future {
             // Success, store result into vector
             Ok(future) => {
@@ -313,10 +313,10 @@ impl EngineSwapchain {
             }
 
             // Swapchain is out-of-date, request its recreation next frame.
-            Err(vulkano::sync::FlushError::OutOfDate) => {
-                requires_recreate_swapchain = true;
-                None
-            }
+            // Err(vulkano::sync::FlushError::OutOfDate) => {
+            //     requires_recreate_swapchain = true;
+            //     None
+            // }
 
             // Unknown failure
             Err(e) => panic!("Failed to flush future: {e:?}"),
@@ -327,7 +327,7 @@ impl EngineSwapchain {
     }
 
     // Swapchain getters
-    pub fn images(&self) -> &Vec<Arc<SwapchainImage>> {
+    pub fn images(&self) -> &Vec<Arc<Image>> {
         &self.images
     }
     pub fn image_format(&self) -> Format {
